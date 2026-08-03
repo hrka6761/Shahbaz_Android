@@ -10,6 +10,15 @@
     <string name="set_destination">Set destination</string>
     <string name="clear_destination">Clear destination</string>
     <string name="destination_help">Long-press the map or tap edit to enter coordinates</string>
+    <string name="next">Next</string>
+    <string name="previous">Previous</string>
+    <string name="route_details_step">Route details</string>
+    <string name="flight_start_altitude">Flight start altitude</string>
+    <string name="flight_start_altitude_help">Enter how high the drone should climb above the takeoff surface before it begins moving toward the destination.</string>
+    <string name="altitude_meters_hint">Altitude in meters</string>
+    <string name="meters_abbreviation">m</string>
+    <string name="invalid_takeoff_altitude">Enter a valid altitude greater than 0 meters.</string>
+    <string name="takeoff_altitude_confirmed">Flight start altitude confirmed.</string>
     <string name="enter_coordinates">Enter coordinates</string>
     <string name="enter_destination_coordinates">Enter destination coordinates</string>
     <string name="coordinate_dialog_help">Enter decimal-degree latitude and longitude.</string>

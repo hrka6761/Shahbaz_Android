@@ -9,8 +9,9 @@
  *
  * A two-vertex route is drawn directly between origin and destination. Its label and summary
  * use the WGS-84 geodesic distance, while the label is placed at the spherical midpoint for
- * map presentation. The remaining overlays provide actionable loading/error states, camera
- * recentering, and a compass whose dial is interpreted relative to the device heading.
+ * map presentation. A guided second step collects the drone's positive flight-start altitude
+ * above the takeoff surface. The remaining overlays provide actionable loading/error states,
+ * camera recentering, and a compass whose dial is interpreted relative to the device heading.
  */
 package ir.hrka.shahbaz.feature.map
 
@@ -87,6 +88,8 @@ import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.LocalWindowInfo
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.LiveRegionMode
@@ -168,14 +171,19 @@ private val DynamicGeoJsonOptions = GeoJsonOptions(synchronousUpdate = true)
  * location, connectivity, and map-style failures. Once ready, a map long-press supplies a
  * destination in domain order (`latitude`, `longitude`); manual entry is handled by the top
  * panel's coordinate dialog. Selecting a destination adds the marker, direct line, WGS-84
- * distance label, and bounds-framing camera animation. Bottom controls expose the device-heading
- * compass and an animated return to the latest origin.
+ * distance label, and bounds-framing camera animation. The panel then advances to validated
+ * takeoff-altitude entry while preserving a Previous path back to destination editing. Bottom
+ * controls expose the device-heading compass and an animated return to the latest origin.
  *
  * @param state Immutable state containing location readiness, origin and destination points,
  * connectivity, and the current heading in degrees clockwise from north.
  * @param onDestinationSelected Called with a validated latitude/longitude domain coordinate
  * after either a map long-press or successful dialog submission.
  * @param onClearDestination Called when the user removes the selected destination.
+ * @param onAdvanceToTakeoffAltitude Called when the destination-step Next action is activated.
+ * @param onReturnToDestinationSelection Called when Previous returns to destination editing.
+ * @param onTakeoffAltitudeChanged Called whenever the raw altitude text changes.
+ * @param onConfirmTakeoffAltitude Called by the altitude-step Next action after validation.
  * @param onRequestPermission Called to launch the runtime location-permission request.
  * @param onOpenAppSettings Called when permission must be changed in system app settings.
  * @param onOpenLocationSettings Called when device location/GPS must be enabled.
@@ -186,6 +194,10 @@ fun MapScreen(
     state: MapUiState,
     onDestinationSelected: (GeoCoordinate) -> Unit,
     onClearDestination: () -> Unit,
+    onAdvanceToTakeoffAltitude: () -> Unit,
+    onReturnToDestinationSelection: () -> Unit,
+    onTakeoffAltitudeChanged: (String) -> Unit,
+    onConfirmTakeoffAltitude: () -> Unit,
     onRequestPermission: () -> Unit,
     onOpenAppSettings: () -> Unit,
     onOpenLocationSettings: () -> Unit,
@@ -195,6 +207,7 @@ fun MapScreen(
     val coroutineScope = rememberCoroutineScope()
     val hapticFeedback = LocalHapticFeedback.current
     val currentLocationStatus by rememberUpdatedState(state.locationStatus)
+    val currentFlightSetupStep by rememberUpdatedState(state.flightSetupStep)
     val currentOnDestinationSelected by rememberUpdatedState(onDestinationSelected)
     var mapLoaded by remember { mutableStateOf(false) }
     var mapLoadTimedOut by remember { mutableStateOf(false) }
@@ -354,7 +367,10 @@ fun MapScreen(
                     mapLoadFailed = true
                 },
                 onMapLongClick = { position, _ ->
-                    if (currentLocationStatus == LocationStatus.READY) {
+                    if (
+                        currentLocationStatus == LocationStatus.READY &&
+                        currentFlightSetupStep == FlightSetupStep.DESTINATION
+                    ) {
                         hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
                         currentOnDestinationSelected(
                             GeoCoordinate(position.latitude, position.longitude)
@@ -397,6 +413,10 @@ fun MapScreen(
             mapLoadFailed = mapLoadTimedOut || mapLoadFailed,
             onDestinationSelected = onDestinationSelected,
             onClearDestination = onClearDestination,
+            onAdvanceToTakeoffAltitude = onAdvanceToTakeoffAltitude,
+            onReturnToDestinationSelection = onReturnToDestinationSelection,
+            onTakeoffAltitudeChanged = onTakeoffAltitudeChanged,
+            onConfirmTakeoffAltitude = onConfirmTakeoffAltitude,
             onRetryMap = retryMapLoad,
             modifier = Modifier
                 .align(Alignment.TopCenter)
@@ -548,21 +568,24 @@ private fun lineData(start: Position?, end: Position?): GeoJsonData {
 }
 
 /**
- * Renders the measured, scrollable panel containing origin and destination fields.
+ * Renders the measured, scrollable destination and takeoff-altitude workflow panel.
  *
- * Both fields display coordinates in user-facing latitude-then-longitude order. The origin is
- * read-only. The destination is also read-only on the panel: its edit action opens
- * [DestinationCoordinateDialog], while a separate action clears an existing destination. The
- * panel additionally shows the selected WGS-84 distance and inline network/map failure notices.
- * Destination actions remain disabled until both precise location and MapLibre are ready.
+ * The destination step shows read-only origin and destination coordinates, manual edit and clear
+ * actions, and the WGS-84 route distance. Its Next action appears after a destination exists. The
+ * altitude step explains that height is relative to the takeoff surface, accepts a positive meter
+ * value, offers Previous without discarding the route or draft, and reveals its Next action only
+ * for valid input. Inline network and map failure notices remain visible in either step.
  *
- * @param state Current screen state used to populate the coordinate fields, distance, and
- * connectivity notice.
+ * @param state Current screen state used to populate route and flight-setup content.
  * @param mapReady Whether MapLibre has successfully finished loading its current style.
  * @param mapLoadFailed Whether map loading timed out or reported a style/load failure.
  * @param onDestinationSelected Called with the validated manual destination in latitude/longitude
  * order.
  * @param onClearDestination Called when the destination-clear action is activated.
+ * @param onAdvanceToTakeoffAltitude Called by Next after a destination has been selected.
+ * @param onReturnToDestinationSelection Called by Previous from altitude entry.
+ * @param onTakeoffAltitudeChanged Called whenever the raw altitude input changes.
+ * @param onConfirmTakeoffAltitude Called by Next when the altitude input is valid.
  * @param onRetryMap Called by the inline error action to recreate and reload the MapLibre map.
  * @param modifier Modifier applied to the panel surface; callers use it for placement, insets,
  * measurement, and width constraints.
@@ -575,17 +598,33 @@ private fun TopLocationPanel(
     mapLoadFailed: Boolean,
     onDestinationSelected: (GeoCoordinate) -> Unit,
     onClearDestination: () -> Unit,
+    onAdvanceToTakeoffAltitude: () -> Unit,
+    onReturnToDestinationSelection: () -> Unit,
+    onTakeoffAltitudeChanged: (String) -> Unit,
+    onConfirmTakeoffAltitude: () -> Unit,
     onRetryMap: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     var showDestinationDialog by rememberSaveable { mutableStateOf(false) }
     val density = LocalDensity.current
+    val keyboardController = LocalSoftwareKeyboardController.current
+    val altitudeFocusRequester = remember { FocusRequester() }
     val windowHeight = with(density) { LocalWindowInfo.current.containerSize.height.toDp() }
     val maxPanelHeight = (windowHeight * 0.52f)
         .coerceIn(160.dp, 328.dp)
     val fieldsEnabled = state.locationStatus == LocationStatus.READY && mapReady
     val originCoordinates = state.origin?.coordinate?.let(::formatCoordinate).orEmpty()
     val destinationCoordinates = state.destination?.coordinate?.let(::formatCoordinate).orEmpty()
+    val takeoffAltitudeMeters = state.takeoffAltitudeMeters
+    val altitudeInputIsInvalid = state.takeoffAltitudeInput.isNotBlank() &&
+        takeoffAltitudeMeters == null
+    val panelTitle = stringResource(
+        if (state.flightSetupStep == FlightSetupStep.DESTINATION) {
+            R.string.route_details_step
+        } else {
+            R.string.flight_start_altitude
+        }
+    )
     val selectedDistance = state.origin?.coordinate?.let { origin ->
         state.destination?.coordinate?.let { destination ->
             formatDistance(wgs84GeodesicDistanceMeters(origin, destination))
@@ -606,6 +645,12 @@ private fun TopLocationPanel(
             }
         }
 
+    LaunchedEffect(state.flightSetupStep) {
+        if (state.flightSetupStep == FlightSetupStep.TAKEOFF_ALTITUDE) {
+            altitudeFocusRequester.requestFocus()
+        }
+    }
+
     Surface(
         modifier = modifier.fillMaxWidth(),
         color = MaterialTheme.colorScheme.surface.copy(alpha = 0.72f),
@@ -618,78 +663,178 @@ private fun TopLocationPanel(
             modifier = Modifier
                 .heightIn(max = maxPanelHeight)
                 .verticalScroll(rememberScrollState())
+                .semantics { paneTitle = panelTitle }
                 .padding(10.dp),
             verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
-            OutlinedTextField(
-                value = originCoordinates,
-                onValueChange = {},
-                modifier = Modifier.fillMaxWidth(),
-                readOnly = true,
-                singleLine = true,
-                label = { Text(stringResource(R.string.origin)) },
-                placeholder = { Text(stringResource(R.string.locating_title)) },
-                leadingIcon = {
-                    Icon(Icons.Rounded.GpsFixed, contentDescription = null)
-                },
-            )
+            when (state.flightSetupStep) {
+                FlightSetupStep.DESTINATION -> {
+                    OutlinedTextField(
+                        value = originCoordinates,
+                        onValueChange = {},
+                        modifier = Modifier.fillMaxWidth(),
+                        readOnly = true,
+                        singleLine = true,
+                        label = { Text(stringResource(R.string.origin)) },
+                        placeholder = { Text(stringResource(R.string.locating_title)) },
+                        leadingIcon = {
+                            Icon(Icons.Rounded.GpsFixed, contentDescription = null)
+                        },
+                    )
 
-            OutlinedTextField(
-                value = destinationCoordinates,
-                onValueChange = {},
-                modifier = Modifier.fillMaxWidth(),
-                enabled = fieldsEnabled,
-                readOnly = true,
-                singleLine = true,
-                label = { Text(stringResource(R.string.destination)) },
-                placeholder = { Text(stringResource(R.string.coordinate_hint)) },
-                leadingIcon = {
-                    Icon(Icons.Rounded.LocationOn, contentDescription = null)
-                },
-                trailingIcon = {
-                    Row {
-                        if (state.destination != null) {
-                            IconButton(
-                                onClick = onClearDestination,
-                                enabled = fieldsEnabled,
-                            ) {
-                                Icon(
-                                    Icons.Rounded.Close,
-                                    contentDescription = stringResource(R.string.clear_destination),
-                                )
+                    OutlinedTextField(
+                        value = destinationCoordinates,
+                        onValueChange = {},
+                        modifier = Modifier.fillMaxWidth(),
+                        enabled = fieldsEnabled,
+                        readOnly = true,
+                        singleLine = true,
+                        label = { Text(stringResource(R.string.destination)) },
+                        placeholder = { Text(stringResource(R.string.coordinate_hint)) },
+                        leadingIcon = {
+                            Icon(Icons.Rounded.LocationOn, contentDescription = null)
+                        },
+                        trailingIcon = {
+                            Row {
+                                if (state.destination != null) {
+                                    IconButton(
+                                        onClick = onClearDestination,
+                                        enabled = fieldsEnabled,
+                                    ) {
+                                        Icon(
+                                            Icons.Rounded.Close,
+                                            contentDescription = stringResource(
+                                                R.string.clear_destination
+                                            ),
+                                        )
+                                    }
+                                }
+                                IconButton(
+                                    onClick = { showDestinationDialog = true },
+                                    enabled = fieldsEnabled,
+                                ) {
+                                    Icon(
+                                        Icons.Rounded.Edit,
+                                        contentDescription = stringResource(
+                                            R.string.enter_coordinates
+                                        ),
+                                    )
+                                }
                             }
-                        }
-                        IconButton(
-                            onClick = { showDestinationDialog = true },
-                            enabled = fieldsEnabled,
+                        },
+                        supportingText = destinationSupportingContent,
+                    )
+
+                    if (selectedDistance != null) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 4.dp, vertical = 4.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically,
                         ) {
-                            Icon(
-                                Icons.Rounded.Edit,
-                                contentDescription = stringResource(R.string.enter_coordinates),
+                            Text(
+                                text = stringResource(R.string.distance),
+                                style = MaterialTheme.typography.bodyMedium,
+                            )
+                            Text(
+                                text = selectedDistance,
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.Bold,
                             )
                         }
                     }
-                },
-                supportingText = destinationSupportingContent,
-            )
 
-            if (selectedDistance != null) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 4.dp, vertical = 4.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
+                    if (state.destination != null) {
+                        Button(
+                            onClick = onAdvanceToTakeoffAltitude,
+                            modifier = Modifier.fillMaxWidth(),
+                            enabled = fieldsEnabled,
+                        ) {
+                            Text(stringResource(R.string.next))
+                        }
+                    }
+                }
+
+                FlightSetupStep.TAKEOFF_ALTITUDE -> {
                     Text(
-                        text = stringResource(R.string.distance),
-                        style = MaterialTheme.typography.bodyMedium,
-                    )
-                    Text(
-                        text = selectedDistance,
-                        style = MaterialTheme.typography.titleSmall,
+                        text = stringResource(R.string.flight_start_altitude),
+                        style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold,
                     )
+                    Text(
+                        text = stringResource(R.string.flight_start_altitude_help),
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                    OutlinedTextField(
+                        value = state.takeoffAltitudeInput,
+                        onValueChange = onTakeoffAltitudeChanged,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .focusRequester(altitudeFocusRequester),
+                        singleLine = true,
+                        isError = altitudeInputIsInvalid,
+                        label = { Text(stringResource(R.string.flight_start_altitude)) },
+                        placeholder = { Text(stringResource(R.string.altitude_meters_hint)) },
+                        suffix = { Text(stringResource(R.string.meters_abbreviation)) },
+                        supportingText = if (altitudeInputIsInvalid) {
+                            {
+                                Text(stringResource(R.string.invalid_takeoff_altitude))
+                            }
+                        } else {
+                            null
+                        },
+                        keyboardOptions = KeyboardOptions(
+                            keyboardType = KeyboardType.Decimal,
+                            imeAction = ImeAction.Done,
+                        ),
+                        keyboardActions = KeyboardActions(
+                            onDone = {
+                                if (takeoffAltitudeMeters != null) {
+                                    onConfirmTakeoffAltitude()
+                                    keyboardController?.hide()
+                                }
+                            }
+                        ),
+                    )
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        OutlinedButton(
+                            onClick = {
+                                keyboardController?.hide()
+                                onReturnToDestinationSelection()
+                            },
+                            modifier = Modifier.weight(1f),
+                        ) {
+                            Text(stringResource(R.string.previous))
+                        }
+                        if (takeoffAltitudeMeters != null) {
+                            Button(
+                                onClick = {
+                                    onConfirmTakeoffAltitude()
+                                    keyboardController?.hide()
+                                },
+                                modifier = Modifier.weight(1f),
+                            ) {
+                                Text(stringResource(R.string.next))
+                            }
+                        }
+                    }
+
+                    if (state.isTakeoffAltitudeConfirmed) {
+                        Text(
+                            text = stringResource(R.string.takeoff_altitude_confirmed),
+                            modifier = Modifier.semantics {
+                                liveRegion = LiveRegionMode.Polite
+                            },
+                            color = MaterialTheme.colorScheme.primary,
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.Bold,
+                        )
+                    }
                 }
             }
 
