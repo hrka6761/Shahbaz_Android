@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="origin">Origin</string>
+    <string name="destination">Destination</string>
+    <string name="distance">Distance</string>
+    <string name="current_location">Current location</string>
+    <string name="selected_destination">Selected destination</string>
+    <string name="address_unavailable">Address unavailable</string>
+    <string name="coordinate_hint">Latitude, longitude</string>
+    <string name="set_destination">Set destination</string>
+    <string name="clear_destination">Clear destination</string>
+    <string name="destination_help">Long-press the map or tap edit to enter coordinates</string>
+    <string name="enter_coordinates">Enter coordinates</string>
+    <string name="enter_destination_coordinates">Enter destination coordinates</string>
+    <string name="coordinate_dialog_help">Enter decimal-degree latitude and longitude.</string>
+    <string name="latitude">Latitude</string>
+    <string name="longitude">Longitude</string>
+    <string name="latitude_range">&#8722;90 to 90</string>
+    <string name="longitude_range">&#8722;180 to 180</string>
+    <string name="cancel">Cancel</string>
+    <string name="invalid_coordinates">Enter a latitude from &#8722;90 to 90 and longitude from &#8722;180 to 180.</string>
+    <string name="locating_title">Finding your location&#8230;</string>
+    <string name="locating_message">For the best GPS signal, move outdoors and keep location turned on.</string>
+    <string name="permission_title">Location permission needed</string>
+    <string name="permission_message">Allow location access so Shahbaz can place your origin on the map.</string>
+    <string name="precise_permission_title">Precise location needed</string>
+    <string name="precise_permission_message">Shahbaz needs precise location to calculate an accurate origin and distance. Enable precise location in app settings.</string>
+    <string name="location_disabled_title">Turn on location</string>
+    <string name="location_disabled_message">GPS or device location is off. Turn it on, then return to Shahbaz.</string>
+    <string name="location_unavailable_title">Location not found</string>
+    <string name="location_unavailable_message">Shahbaz could not get a GPS fix. Check your signal, move outdoors, and try again.</string>
+    <string name="grant_permission">Allow location</string>
+    <string name="open_settings">Open settings</string>
+    <string name="retry">Try again</string>
+    <string name="offline_message">You&#8217;re offline. The GPS point can still work, but map tiles and place names may be unavailable.</string>
+    <string name="map_loading_message">The map is taking too long to load. Check your internet connection and try again.</string>
+    <string name="map_loading_title">Loading the map&#8230;</string>
+    <string name="map_loading_wait_message">Preparing the map and placing your current location.</string>
+    <string name="map_unavailable_title">Map unavailable</string>
+    <string name="map_unavailable_message">The map service could not be reached. Check your internet connection and try again.</string>
+    <string name="recenter">Recenter on current location</string>
+    <string name="compass_unavailable">Compass unavailable</string>
+    <string name="heading_format">%1$s &#183; %2$.0f&#176;</string>
+    <string name="north_deviation_format">North: %1$.0f&#176;</string>
+    <string name="south_deviation_format">South: %1$.0f&#176;</string>
+</resources>
