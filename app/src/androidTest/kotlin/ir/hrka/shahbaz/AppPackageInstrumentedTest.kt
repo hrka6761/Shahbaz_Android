@@ -1,23 +1,21 @@
+/** Contains the application module's on-device package-identity smoke test. */
 package ir.hrka.shahbaz
 
 import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.ext.junit.runners.AndroidJUnit4
 
+import org.junit.Assert.assertEquals
 import org.junit.Test
 import org.junit.runner.RunWith
 
-import org.junit.Assert.*
-
 /**
- * Instrumented test, which will execute on an Android device.
- *
- * See [testing documentation](http://d.android.com/tools/testing).
+ * Verifies that the installed test target exposes Shahbaz's application identifier.
  */
 @RunWith(AndroidJUnit4::class)
-class ExampleInstrumentedTest {
+class AppPackageInstrumentedTest {
+    /** Confirms that Android instrumentation resolves the expected application package. */
     @Test
     fun useAppContext() {
-        // Context of the app under test.
         val appContext = InstrumentationRegistry.getInstrumentation().targetContext
         assertEquals("ir.hrka.shahbaz", appContext.packageName)
     }
