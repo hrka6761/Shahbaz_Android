@@ -1,6 +1,6 @@
 /**
- * Coordinates Android location, compass, connectivity, and reverse-geocoding services for the
- * Shahbaz map feature.
+ * Coordinates Android location, compass, connectivity, reverse-geocoding, and flight-setup state
+ * for the Shahbaz map feature.
  *
  * The ViewModel in this file converts platform callbacks into the immutable [MapUiState] observed
  * by the map UI and releases every registered callback when the feature leaves the foreground or
@@ -60,7 +60,9 @@ import kotlinx.coroutines.withContext
  *
  * Call [onForeground] and [onBackground] from the hosting activity's corresponding lifecycle
  * callbacks. Permission results are forwarded through [onPermissionResult], while destination
- * actions are handled by [setDestination] and [clearDestination]. Consumers observe [uiState].
+ * and takeoff-altitude actions are handled by [setDestination], [clearDestination],
+ * [advanceToTakeoffAltitude], [returnToDestinationSelection], [updateTakeoffAltitude], and
+ * [confirmTakeoffAltitude]. Consumers observe [uiState].
  *
  * @param application Application used to obtain process-scoped Android services and resources.
  */
@@ -265,6 +267,7 @@ class MapViewModel(application: Application) : AndroidViewModel(application) {
         _uiState.update {
             it.copy(
                 destination = PlacePoint(coordinate, fallbackName),
+                isTakeoffAltitudeConfirmed = false,
             )
         }
         resolveDestinationName(coordinate)
@@ -274,8 +277,37 @@ class MapViewModel(application: Application) : AndroidViewModel(application) {
     fun clearDestination() {
         destinationGeocodeJob?.cancel()
         _uiState.update {
-            it.copy(destination = null)
+            it.copy(
+                destination = null,
+                flightSetupStep = FlightSetupStep.DESTINATION,
+                takeoffAltitudeInput = "",
+                isTakeoffAltitudeConfirmed = false,
+            )
         }
+    }
+
+    /** Advances from route selection to takeoff-altitude entry when a destination exists. */
+    fun advanceToTakeoffAltitude() {
+        _uiState.update { state -> state.advanceToTakeoffAltitude() }
+    }
+
+    /** Returns to destination selection without discarding the selected route or altitude draft. */
+    fun returnToDestinationSelection() {
+        _uiState.update { state -> state.returnToDestinationSelection() }
+    }
+
+    /**
+     * Stores the latest takeoff-altitude draft and clears any earlier confirmation.
+     *
+     * @param input User-entered altitude text expressed in meters.
+     */
+    fun updateTakeoffAltitude(input: String) {
+        _uiState.update { state -> state.updateTakeoffAltitude(input) }
+    }
+
+    /** Confirms the current valid altitude while the takeoff-altitude step is active. */
+    fun confirmTakeoffAltitude() {
+        _uiState.update { state -> state.confirmTakeoffAltitude() }
     }
 
     /**

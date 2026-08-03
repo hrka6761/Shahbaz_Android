@@ -44,4 +44,6 @@ dependencies {
     implementation(libs.maplibre.android.opengl)
     implementation(libs.google.play.services.location)
     implementation(libs.androidx.fragment)
+
+    testImplementation(libs.junit)
 }

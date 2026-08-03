@@ -2,7 +2,8 @@
  * Defines the immutable state contract exposed by the Shahbaz map feature.
  *
  * The types in this file describe selected geographic points, location acquisition progress,
- * connectivity, permission precision, and compass heading without owning Android lifecycle work.
+ * connectivity, permission precision, compass heading, and the guided flight-setup workflow
+ * without owning Android lifecycle work.
  */
 package ir.hrka.shahbaz.feature.map
 
@@ -46,6 +47,41 @@ enum class LocationStatus {
     UNAVAILABLE,
 }
 
+/** Identifies the active stage of the guided flight-setup panel. */
+enum class FlightSetupStep {
+    /** The user selects and reviews the destination and direct route. */
+    DESTINATION,
+
+    /** The user enters the height to climb above the local takeoff surface. */
+    TAKEOFF_ALTITUDE,
+}
+
+/** Maximum number of characters retained for takeoff-altitude input. */
+internal const val MAX_TAKEOFF_ALTITUDE_INPUT_LENGTH = 16
+
+/** Decimal syntax accepted for a positive takeoff altitude without exponent notation. */
+private val TakeoffAltitudePattern = Regex("(?:\\d+(?:[.,]\\d*)?|[.,]\\d+)")
+
+/**
+ * Parses a takeoff altitude expressed in meters.
+ *
+ * Both a period and comma are accepted as the decimal separator. Empty, malformed, non-finite,
+ * zero, and negative values are rejected. No upper limit is imposed because aircraft or legal
+ * limits are outside this feature's current product requirements.
+ *
+ * @param input User-entered altitude text.
+ * @return A finite meter value greater than zero, or `null` when [input] is invalid.
+ */
+internal fun parseTakeoffAltitudeMeters(input: String): Double? {
+    val normalizedInput = input.trim()
+    if (!TakeoffAltitudePattern.matches(normalizedInput)) return null
+
+    return normalizedInput
+        .replace(',', '.')
+        .toDoubleOrNull()
+        ?.takeIf { altitude -> altitude.isFinite() && altitude > 0.0 }
+}
+
 /**
  * Immutable presentation state consumed by the map screen.
  *
@@ -56,6 +92,10 @@ enum class LocationStatus {
  * @property hasPrecisePermission Whether fine location permission is currently granted.
  * @property headingDegrees Clockwise device heading from north in the range `[0, 360)`, or `null`
  * when a heading is unavailable.
+ * @property flightSetupStep Active destination or takeoff-altitude stage of the guided panel.
+ * @property takeoffAltitudeInput Raw altitude text retained as the single input source of truth.
+ * @property isTakeoffAltitudeConfirmed Whether the current valid altitude has been confirmed with
+ * the second Next action.
  */
 data class MapUiState(
     /** Current location acquisition or permission state. */
@@ -70,4 +110,56 @@ data class MapUiState(
     val hasPrecisePermission: Boolean = false,
     /** Current device heading in degrees, or `null` when the compass is unavailable. */
     val headingDegrees: Float? = null,
+    /** Active stage of the guided flight-setup panel. */
+    val flightSetupStep: FlightSetupStep = FlightSetupStep.DESTINATION,
+    /** Raw takeoff-altitude input in meters. */
+    val takeoffAltitudeInput: String = "",
+    /** Whether the currently parsed takeoff altitude was confirmed. */
+    val isTakeoffAltitudeConfirmed: Boolean = false,
+) {
+    /** Validated takeoff altitude in meters, or `null` while the input is invalid. */
+    val takeoffAltitudeMeters: Double?
+        get() = parseTakeoffAltitudeMeters(takeoffAltitudeInput)
+}
+
+/**
+ * Advances to altitude entry only when a destination exists.
+ *
+ * @return Updated state, or this state unchanged when no destination is selected.
+ */
+internal fun MapUiState.advanceToTakeoffAltitude(): MapUiState =
+    if (destination == null) this else copy(flightSetupStep = FlightSetupStep.TAKEOFF_ALTITUDE)
+
+/**
+ * Returns to destination selection while preserving the destination and altitude draft.
+ *
+ * @return State with the destination step active.
+ */
+internal fun MapUiState.returnToDestinationSelection(): MapUiState =
+    copy(flightSetupStep = FlightSetupStep.DESTINATION)
+
+/**
+ * Replaces the altitude draft and invalidates any earlier confirmation.
+ *
+ * @param input Latest user-entered altitude text.
+ * @return State containing at most [MAX_TAKEOFF_ALTITUDE_INPUT_LENGTH] input characters.
+ */
+internal fun MapUiState.updateTakeoffAltitude(input: String): MapUiState = copy(
+    takeoffAltitudeInput = input.take(MAX_TAKEOFF_ALTITUDE_INPUT_LENGTH),
+    isTakeoffAltitudeConfirmed = false,
 )
+
+/**
+ * Confirms the altitude only from the altitude step and only when its input is valid.
+ *
+ * @return Confirmed state, or this state unchanged when confirmation is not currently valid.
+ */
+internal fun MapUiState.confirmTakeoffAltitude(): MapUiState =
+    if (
+        flightSetupStep == FlightSetupStep.TAKEOFF_ALTITUDE &&
+        takeoffAltitudeMeters != null
+    ) {
+        copy(isTakeoffAltitudeConfirmed = true)
+    } else {
+        this
+    }
