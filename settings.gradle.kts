@@ -1,3 +1,4 @@
+/** Defines plugin repositories, dependency repositories, and the Shahbaz module graph. */
 pluginManagement {
     repositories {
         maven(url = "https://maven.myket.ir")
@@ -22,5 +23,11 @@ dependencyResolutionManagement {
 }
 
 rootProject.name = "Shahbaz"
+enableFeaturePreview("TYPESAFE_PROJECT_ACCESSORS")
+
 include(":app")
- 
+include(":core:model")
+include(":core:domain")
+include(":core:location")
+include(":core:designsystem")
+include(":feature:map:impl")
