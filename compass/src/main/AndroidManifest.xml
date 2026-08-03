@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Declares the optional hardware capabilities used by the reusable compass library. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- Keeps the host installable when no magnetometer-backed compass is available. -->
+    <uses-feature
+        android:name="android.hardware.sensor.compass"
+        android:required="false" />
+
+    <!-- Keeps the host installable when the accelerometer fallback is unavailable. -->
+    <uses-feature
+        android:name="android.hardware.sensor.accelerometer"
+        android:required="false" />
+
+</manifest>
