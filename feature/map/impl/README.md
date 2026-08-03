@@ -1,6 +1,6 @@
 # `:feature:map:impl`
 
-The complete map feature implementation. It owns the single Shahbaz user journey from acquiring an origin through selecting a destination and presenting map, distance, connectivity, and compass state.
+The complete map feature implementation. It owns the single Shahbaz user journey from acquiring an origin through selecting a destination, entering the drone's flight-start altitude, and presenting map, distance, connectivity, and compass state.
 
 ## Responsibilities
 
@@ -10,6 +10,8 @@ The complete map feature implementation. It owns the single Shahbaz user journey
 - Hold immutable map UI state in `MapViewModel` and expose it as `StateFlow`.
 - Render OpenFreeMap/OpenStreetMap content with MapLibre Compose.
 - Accept a destination by map long-press or manual decimal-degree input.
+- Guide the user from destination review to a positive takeoff-altitude value in meters, with Previous navigation for destination correction.
+- Preserve the altitude draft across Previous navigation, confirm valid input with the second Next action, and reset the workflow when the destination is cleared.
 - Draw origin and destination markers, route geometry, WGS-84 distance, recenter controls, loading/error gates, and compass UI.
 - Keep feature strings and accessibility descriptions with the feature.
 
@@ -20,8 +22,9 @@ The host app remains responsible for requesting Android permission and opening s
 | Path | Ownership |
 | --- | --- |
 | `src/main/kotlin/ir/hrka/shahbaz/feature/map/MapScreen.kt` | Public Compose screen and private map/overlay components. |
-| `src/main/kotlin/ir/hrka/shahbaz/feature/map/MapUiState.kt` | Immutable `PlacePoint`, `LocationStatus`, and `MapUiState` contract. |
+| `src/main/kotlin/ir/hrka/shahbaz/feature/map/MapUiState.kt` | Immutable point, location, flight-step, altitude-validation, and `MapUiState` contract. |
 | `src/main/kotlin/ir/hrka/shahbaz/feature/map/MapViewModel.kt` | Location, connectivity, geocoding, state reduction, and lifecycle coordination. |
+| `src/test/kotlin/ir/hrka/shahbaz/feature/map/MapUiStateTest.kt` | Pure JVM coverage for altitude parsing and flight-step transitions. |
 | `src/main/AndroidManifest.xml` | Map/network/location permissions and optional GPS/compass hardware declarations merged into the app. |
 | `src/main/res/values/strings.xml` | Map labels, actions, validation, loading, permission, offline, and accessibility copy. |
 
@@ -32,8 +35,9 @@ Consumer-facing Kotlin declarations use package `ir.hrka.shahbaz.feature.map`. T
 - `MapScreen(state, ...)` renders the feature and reports user/system actions through callbacks.
 - `MapViewModel(application)` owns the feature state and Android-backed services.
 - `MapViewModel.uiState` is the observable `StateFlow<MapUiState>`.
-- `MapViewModel.onForeground()`, `onBackground()`, `onPermissionResult()`, `retryLocation()`, `setDestination()`, and `clearDestination()` are the host event surface.
-- `MapUiState`, `PlacePoint`, and `LocationStatus` form the screen state contract.
+- `MapViewModel.onForeground()`, `onBackground()`, `onPermissionResult()`, `retryLocation()`, `setDestination()`, and `clearDestination()` handle lifecycle, recovery, and route events.
+- `MapViewModel.advanceToTakeoffAltitude()`, `returnToDestinationSelection()`, `updateTakeoffAltitude()`, and `confirmTakeoffAltitude()` handle the guided altitude workflow.
+- `MapUiState`, `PlacePoint`, `LocationStatus`, and `FlightSetupStep` form the screen state contract.
 - `GeoCoordinate` comes from the transitively exposed `:core:model` API.
 
 ## Dependency direction
@@ -67,6 +71,7 @@ The Android host must:
 
 - Merge this module's manifest so its internet, network-state, coarse-location, and fine-location permissions are included in the application.
 - Create `MapViewModel` with an `Application`-aware ViewModel factory, collect `uiState`, and render `MapScreen`.
+- Connect destination and altitude workflow callbacks from `MapScreen` to their matching `MapViewModel` event methods.
 - Implement callbacks that request location permission and open app or device location settings.
 - Forward visible/invisible lifecycle transitions through `onForeground()` and `onBackground()`.
 - Provide a Material 3 theme above `MapScreen`.
@@ -83,4 +88,4 @@ This module owns its permissions, optional GPS/compass hardware declarations, an
 .\gradlew.bat :feature:map:impl:testDebugUnitTest :feature:map:impl:lintDebug :feature:map:impl:assembleDebug
 ```
 
-There are currently no feature-local test sources. Pure coordinate and geodesy rules are covered in `:core:model` and `:core:domain`; permission, GPS-off, stale location, connectivity, map loading, long-press, manual entry, recenter, geocoding, and compass flows should be verified through `:app`, preferably on a physical device.
+Feature-local JVM tests cover positive meter parsing, decimal points and commas, invalid altitude input, guarded step transitions, Previous-state preservation, confirmation, and input-length limits. Pure coordinate and geodesy rules remain covered in `:core:model` and `:core:domain`. Permission, GPS-off, stale location, connectivity, map loading, long-press, manual entry, destination-to-altitude navigation, recenter, geocoding, and compass flows should also be verified through `:app`, preferably on a physical device.

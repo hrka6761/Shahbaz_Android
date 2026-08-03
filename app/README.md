@@ -6,7 +6,7 @@ The deployable Android application and composition root for Shahbaz. It connects
 
 - Declare the application ID, launcher activity, and application-level metadata.
 - Request coarse and fine location permission and open app or device location settings when requested by the feature UI.
-- Create `MapViewModel`, collect its `StateFlow`, and pass state and event callbacks to `MapScreen`.
+- Create `MapViewModel`, collect its `StateFlow`, and pass destination, altitude-workflow, and system event callbacks to `MapScreen`.
 - Forward foreground and background lifecycle events so location and heading work stops when the app is not visible.
 - Apply `ShahbazTheme` around the app content.
 - Package the final APK. Map behavior, geodesy, sensor calculations, and reusable styling belong to their owning feature or core modules.
@@ -70,4 +70,4 @@ Run connected tests with a device or emulator:
 .\gradlew.bat :app:connectedDebugAndroidTest
 ```
 
-Permission, settings, activity lifecycle, GPS, network, and sensor flows should also be exercised on a physical device.
+Permission, settings, activity lifecycle, GPS, network, destination-to-altitude navigation, and sensor flows should also be exercised on a physical device.

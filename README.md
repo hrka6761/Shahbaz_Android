@@ -1,13 +1,17 @@
 # Shahbaz
 
-Shahbaz is a single-screen Android map app that finds the phone's precise current location, lets the user choose a destination by long-pressing the map or entering latitude/longitude in a dialog, and shows the straight-line WGS-84 distance between the two points.
+Shahbaz is a single-screen Android map app that finds the phone's precise current location, lets the user choose a destination by long-pressing the map or entering latitude/longitude in a dialog, shows the straight-line WGS-84 distance between the two points, and collects the drone's flight-start altitude above its takeoff surface.
 
 ## Using the app
 
 1. Launch Shahbaz and grant **Precise** location access.
 2. Wait for the origin marker to appear at the phone's current position.
 3. Long-press the map, or use the edit action, to enter a destination in decimal-degree latitude and longitude.
-4. Read the WGS-84 distance from the origin to the destination. Use the recenter control to return to the current location and clear the destination when finished.
+4. Read the WGS-84 distance, then select **Next** below the route details.
+5. Enter a flight-start altitude greater than zero meters. This is the height the drone should climb above its local takeoff surface before moving toward the destination.
+6. Use **Previous** to correct the destination without losing the altitude draft, or select the second **Next** to confirm the altitude.
+
+Use the recenter control at any time to return the camera to the current location. Clearing the destination resets the route and altitude workflow.
 
 The compass reports the device heading when a rotation-vector sensor is available. Location and compass behavior are designed to stop while the app is in the background.
 
@@ -84,4 +88,4 @@ Connected instrumentation tests require a device or emulator:
 .\gradlew.bat :app:connectedDebugAndroidTest
 ```
 
-GPS-off, permission-denied, approximate-only permission, offline-map, long-press, geocoding, recenter, and compass behavior are best verified on a physical device.
+GPS-off, permission-denied, approximate-only permission, offline-map, long-press, altitude entry, Previous/Next navigation, geocoding, recenter, and compass behavior are best verified on a physical device.
