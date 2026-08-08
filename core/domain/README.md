@@ -8,14 +8,13 @@ The Android-free geographic rules used by Shahbaz. It performs geodesic calculat
 - Calculate Haversine distance and spherical midpoints.
 - Parse and format decimal-degree coordinates.
 - Format human-readable meter/kilometer distances.
-- Normalize headings into eight cardinal directions and calculate angular deviation.
 - Keep deterministic business rules independently testable on the JVM.
 
 ## Directory and package structure
 
 | Path | Ownership |
 | --- | --- |
-| `src/main/kotlin/ir/hrka/shahbaz/core/domain/GeoMath.kt` | Distance, midpoint, direction, deviation, and distance-formatting rules. |
+| `src/main/kotlin/ir/hrka/shahbaz/core/domain/GeoMath.kt` | Distance, midpoint, and distance-formatting rules. |
 | `src/main/kotlin/ir/hrka/shahbaz/core/domain/GeoCoordinateFormatter.kt` | Coordinate parser and fixed-precision formatter. |
 | `src/test/kotlin/ir/hrka/shahbaz/core/domain/` | JVM tests for ordinary, boundary, antimeridian, antipodal, locale, and invalid-input cases. |
 
@@ -28,8 +27,8 @@ All production declarations use package `ir.hrka.shahbaz.core.domain`.
 - `sphericalMidpoint(first, second)` returns the midpoint of the shorter great-circle arc.
 - `parseCoordinatePair(input)` and `formatCoordinate(coordinate)` convert between text and `GeoCoordinate`.
 - `formatDistance(distanceMeters)` renders meters below 1 km and kilometers otherwise.
-- `CardinalDirection8` and `normalizedCardinalDirection(headingDegrees)` expose the eight-point compass result.
-- `angularDeviationDegrees(headingDegrees, referenceDegrees)` returns the unsigned shortest angular difference.
+
+Compass directions, heading normalization, and angular deviations belong to the standalone `:compass` Android library rather than this geographic domain module.
 
 ## Dependency direction
 

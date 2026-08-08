@@ -7,6 +7,7 @@
  */
 package ir.hrka.shahbaz.feature.map
 
+import ir.hrka.compass.CompassReading
 import ir.hrka.shahbaz.core.model.GeoCoordinate
 
 /**
@@ -90,8 +91,8 @@ internal fun parseTakeoffAltitudeMeters(input: String): Double? {
  * @property destination User-selected destination, or `null` when none has been selected.
  * @property isOnline Whether the active network currently has validated internet access.
  * @property hasPrecisePermission Whether fine location permission is currently granted.
- * @property headingDegrees Clockwise device heading from north in the range `[0, 360)`, or `null`
- * when a heading is unavailable.
+ * @property compassReading Complete device orientation from the reusable compass module, or
+ * `null` when the compass is inactive or unavailable.
  * @property flightSetupStep Active destination or takeoff-altitude stage of the guided panel.
  * @property takeoffAltitudeInput Raw altitude text retained as the single input source of truth.
  * @property isTakeoffAltitudeConfirmed Whether the current valid altitude has been confirmed with
@@ -108,8 +109,8 @@ data class MapUiState(
     val isOnline: Boolean = true,
     /** Whether Android fine location permission is granted. */
     val hasPrecisePermission: Boolean = false,
-    /** Current device heading in degrees, or `null` when the compass is unavailable. */
-    val headingDegrees: Float? = null,
+    /** Complete device orientation, or `null` when the compass is inactive or unavailable. */
+    val compassReading: CompassReading? = null,
     /** Active stage of the guided flight-setup panel. */
     val flightSetupStep: FlightSetupStep = FlightSetupStep.DESTINATION,
     /** Raw takeoff-altitude input in meters. */

@@ -1,4 +1,4 @@
-/** Exercises geodesic, midpoint, distance-formatting, and compass-direction helpers. */
+/** Exercises geodesic, midpoint, and distance-formatting helpers. */
 package ir.hrka.shahbaz.core.domain
 
 import ir.hrka.shahbaz.core.model.GeoCoordinate
@@ -172,56 +172,4 @@ class GeoMathTest {
         }
     }
 
-    /** Verifies cardinal sectors and their exact half-sector boundaries. */
-    @Test
-    fun `cardinal direction covers sectors and exact boundaries`() {
-        assertEquals(CardinalDirection8.NORTH, normalizedCardinalDirection(0.0))
-        assertEquals(CardinalDirection8.NORTH, normalizedCardinalDirection(22.4999))
-        assertEquals(CardinalDirection8.NORTH_EAST, normalizedCardinalDirection(22.5))
-        assertEquals(CardinalDirection8.EAST, normalizedCardinalDirection(67.5))
-        assertEquals(CardinalDirection8.SOUTH, normalizedCardinalDirection(180.0))
-        assertEquals(CardinalDirection8.NORTH_WEST, normalizedCardinalDirection(315.0))
-        assertEquals(CardinalDirection8.NORTH, normalizedCardinalDirection(337.5))
-    }
-
-    /** Verifies negative and multi-turn headings normalize correctly. */
-    @Test
-    fun `cardinal direction normalizes negative and multi-turn headings`() {
-        assertEquals(CardinalDirection8.WEST, normalizedCardinalDirection(-90.0))
-        assertEquals(CardinalDirection8.EAST, normalizedCardinalDirection(450.0))
-        assertEquals(CardinalDirection8.NORTH, normalizedCardinalDirection(720.0))
-        assertEquals("SW", normalizedCardinalDirection(-135.0).abbreviation)
-    }
-
-    /** Verifies non-finite headings are rejected. */
-    @Test
-    fun `cardinal direction rejects non-finite headings`() {
-        listOf(Double.NaN, Double.NEGATIVE_INFINITY, Double.POSITIVE_INFINITY).forEach { value ->
-            val error = assertThrows(IllegalArgumentException::class.java) {
-                normalizedCardinalDirection(value)
-            }
-            assertTrue(error.message.orEmpty().contains("finite"))
-        }
-    }
-
-    /** Verifies north and south deviations use the shortest angular path. */
-    @Test
-    fun `angular deviation uses the shortest path to north and south`() {
-        assertEquals(0.0, angularDeviationDegrees(0.0, 0.0), 0.0)
-        assertEquals(10.0, angularDeviationDegrees(350.0, 0.0), 0.0)
-        assertEquals(90.0, angularDeviationDegrees(90.0, 0.0), 0.0)
-        assertEquals(170.0, angularDeviationDegrees(350.0, 180.0), 0.0)
-        assertEquals(0.0, angularDeviationDegrees(540.0, 180.0), 0.0)
-    }
-
-    /** Verifies non-finite heading or reference inputs are rejected. */
-    @Test
-    fun `angular deviation rejects non-finite values`() {
-        assertThrows(IllegalArgumentException::class.java) {
-            angularDeviationDegrees(Double.NaN, 0.0)
-        }
-        assertThrows(IllegalArgumentException::class.java) {
-            angularDeviationDegrees(0.0, Double.POSITIVE_INFINITY)
-        }
-    }
 }

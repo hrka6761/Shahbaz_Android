@@ -103,10 +103,11 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
-import ir.hrka.shahbaz.core.domain.angularDeviationDegrees
+import ir.hrka.compass.CompassDirection
+import ir.hrka.compass.CompassReading
+import ir.hrka.compass.NorthReference
 import ir.hrka.shahbaz.core.domain.formatCoordinate
 import ir.hrka.shahbaz.core.domain.formatDistance
-import ir.hrka.shahbaz.core.domain.normalizedCardinalDirection
 import ir.hrka.shahbaz.core.domain.sphericalMidpoint
 import ir.hrka.shahbaz.core.domain.wgs84GeodesicDistanceMeters
 import ir.hrka.shahbaz.core.model.GeoCoordinate
@@ -176,7 +177,8 @@ private val DynamicGeoJsonOptions = GeoJsonOptions(synchronousUpdate = true)
  * controls expose the device-heading compass and an animated return to the latest origin.
  *
  * @param state Immutable state containing location readiness, origin and destination points,
- * connectivity, and the current heading in degrees clockwise from north.
+ * connectivity, and the complete compass reading. Compass presentation uses true north when the
+ * reading contains it and otherwise falls back to magnetic north.
  * @param onDestinationSelected Called with a validated latitude/longitude domain coordinate
  * after either a map long-press or successful dialog submission.
  * @param onClearDestination Called when the user removes the selected destination.
@@ -428,7 +430,7 @@ fun MapScreen(
 
         if (state.locationStatus == LocationStatus.READY && originPosition != null && mapLoaded) {
             MapControls(
-                headingDegrees = state.headingDegrees,
+                compassReading = state.compassReading,
                 onRecenter = {
                     coroutineScope.launch {
                         cameraState.animateTo(
@@ -1214,14 +1216,14 @@ private fun LocationGate(
  * Places the compass at the lower start edge and the current-location camera action at the lower
  * end edge.
  *
- * @param headingDegrees Device heading in degrees clockwise from north, or `null` when no compass
- * reading is available.
+ * @param compassReading Complete logical device orientation, or `null` when no compass reading is
+ * available.
  * @param onRecenter Called when the user asks the camera to animate to the latest origin.
  * @param modifier Modifier used to position and inset the full-width controls row.
  */
 @Composable
 private fun MapControls(
-    headingDegrees: Float?,
+    compassReading: CompassReading?,
     onRecenter: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -1231,7 +1233,7 @@ private fun MapControls(
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.Bottom,
     ) {
-        CompassBadge(headingDegrees)
+        CompassBadge(compassReading)
         FloatingActionButton(
             onClick = onRecenter,
             containerColor = MaterialTheme.colorScheme.surface,
@@ -1249,21 +1251,29 @@ private fun MapControls(
  * Summarizes the device heading with a traditional dial and textual direction information.
  *
  * For an available heading, the badge shows the nearest eight-point cardinal abbreviation,
- * rounded heading degrees, and the shortest angular deviations from north and south. A `null`
- * value produces the explicit compass-unavailable state instead of implying a zero-degree
- * heading.
+ * rounded heading degrees, and the shortest angular deviations from north and south. True north
+ * is preferred when the reading contains it; otherwise every displayed value consistently uses
+ * magnetic north. A `null` value produces the explicit compass-unavailable state instead of
+ * implying a zero-degree heading.
  *
- * @param headingDegrees Device azimuth in degrees clockwise from north, normalized by the heading
- * provider, or `null` when the sensor is unavailable or inactive.
+ * @param compassReading Complete logical reading, or `null` when the sensor is unavailable or
+ * inactive.
  */
 @Composable
-private fun CompassBadge(headingDegrees: Float?) {
-    val northDeviation = headingDegrees?.let {
-        angularDeviationDegrees(it.toDouble(), NORTH_HEADING_DEGREES)
+private fun CompassBadge(compassReading: CompassReading?) {
+    val northReference = if (compassReading?.trueAzimuthDegrees != null) {
+        NorthReference.TRUE
+    } else {
+        NorthReference.MAGNETIC
     }
-    val southDeviation = headingDegrees?.let {
-        angularDeviationDegrees(it.toDouble(), SOUTH_HEADING_DEGREES)
-    }
+    val headingDegrees = compassReading?.azimuth(northReference)
+    val direction = compassReading?.nearestDirection(northReference)
+    val northDeviation = compassReading
+        ?.deviationFrom(CompassDirection.NORTH, northReference)
+        ?.absoluteDegrees
+    val southDeviation = compassReading
+        ?.deviationFrom(CompassDirection.SOUTH, northReference)
+        ?.absoluteDegrees
 
     Surface(
         shape = RoundedCornerShape(20.dp),
@@ -1277,12 +1287,12 @@ private fun CompassBadge(headingDegrees: Float?) {
         ) {
             CompassRose(headingDegrees)
             Text(
-                text = if (headingDegrees == null) {
+                text = if (headingDegrees == null || direction == null) {
                     stringResource(R.string.compass_unavailable)
                 } else {
                     stringResource(
                         R.string.heading_format,
-                        normalizedCardinalDirection(headingDegrees.toDouble()).abbreviation,
+                        direction.localizedAbbreviation(),
                         headingDegrees,
                     )
                 },
@@ -1320,14 +1330,37 @@ private fun CompassBadge(headingDegrees: Float?) {
 }
 
 /**
+ * Resolves localized presentation text for one semantic direction from the compass module.
+ *
+ * @receiver semantic cardinal or intercardinal direction without embedded UI text.
+ * @return localized short direction label owned by the map feature.
+ */
+@Composable
+private fun CompassDirection.localizedAbbreviation(): String = stringResource(
+    when (this) {
+        CompassDirection.NORTH -> R.string.compass_direction_north
+        CompassDirection.NORTH_EAST -> R.string.compass_direction_north_east
+        CompassDirection.EAST -> R.string.compass_direction_east
+        CompassDirection.SOUTH_EAST -> R.string.compass_direction_south_east
+        CompassDirection.SOUTH -> R.string.compass_direction_south
+        CompassDirection.SOUTH_WEST -> R.string.compass_direction_south_west
+        CompassDirection.WEST -> R.string.compass_direction_west
+        CompassDirection.NORTH_WEST -> R.string.compass_direction_north_west
+    }
+)
+
+/**
  * Draws the visual compass dial and its red-north/blue-south needle.
  *
  * The device stays conceptually fixed while the needle is rotated by the negative heading: for
- * example, when the device faces east (90 degrees), north appears to the left. With no heading,
- * the dial uses the neutral zero-degree orientation; [CompassBadge] supplies the unavailable text
- * that prevents this fallback from being interpreted as a real reading.
+ * example, when the device faces east (90 degrees), north appears to the left. [CompassBadge]
+ * supplies a true-north heading when available and otherwise supplies magnetic north, keeping the
+ * dial consistent with all textual values. With no heading, the dial uses the neutral zero-degree
+ * orientation; [CompassBadge] supplies the unavailable text that prevents this fallback from
+ * being interpreted as a real reading.
  *
- * @param headingDegrees Device azimuth in degrees clockwise from north, or `null` when unavailable.
+ * @param headingDegrees Device azimuth in degrees clockwise from the selected north reference, or
+ * `null` when unavailable.
  */
 @Composable
 private fun CompassRose(headingDegrees: Float?) {
@@ -1441,12 +1474,6 @@ private const val CLOSE_LOCATION_ZOOM = 18.0
 
 /** Distance below which destination framing uses [CLOSE_LOCATION_ZOOM] instead of bounds. */
 private const val MIN_BOUNDS_DISTANCE_METERS = 2.0
-
-/** Canonical north azimuth used to calculate the displayed north deviation. */
-private const val NORTH_HEADING_DEGREES = 0.0
-
-/** Canonical south azimuth used to calculate the displayed south deviation. */
-private const val SOUTH_HEADING_DEGREES = 180.0
 
 /** Maximum number of characters retained in either manual coordinate component. */
 private const val MAX_COORDINATE_COMPONENT_LENGTH = 32

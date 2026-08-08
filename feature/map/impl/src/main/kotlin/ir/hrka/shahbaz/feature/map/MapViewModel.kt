@@ -37,8 +37,11 @@ import com.google.android.gms.location.LocationResult
 import com.google.android.gms.location.LocationServices
 import com.google.android.gms.location.Priority
 import com.google.android.gms.tasks.CancellationTokenSource
+import ir.hrka.compass.Compass
+import ir.hrka.compass.CompassEvent
+import ir.hrka.compass.CompassStartResult
+import ir.hrka.compass.GeomagneticPosition
 import ir.hrka.shahbaz.core.domain.haversineDistanceMeters
-import ir.hrka.shahbaz.core.location.HeadingProvider
 import ir.hrka.shahbaz.core.model.GeoCoordinate
 import ir.hrka.shahbaz.feature.map.impl.R
 import java.util.Locale
@@ -85,8 +88,8 @@ class MapViewModel(application: Application) : AndroidViewModel(application) {
     /** Locale-aware Android geocoder used to derive optional place names from coordinates. */
     private val geocoder = Geocoder(appContext, Locale.getDefault())
 
-    /** Rotation-vector-backed provider that emits display-corrected compass headings. */
-    private val headingProvider = HeadingProvider(appContext)
+    /** Reusable UI-free compass that emits complete display-corrected orientation readings. */
+    private val compass = Compass.create(appContext)
 
     /** Mutable backing flow for the read-only state exposed through [uiState]. */
     private val _uiState = MutableStateFlow(
@@ -226,12 +229,22 @@ class MapViewModel(application: Application) : AndroidViewModel(application) {
             MAX_RETAINED_LOCATION_AGE_MILLIS
         if (retainedOriginIsStale) {
             _uiState.update { it.copy(origin = null, locationStatus = LocationStatus.LOCATING) }
+            clearCompassGeomagneticPosition()
         }
-        _uiState.update { it.copy(headingDegrees = null) }
-        if (headingProvider.isAvailable) {
-            headingProvider.start { heading ->
-                _uiState.update { it.copy(headingDegrees = heading) }
+        _uiState.update { it.copy(compassReading = null) }
+        val compassStartResult = compass.start { event ->
+            when (event) {
+                is CompassEvent.Reading -> {
+                    _uiState.update { it.copy(compassReading = event.value) }
+                }
+
+                is CompassEvent.Failure -> {
+                    _uiState.update { it.copy(compassReading = null) }
+                }
             }
+        }
+        if (compassStartResult is CompassStartResult.Failed) {
+            _uiState.update { it.copy(compassReading = null) }
         }
         refreshDeviceState()
     }
@@ -240,9 +253,9 @@ class MapViewModel(application: Application) : AndroidViewModel(application) {
     fun onBackground() {
         isForeground = false
         stopLocationUpdates()
-        headingProvider.stop()
+        compass.stop()
         unregisterLocationStateReceiver()
-        _uiState.update { it.copy(headingDegrees = null) }
+        _uiState.update { it.copy(compassReading = null) }
     }
 
     /** Re-evaluates feature state after Android returns a location permission result. */
@@ -323,6 +336,7 @@ class MapViewModel(application: Application) : AndroidViewModel(application) {
         when {
             !hasPermission -> {
                 stopLocationUpdates()
+                clearCompassGeomagneticPosition()
                 _uiState.update {
                     it.copy(origin = null, locationStatus = LocationStatus.PERMISSION_REQUIRED)
                 }
@@ -330,6 +344,7 @@ class MapViewModel(application: Application) : AndroidViewModel(application) {
 
             !hasFinePermission -> {
                 stopLocationUpdates()
+                clearCompassGeomagneticPosition()
                 _uiState.update {
                     it.copy(
                         origin = null,
@@ -340,6 +355,7 @@ class MapViewModel(application: Application) : AndroidViewModel(application) {
 
             !locationManager.isLocationEnabled -> {
                 stopLocationUpdates()
+                clearCompassGeomagneticPosition()
                 _uiState.update {
                     it.copy(origin = null, locationStatus = LocationStatus.LOCATION_DISABLED)
                 }
@@ -387,7 +403,10 @@ class MapViewModel(application: Application) : AndroidViewModel(application) {
             startLocationTimeout()
         } catch (_: SecurityException) {
             locationUpdatesStarted = false
-            _uiState.update { it.copy(locationStatus = LocationStatus.PERMISSION_REQUIRED) }
+            clearCompassGeomagneticPosition()
+            _uiState.update {
+                it.copy(origin = null, locationStatus = LocationStatus.PERMISSION_REQUIRED)
+            }
         }
     }
 
@@ -411,7 +430,10 @@ class MapViewModel(application: Application) : AndroidViewModel(application) {
                     handleLocationFailure(error, clearExistingOrigin = false)
                 }
         } catch (_: SecurityException) {
-            _uiState.update { it.copy(locationStatus = LocationStatus.PERMISSION_REQUIRED) }
+            clearCompassGeomagneticPosition()
+            _uiState.update {
+                it.copy(origin = null, locationStatus = LocationStatus.PERMISSION_REQUIRED)
+            }
         }
     }
 
@@ -446,6 +468,8 @@ class MapViewModel(application: Application) : AndroidViewModel(application) {
             GeoCoordinate(location.latitude, location.longitude)
         }.getOrNull() ?: return
 
+        updateCompassGeomagneticPosition(location)
+
         locationTimeoutJob?.cancel()
         locationStaleJob?.cancel()
         lastLocationElapsedRealtimeMillis = SystemClock.elapsedRealtime()
@@ -473,6 +497,43 @@ class MapViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     /**
+     * Supplies an accepted GPS position to the compass for optional true-north calculation.
+     *
+     * Android location altitude uses the WGS-84 ellipsoid expected by the compass module. Missing,
+     * non-finite, or float-incompatible altitude falls back to zero without rejecting heading data.
+     *
+     * @param location validated platform location accepted as the current origin.
+     */
+    private fun updateCompassGeomagneticPosition(location: Location) {
+        val altitudeMeters = location.altitude.takeIf {
+            location.hasAltitude() &&
+                it.isFinite() &&
+                it in -Float.MAX_VALUE.toDouble()..Float.MAX_VALUE.toDouble()
+        } ?: 0.0
+        val timestampEpochMillis = location.time.takeIf { it > 0L }
+            ?: System.currentTimeMillis()
+        val position = runCatching {
+            GeomagneticPosition(
+                latitudeDegrees = location.latitude,
+                longitudeDegrees = location.longitude,
+                altitudeMeters = altitudeMeters,
+                timestampEpochMillis = timestampEpochMillis,
+            )
+        }.getOrNull()
+        compass.setGeomagneticPosition(position)
+    }
+
+    /**
+     * Removes location-derived declination after the current origin becomes invalid.
+     *
+     * Magnetic readings can continue without a position, while true-north values remain absent
+     * until [updateCompassGeomagneticPosition] supplies another accepted GPS fix.
+     */
+    private fun clearCompassGeomagneticPosition() {
+        compass.setGeomagneticPosition(null)
+    }
+
+    /**
      * Converts a failed fused-location request into unavailable UI state when still relevant.
      *
      * @param error Platform failure retained for diagnostic API shape but intentionally not shown.
@@ -484,6 +545,7 @@ class MapViewModel(application: Application) : AndroidViewModel(application) {
     ) {
         if (!isForeground) return
         if (clearExistingOrigin || _uiState.value.origin == null && !locationUpdatesStarted) {
+            if (clearExistingOrigin) clearCompassGeomagneticPosition()
             _uiState.update {
                 it.copy(
                     origin = if (clearExistingOrigin) null else it.origin,
@@ -510,6 +572,7 @@ class MapViewModel(application: Application) : AndroidViewModel(application) {
                 } else {
                     LocationStatus.LOCATION_DISABLED
                 }
+                clearCompassGeomagneticPosition()
                 _uiState.update { it.copy(origin = null, locationStatus = status) }
             }
         }
@@ -780,10 +843,10 @@ class MapViewModel(application: Application) : AndroidViewModel(application) {
             Manifest.permission.ACCESS_FINE_LOCATION,
         ) == PackageManager.PERMISSION_GRANTED
 
-    /** Releases all location, heading, broadcast, network, and coroutine work owned by this model. */
+    /** Releases all location, compass, broadcast, network, and coroutine work owned by this model. */
     override fun onCleared() {
         stopLocationUpdates()
-        headingProvider.stop()
+        compass.stop()
         unregisterLocationStateReceiver()
         if (networkCallbackRegistered) {
             runCatching { connectivityManager.unregisterNetworkCallback(networkCallback) }

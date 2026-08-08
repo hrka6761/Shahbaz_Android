@@ -1,16 +1,19 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- Declares platform access and optional GPS capability owned by the map feature. -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
+    <!-- Allows MapLibre to load the remote map style and tiles. -->
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Allows the feature to distinguish validated connectivity from an offline network. -->
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <!-- Supports Android's location-permission group and approximate-location fallback state. -->
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <!-- Allows the feature to obtain the precise origin required by the flight workflow. -->
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
 
+    <!-- Keeps the app installable while reporting GPS absence through the feature state. -->
     <uses-feature
         android:name="android.hardware.location.gps"
-        android:required="false" />
-    <uses-feature
-        android:name="android.hardware.sensor.compass"
         android:required="false" />
 
 </manifest>

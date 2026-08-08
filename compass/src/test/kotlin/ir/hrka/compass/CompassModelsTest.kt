@@ -29,7 +29,7 @@ class CompassModelsTest {
         assertNull(accuracy.estimatedErrorDegrees)
     }
 
-    /** Verifies estimated heading errors must be non-negative and finite. */
+    /** Verifies estimated heading errors must be finite, positive, and at most one turn. */
     @Test
     fun `accuracy rejects invalid estimated errors`() {
         listOf(0f, -1f, 360.001f, Float.NaN, Float.POSITIVE_INFINITY).forEach { invalid ->
@@ -40,6 +40,18 @@ class CompassModelsTest {
                     calibrationStatus = CalibrationStatus.RECOMMENDED,
                 )
             }
+        }
+    }
+
+    /** Verifies calibration guidance cannot contradict the supplied accuracy level. */
+    @Test
+    fun `accuracy rejects contradictory calibration guidance`() {
+        assertThrows(IllegalArgumentException::class.java) {
+            CompassAccuracy(
+                level = CompassAccuracyLevel.HIGH,
+                estimatedErrorDegrees = null,
+                calibrationStatus = CalibrationStatus.REQUIRED,
+            )
         }
     }
 

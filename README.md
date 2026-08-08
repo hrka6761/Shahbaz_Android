@@ -13,7 +13,7 @@ Shahbaz is a single-screen Android map app that finds the phone's precise curren
 
 Use the recenter control at any time to return the camera to the current location. Clearing the destination resets the route and altitude workflow.
 
-The compass reports the device heading when a rotation-vector sensor is available. Location and compass behavior are designed to stop while the app is in the background.
+The compass reports the device orientation through the reusable, UI-free `:compass` library. The map feature prefers true-north heading after a valid location fix and falls back to magnetic north when geomagnetic correction is unavailable. Location and compass updates stop while the app is in the background.
 
 ## Map setup
 
@@ -32,15 +32,15 @@ graph TD
   app[":app"]
   map[":feature:map:impl"]
   designsystem[":core:designsystem"]
-  location[":core:location"]
+  compass[":compass"]
   domain[":core:domain"]
   model[":core:model"]
 
   app -.->|implementation| designsystem
   app -.->|implementation| map
+  map -->|api| compass
   map -->|api| model
   map -.->|implementation| domain
-  map -.->|implementation| location
   domain -->|api| model
 ```
 
@@ -50,20 +50,27 @@ Solid arrows are `api` dependencies whose public types are visible to consumers.
 | --- | --- |
 | [`:app`](app/README.md) | Deployable Android shell, launcher activity, permissions, lifecycle, and top-level Compose wiring. |
 | [`:feature:map:impl`](feature/map/impl/README.md) | Complete map journey, UI state, MapLibre rendering, device location, geocoding, and connectivity behavior. |
+| [`:compass`](compass/README.md) | Standalone, UI-free Android library for display-corrected orientation, magnetic/true-north headings, direction/deviation calculations, accuracy, and calibration state. |
 | [`:core:model`](core/model/README.md) | Android-free geographic value objects shared across layers. |
-| [`:core:domain`](core/domain/README.md) | Android-free geodesy, heading, parsing, and formatting rules. |
-| [`:core:location`](core/location/README.md) | Android sensor adapter for display-corrected device heading updates. |
+| [`:core:domain`](core/domain/README.md) | Android-free geodesy, coordinate parsing, and distance-formatting rules. |
 | [`:core:designsystem`](core/designsystem/README.md) | Shahbaz Compose theme, color tokens, and typography. |
 
 ### Dependency rules
 
 - `:app` is the composition root and may depend on feature and core modules.
 - Feature modules may depend on core modules, but core modules never depend on features or `:app`.
+- `:compass` is a standalone Android library and does not depend on Shahbaz feature, app, model, domain, or design-system modules.
 - `:core:domain` and `:core:model` remain plain Kotlin/JVM modules so their rules can be tested without Android.
 - `api` is reserved for types present in a module's public contract; implementation details use `implementation`.
 - The map remains a single `impl` module because Shahbaz has one feature and no cross-feature navigation contract.
 
 Each module README documents its public surface, resource ownership, usage, and focused verification commands.
+
+### Compass integration
+
+`:feature:map:impl` creates and controls the `Compass` instance, publishes `CompassReading` in `MapUiState`, and supplies accepted location fixes as geomagnetic positions so the library can calculate true-north values. The feature owns the Compose compass presentation and localized direction labels; `:compass` contains no UI or localized resources.
+
+The compass library owns its optional compass/accelerometer hardware declarations and requires no runtime permission. A different Android module can consume it directly with `implementation(projects.compass)`; see the [`:compass` guide](compass/README.md) for its lifecycle and public API.
 
 ## Build and verification
 
@@ -73,7 +80,13 @@ project.
 Build and run all local JVM and Android checks from the repository root:
 
 ```powershell
-.\gradlew.bat :core:model:test :core:domain:test testDebugUnitTest lintDebug assembleDebug --no-daemon
+.\gradlew.bat :compass:testDebugUnitTest :core:model:test :core:domain:test testDebugUnitTest lintDebug assembleDebug --no-daemon
+```
+
+Verify and package the reusable compass release independently:
+
+```powershell
+.\gradlew.bat :compass:testDebugUnitTest :compass:lintDebug :compass:assembleRelease --no-daemon
 ```
 
 Install the debug application on a connected device or running emulator:

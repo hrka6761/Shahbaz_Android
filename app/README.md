@@ -7,7 +7,7 @@ The deployable Android application and composition root for Shahbaz. It connects
 - Declare the application ID, launcher activity, and application-level metadata.
 - Request coarse and fine location permission and open app or device location settings when requested by the feature UI.
 - Create `MapViewModel`, collect its `StateFlow`, and pass destination, altitude-workflow, and system event callbacks to `MapScreen`.
-- Forward foreground and background lifecycle events so location and heading work stops when the app is not visible.
+- Forward foreground and background lifecycle events so location and compass work stops when the app is not visible.
 - Apply `ShahbazTheme` around the app content.
 - Package the final APK. Map behavior, geodesy, sensor calculations, and reusable styling belong to their owning feature or core modules.
 
@@ -56,7 +56,7 @@ Android Studio should use the `app` run configuration and an API 31+ device or e
 
 ## Resource ownership
 
-This module owns launcher icons, the application label, application/activity manifest declarations, backup rules, and the platform XML theme used while the activity starts. Map permissions, optional hardware declarations, copy, and feature UI resources live in `:feature:map:impl`. Compose colors and typography live in `:core:designsystem`.
+This module owns launcher icons, the application label, application/activity manifest declarations, backup rules, and the platform XML theme used while the activity starts. Map permissions, the optional GPS declaration, copy, and feature UI resources live in `:feature:map:impl`; optional compass and accelerometer declarations live in `:compass`. Compose colors and typography live in `:core:designsystem`.
 
 ## Test and build
 

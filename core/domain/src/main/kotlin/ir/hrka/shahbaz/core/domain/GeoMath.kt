@@ -1,6 +1,6 @@
 /**
- * Provides deterministic geodesic calculations, midpoint logic, direction helpers, and display
- * formatting for the map feature without depending on Android APIs.
+ * Provides deterministic geodesic calculations, midpoint logic, and display formatting for the
+ * map feature without depending on Android APIs.
  */
 package ir.hrka.shahbaz.core.domain
 
@@ -12,7 +12,6 @@ import kotlin.math.asin
 import kotlin.math.atan
 import kotlin.math.atan2
 import kotlin.math.cos
-import kotlin.math.floor
 import kotlin.math.roundToLong
 import kotlin.math.sin
 import kotlin.math.sqrt
@@ -197,67 +196,6 @@ fun formatDistance(distanceMeters: Double): String {
     } else {
         String.format(Locale.US, "%.2f km", distanceMeters / 1_000.0)
     }
-}
-
-/**
- * The eight equally sized cardinal and intercardinal heading sectors.
- *
- * @property abbreviation short label shown below the compass dial.
- */
-enum class CardinalDirection8(val abbreviation: String) {
-    /** North sector centered on zero degrees. */
-    NORTH("N"),
-
-    /** North-east sector centered on 45 degrees. */
-    NORTH_EAST("NE"),
-
-    /** East sector centered on 90 degrees. */
-    EAST("E"),
-
-    /** South-east sector centered on 135 degrees. */
-    SOUTH_EAST("SE"),
-
-    /** South sector centered on 180 degrees. */
-    SOUTH("S"),
-
-    /** South-west sector centered on 225 degrees. */
-    SOUTH_WEST("SW"),
-
-    /** West sector centered on 270 degrees. */
-    WEST("W"),
-
-    /** North-west sector centered on 315 degrees. */
-    NORTH_WEST("NW"),
-}
-
-/**
- * Maps any finite heading in degrees to its nearest normalized eight-point direction.
- *
- * @param headingDegrees heading measured clockwise from north; values outside one turn are allowed.
- * @return the nearest [CardinalDirection8] sector.
- * @throws IllegalArgumentException when [headingDegrees] is non-finite.
- */
-fun normalizedCardinalDirection(headingDegrees: Double): CardinalDirection8 {
-    require(headingDegrees.isFinite()) { "Heading must be finite" }
-    val normalized = ((headingDegrees % 360.0) + 360.0) % 360.0
-    val index = floor((normalized + 22.5) / 45.0).toInt() % CardinalDirection8.entries.size
-    return CardinalDirection8.entries[index]
-}
-
-/**
- * Returns the unsigned shortest angle between a heading and a reference direction.
- *
- * @param headingDegrees measured heading in degrees.
- * @param referenceDegrees direction against which the heading is compared.
- * @return angular deviation in the inclusive range `0.0..180.0`.
- * @throws IllegalArgumentException when either argument is non-finite.
- */
-fun angularDeviationDegrees(headingDegrees: Double, referenceDegrees: Double): Double {
-    require(headingDegrees.isFinite()) { "Heading must be finite" }
-    require(referenceDegrees.isFinite()) { "Reference direction must be finite" }
-    val normalizedDelta =
-        ((headingDegrees - referenceDegrees + 180.0) % 360.0 + 360.0) % 360.0 - 180.0
-    return abs(normalizedDelta)
 }
 
 /**

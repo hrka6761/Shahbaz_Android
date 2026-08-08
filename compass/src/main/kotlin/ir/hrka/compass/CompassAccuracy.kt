@@ -1,20 +1,23 @@
 /** Defines logical sensor accuracy and calibration guidance for compass readings. */
 package ir.hrka.compass
 
+import ir.hrka.compass.internal.calibrationStatusForAccuracy
+
 /**
  * Accuracy metadata associated with one [CompassReading].
  *
  * @property level normalized Android sensor-accuracy level.
  * @property estimatedErrorDegrees optional rotation-vector heading error in degrees.
  * @property calibrationStatus actionable calibration guidance inferred from [level].
- * @throws IllegalArgumentException when an error estimate is outside `0f < value <= 360f`.
+ * @throws IllegalArgumentException when an error estimate is outside `0f < value <= 360f` or
+ * [calibrationStatus] does not match the guidance inferred from [level].
  */
 data class CompassAccuracy(
     val level: CompassAccuracyLevel,
     val estimatedErrorDegrees: Float?,
     val calibrationStatus: CalibrationStatus,
 ) {
-    /** Rejects error estimates outside Android's documented positive, at-most-one-turn range. */
+    /** Rejects invalid error estimates and guidance that contradicts the accuracy level. */
     init {
         require(estimatedErrorDegrees == null || estimatedErrorDegrees.isFinite()) {
             "Estimated heading error must be finite when present"
@@ -24,6 +27,9 @@ data class CompassAccuracy(
                 estimatedErrorDegrees > 0f && estimatedErrorDegrees <= MAX_HEADING_ERROR_DEGREES
         ) {
             "Estimated heading error must be greater than zero and at most 360 degrees"
+        }
+        require(calibrationStatus == calibrationStatusForAccuracy(level)) {
+            "Calibration status must match the supplied accuracy level"
         }
     }
 }

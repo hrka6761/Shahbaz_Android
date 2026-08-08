@@ -190,7 +190,7 @@ internal fun CompassUpdateRate.samplingPolicy(): SamplingPolicy = when (this) {
  * Determines whether a monotonic sensor timestamp is eligible for consumer delivery.
  *
  * @param previousTimestampNanos last delivered timestamp, or zero before the first delivery.
- * @param currentTimestampNanos current positive sensor timestamp.
+ * @param currentTimestampNanos current non-negative sensor timestamp.
  * @param minimumIntervalNanos enforced interval between deliveries.
  * @return `true` for the first timestamp or when the interval has elapsed.
  */
