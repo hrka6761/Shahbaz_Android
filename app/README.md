@@ -1,15 +1,21 @@
 # `:app`
 
-The deployable Android application and composition root for Shahbaz. It connects Android lifecycle and permission APIs to the map feature, applies the shared design system, and owns application-level resources.
+The deployable Android application and composition root for Shahbaz. It switches from flight setup
+to the dashboard after a validated `FlightPlan` is confirmed, connects Activity lifecycle to both
+features, applies the shared design system, and owns application-level resources.
 
 ## Responsibilities
 
 - Declare the application ID, launcher activity, and application-level metadata.
 - Request coarse and fine location permission and open app or device location settings when requested by the feature UI.
 - Create `MapViewModel`, collect its `StateFlow`, and pass destination, altitude-workflow, and system event callbacks to `MapScreen`.
+- Create `DashboardViewModel`, bridge explicitly typed phone position/orientation state, and render
+  `DashboardScreen` after setup confirmation.
+- Own top-level Back behavior between dashboard and setup while preserving the route draft.
 - Forward foreground and background lifecycle events so location and compass work stops when the app is not visible.
 - Apply `ShahbazTheme` around the app content.
-- Package the final APK. Map behavior, geodesy, sensor calculations, and reusable styling belong to their owning feature or core modules.
+- Package the final APK. USB discovery, USB-device permission, Protocol v2, and board telemetry are
+  owned entirely by `:core:hardware_connection`; `:app` never opens a USB device directly.
 
 ## Directory and package structure
 
@@ -37,9 +43,11 @@ graph LR
   app[":app"]
   designsystem[":core:designsystem"]
   map[":feature:map:impl"]
+  dashboard[":feature:dashboard:impl"]
 
   app -.->|implementation| designsystem
   app -.->|implementation| map
+  app -.->|implementation| dashboard
 ```
 
 `:app` is a terminal consumer. No core or feature module may depend on it.

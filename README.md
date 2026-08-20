@@ -1,6 +1,10 @@
 # Shahbaz
 
-Shahbaz is a single-screen Android map app that finds the phone's precise current location, lets the user choose a destination by long-pressing the map or entering latitude/longitude in a dialog, shows the straight-line WGS-84 distance between the two points, and collects the drone's flight-start altitude above its takeoff surface.
+Shahbaz is an Android flight-planning and monitoring app. The setup flow captures the phone's
+precise takeoff position, a destination, and a target altitude. Confirming the altitude opens a
+flight dashboard that first establishes a validated native-USB Protocol v2 session with the
+Shahbaz interface board, then presents external environmental telemetry alongside phone
+orientation and a compact route map.
 
 ## Using the app
 
@@ -9,7 +13,17 @@ Shahbaz is a single-screen Android map app that finds the phone's precise curren
 3. Long-press the map, or use the edit action, to enter a destination in decimal-degree latitude and longitude.
 4. Read the WGS-84 distance, then select **Next** below the route details.
 5. Enter a flight-start altitude greater than zero meters. This is the height the drone should climb above its local takeoff surface before moving toward the destination.
-6. Use **Previous** to correct the destination without losing the altitude draft, or select the second **Next** to confirm the altitude.
+6. Use **Previous** to correct the destination without losing the altitude draft, or select the
+   second **Next** to freeze the flight plan and open the dashboard.
+7. Connect the Shahbaz interface board over USB and approve Android's USB-device prompt. The
+   dashboard remains blocked until TimeSync, board validation, telemetry start, and heartbeat
+   acknowledgement have all succeeded.
+
+The current dashboard shows SHT30 temperature/humidity; MS5611 pressure, QNH-derived altitude,
+and takeoff-relative altitude; phone compass/cardinal deviations; and display-corrected X/Y/Z
+orientation. Every instrument identifies whether its source is the external USB board or an
+internal phone sensor and reports waiting, unavailable, no-response, stale, degraded, error, and
+live states explicitly. The red flight-start control is intentionally disabled for now.
 
 Use the recenter control at any time to return the camera to the current location. Clearing the destination resets the route and altitude workflow.
 
@@ -31,6 +45,9 @@ Shahbaz follows a scaled-down Now in Android-style structure: the application mo
 graph TD
   app[":app"]
   map[":feature:map:impl"]
+  dashboard[":feature:dashboard:impl"]
+  flightmap[":core:map"]
+  hardware[":core:hardware_connection"]
   designsystem[":core:designsystem"]
   compass[":compass"]
   domain[":core:domain"]
@@ -38,9 +55,15 @@ graph TD
 
   app -.->|implementation| designsystem
   app -.->|implementation| map
+  app -.->|implementation| dashboard
   map -->|api| compass
   map -->|api| model
   map -.->|implementation| domain
+  dashboard -->|api| compass
+  dashboard -->|api| model
+  dashboard -->|api| hardware
+  dashboard -.->|implementation| flightmap
+  flightmap -->|api| model
   domain -->|api| model
 ```
 
@@ -50,6 +73,9 @@ Solid arrows are `api` dependencies whose public types are visible to consumers.
 | --- | --- |
 | [`:app`](app/README.md) | Deployable Android shell, launcher activity, permissions, lifecycle, and top-level Compose wiring. |
 | [`:feature:map:impl`](feature/map/impl/README.md) | Complete map journey, UI state, MapLibre rendering, device location, geocoding, and connectivity behavior. |
+| [`:feature:dashboard:impl`](feature/dashboard/impl/README.md) | Post-setup dashboard, connection gate, external/internal sensor presentation, and 70/30 instrument/map layout. |
+| [`:core:hardware_connection`](core/hardware_connection/README.md) | Transferable, UI-free Android USB-host/Protocol v2 library; owns USB permission, link lifecycle, session validation, and typed board telemetry. |
+| [`:core:map`](core/map/README.md) | Reusable compact route map for fixed endpoints and an optional current-position marker. |
 | [`:compass`](compass/README.md) | Standalone, UI-free Android library for display-corrected orientation, magnetic/true-north headings, direction/deviation calculations, accuracy, and calibration state. |
 | [`:core:model`](core/model/README.md) | Android-free geographic value objects shared across layers. |
 | [`:core:domain`](core/domain/README.md) | Android-free geodesy, coordinate parsing, and distance-formatting rules. |
@@ -60,6 +86,8 @@ Solid arrows are `api` dependencies whose public types are visible to consumers.
 - `:app` is the composition root and may depend on feature and core modules.
 - Feature modules may depend on core modules, but core modules never depend on features or `:app`.
 - `:compass` is a standalone Android library and does not depend on Shahbaz feature, app, model, domain, or design-system modules.
+- `:core:hardware_connection` is a standalone Android library with no dependency on any Shahbaz app,
+  feature, or core module. It contains no UI and owns all board USB mechanics.
 - `:core:domain` and `:core:model` remain plain Kotlin/JVM modules so their rules can be tested without Android.
 - `api` is reserved for types present in a module's public contract; implementation details use `implementation`.
 - The map remains a single `impl` module because Shahbaz has one feature and no cross-feature navigation contract.
@@ -80,13 +108,23 @@ project.
 Build and run all local JVM and Android checks from the repository root:
 
 ```powershell
-.\gradlew.bat :compass:testDebugUnitTest :core:model:test :core:domain:test testDebugUnitTest lintDebug assembleDebug --no-daemon
+.\gradlew.bat clean :compass:testDebugUnitTest :core:model:test :core:domain:test `
+  :core:map:testDebugUnitTest :core:hardware_connection:testDebugUnitTest `
+  :feature:map:impl:testDebugUnitTest :feature:dashboard:impl:testDebugUnitTest `
+  :app:testDebugUnitTest lintDebug assembleDebug --no-daemon
 ```
 
 Verify and package the reusable compass release independently:
 
 ```powershell
 .\gradlew.bat :compass:testDebugUnitTest :compass:lintDebug :compass:assembleRelease --no-daemon
+```
+
+Verify and package the independent hardware connection library:
+
+```powershell
+.\gradlew.bat :core:hardware_connection:testDebugUnitTest :core:hardware_connection:lintDebug `
+  :core:hardware_connection:assembleRelease --no-daemon
 ```
 
 Install the debug application on a connected device or running emulator:
@@ -101,4 +139,6 @@ Connected instrumentation tests require a device or emulator:
 .\gradlew.bat :app:connectedDebugAndroidTest
 ```
 
-GPS-off, permission-denied, approximate-only permission, offline-map, long-press, altitude entry, Previous/Next navigation, geocoding, recenter, and compass behavior are best verified on a physical device.
+GPS-off, permission-denied, approximate-only permission, offline-map, altitude navigation,
+USB attach/detach and permission denial, wrong-board rejection, sensor silence/failure/recovery,
+orientation accuracy/calibration, and display rotation are best verified on physical hardware.
