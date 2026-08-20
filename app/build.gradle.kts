@@ -41,6 +41,7 @@ android {
 dependencies {
     implementation(projects.core.designsystem)
     implementation(projects.feature.map.impl)
+    implementation(projects.feature.dashboard.impl)
 
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.compose)

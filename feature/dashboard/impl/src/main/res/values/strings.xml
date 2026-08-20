@@ -1,0 +1,127 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Dashboard-owned copy, units, status text, and accessibility descriptions. -->
+<resources>
+    <string name="dashboard_title">Flight dashboard</string>
+    <string name="flight_target_format">Target altitude: %1$.1f m above takeoff</string>
+    <string name="flight_plan_missing">Flight plan unavailable</string>
+    <string name="board_ready_status">Board ready</string>
+
+    <string name="board_gate_eyebrow">SHAHBAZ INTERFACE BOARD</string>
+    <string name="board_gate_blocking_note">Flight instruments stay locked until USB, TimeSync, DeviceInfo, and heartbeat checks succeed.</string>
+    <string name="grant_usb_permission">Grant USB permission</string>
+    <string name="retry_board_connection">Try board connection again</string>
+    <string name="board_stopped_title">Board connection stopped</string>
+    <string name="board_stopped_message">Connect the Shahbaz Interface Board by USB, then try again.</string>
+    <string name="board_searching_title">Looking for the board</string>
+    <string name="board_searching_message">Keep the Shahbaz board connected to this phone with a USB data cable.</string>
+    <string name="board_permission_title">USB permission required</string>
+    <string name="board_permission_message">Allow Shahbaz to communicate with %1$s. This grants access only to the connected USB device.</string>
+    <string name="board_permission_wait_title">Waiting for USB permission</string>
+    <string name="board_permission_wait_message">Respond to the Android USB permission prompt.</string>
+    <string name="board_opening_title">Opening USB connection</string>
+    <string name="board_opening_message">The app found the board and is opening its data interface.</string>
+    <string name="board_sync_title">Synchronizing with the board</string>
+    <string name="board_sync_message">Establishing a fresh, protected Protocol v2 session.</string>
+    <string name="board_validating_title">Validating board identity</string>
+    <string name="board_validating_message">Checking target, firmware capabilities, and safety state.</string>
+    <string name="board_heartbeat_title">Waiting for board heartbeat</string>
+    <string name="board_heartbeat_message">The secure session is ready; waiting for proof that the board is responsive.</string>
+    <string name="board_disconnected_title">Board disconnected</string>
+    <string name="board_disconnected_message">The USB board link closed: %1$s.</string>
+    <string name="board_failed_title">Board connection failed</string>
+    <string name="board_failed_message">The board connection could not be established.</string>
+    <string name="board_ready_title">Board connected</string>
+    <string name="board_ready_message">The board has passed all connection checks.</string>
+    <string name="disconnect_usb_detached">USB cable or device was detached</string>
+    <string name="disconnect_app_stopped">dashboard left the foreground</string>
+    <string name="disconnect_transport_closed">USB transport closed unexpectedly</string>
+
+    <string name="attitude_heading_title">Attitude &amp; heading</string>
+    <string name="compass_heading">Compass heading</string>
+    <string name="compass_heading_value">%1$.0f° · %2$s</string>
+    <string name="axis_x_pitch">X · pitch</string>
+    <string name="axis_y_roll">Y · roll</string>
+    <string name="axis_z_yaw">Z · yaw / heading</string>
+    <string name="axis_convention">Phone display axes: X = pitch, Y = roll, Z = clockwise yaw/heading.</string>
+    <string name="orientation_sensor_detail">%1$s · accuracy %2$s · %3$s</string>
+    <string name="cardinal_angles_title">Angle to cardinal axes</string>
+    <string name="cardinal_angle_value">%1$+.0f°
+%2$.0f° away</string>
+    <string name="cardinal_angle_accessibility">%1$s: signed deviation %2$+.0f degrees, angular distance %3$.0f degrees</string>
+    <string name="true_north">true north</string>
+    <string name="magnetic_north">magnetic north</string>
+    <string name="attitude_description">Attitude. Yaw %1$.0f degrees, pitch %2$+.1f degrees, roll %3$+.1f degrees, direction %4$s, status %5$s.</string>
+    <string name="attitude_unavailable_description">Attitude reading unavailable. Status %1$s.</string>
+    <string name="compass_accuracy_unknown">A sample arrived, but Android has not established its accuracy yet.</string>
+    <string name="compass_accuracy_unreliable">Unreliable orientation sample; calibrate the phone before relying on it.</string>
+    <string name="compass_accuracy_low">Low-accuracy orientation sample; phone calibration is recommended.</string>
+
+    <string name="instrument_temperature">Temperature</string>
+    <string name="instrument_humidity">Humidity</string>
+    <string name="instrument_pressure">Pressure</string>
+    <string name="instrument_altitude_msl">Estimated altitude MSL (QNH)</string>
+    <string name="instrument_altitude_takeoff">Altitude above takeoff</string>
+    <string name="instrument_accessibility">%1$s, %2$s. Source %3$s. Status %4$s. %5$s</string>
+
+    <string name="source_sht30">External / USB board · SHT30</string>
+    <string name="source_ms5611">External / USB board · MS5611</string>
+    <string name="source_qnh_altitude">Derived from external / USB board · MS5611 pressure + QNH</string>
+    <string name="source_derived_pressure">Derived from external / USB board · MS5611 baseline</string>
+    <string name="source_phone_gps">Internal / phone GPS</string>
+    <string name="source_phone_orientation">Internal / phone orientation sensors</string>
+    <string name="source_status_format">%1$s · %2$s</string>
+
+    <string name="status_live">Live</string>
+    <string name="status_accuracy_warning">Accuracy warning</string>
+    <string name="status_stale">Stale</string>
+    <string name="status_loading">Loading</string>
+    <string name="status_not_connected">Not connected</string>
+    <string name="status_not_present">Not present</string>
+    <string name="status_unavailable">Unavailable</string>
+    <string name="status_no_response">No response</string>
+    <string name="status_invalid">Invalid data</string>
+    <string name="status_error">Error</string>
+    <string name="status_inactive">Inactive</string>
+    <string name="sample_current">Current validated sample</string>
+    <string name="sample_stale">Showing the last sample; updates have stopped</string>
+    <string name="failure_retains_last">%1$s · showing the last validated sample</string>
+    <string name="awaiting_first_sample">Awaiting first valid sample</string>
+    <string name="sensor_inactive">Sensor observation is inactive</string>
+    <string name="baseline_waiting">Waiting for a valid takeoff pressure baseline</string>
+
+    <string name="no_value">—</string>
+    <string name="last_valid_value">Last: %1$s</string>
+    <string name="value_celsius">%1$.1f °C</string>
+    <string name="value_percent">%1$.1f%%</string>
+    <string name="value_hectopascal">%1$.2f hPa</string>
+    <string name="value_meters">%1$.1f m</string>
+    <string name="value_meters_signed">%1$+.1f m</string>
+    <string name="value_degrees">%1$.0f°</string>
+    <string name="value_signed_degrees">%1$+.1f°</string>
+    <string name="pressure_detail">%1$d Pa · sensor temperature %2$.1f °C</string>
+    <string name="qnh_detail">Barometric estimate using current QNH %1$.2f hPa</string>
+    <string name="target_altitude_detail">Flight target %1$.1f m above takeoff</string>
+
+    <string name="compass_north">N</string>
+    <string name="compass_north_east">NE</string>
+    <string name="compass_east">E</string>
+    <string name="compass_south_east">SE</string>
+    <string name="compass_south">S</string>
+    <string name="compass_south_west">SW</string>
+    <string name="compass_west">W</string>
+    <string name="compass_north_west">NW</string>
+
+    <string name="phone_position_proxy_warning">Phone position is shown as a temporary proxy; it is not the drone’s position.</string>
+    <string name="phone_position_proxy_stale_warning">The last phone position is stale and is not drone-position telemetry.</string>
+    <string name="phone_position_no_response">Phone GPS is not responding; only the last validated proxy position may be shown.</string>
+    <string name="phone_position_invalid">Phone GPS returned invalid data; only the last validated proxy position may be shown.</string>
+    <string name="phone_position_not_present">This phone has no usable GPS sensor; no current-position marker is shown.</string>
+    <string name="phone_position_waiting">Waiting for phone GPS; no current-position marker is shown.</string>
+    <string name="phone_position_unavailable">Phone GPS is unavailable; no current-position marker is shown.</string>
+    <string name="phone_position_failed">Phone GPS failed; no current-position marker is shown.</string>
+    <string name="phone_position_inactive">Phone GPS is inactive; no current-position marker is shown.</string>
+    <string name="flight_plan_missing_map">The route map cannot be shown because the confirmed flight plan is missing.</string>
+
+    <string name="start_flight">START\nFLIGHT</string>
+    <string name="start_flight_unavailable">Start flight is unavailable and will be implemented in a future release</string>
+</resources>
