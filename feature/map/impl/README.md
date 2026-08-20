@@ -7,12 +7,17 @@ The complete map feature implementation. It owns the single Shahbaz user journey
 - Acquire precise foreground location with Google Play services and report permission, disabled-provider, timeout, and unavailable states.
 - Monitor validated connectivity and reverse-geocode origin and destination names when online.
 - Coordinate the standalone `:compass` lifecycle and publish complete orientation readings in feature state.
+- Publish typed compass lifecycle/failure state, including first-sample no-response and stale-stream
+  detection, plus typed provider-supplied GPS speed availability.
 - Supply accepted location fixes to `:compass` for true-north correction, falling back to magnetic north when no valid position is available.
 - Hold immutable map UI state in `MapViewModel` and expose it as `StateFlow`.
 - Render OpenFreeMap/OpenStreetMap content with MapLibre Compose.
 - Accept a destination by map long-press or manual decimal-degree input.
-- Guide the user from destination review to a positive takeoff-altitude value in meters, with Previous navigation for destination correction.
-- Preserve the altitude draft across Previous navigation, confirm valid input with the second Next action, and reset the workflow when the destination is cleared.
+- Guide the user from destination review to a positive takeoff-altitude value in meters, with Previous navigation for destination correction and a fail-closed Next action when the live origin is lost.
+- Preserve the altitude draft across Previous navigation and snapshot the live origin, destination,
+  and valid altitude into an immutable `FlightPlan` with the second Next action.
+- Invalidate the confirmed plan when its route or altitude changes, while allowing live origin
+  updates to continue independently from the fixed confirmed origin.
 - Draw origin and destination markers, route geometry, WGS-84 distance, recenter controls, loading/error gates, and compass UI.
 - Keep feature strings and accessibility descriptions with the feature.
 
@@ -23,7 +28,7 @@ The host app remains responsible for requesting Android permission and opening s
 | Path | Ownership |
 | --- | --- |
 | `src/main/kotlin/ir/hrka/shahbaz/feature/map/MapScreen.kt` | Public Compose screen and private map/overlay components. |
-| `src/main/kotlin/ir/hrka/shahbaz/feature/map/MapUiState.kt` | Immutable point, location, compass-reading, flight-step, altitude-validation, and `MapUiState` contract. |
+| `src/main/kotlin/ir/hrka/shahbaz/feature/map/MapUiState.kt` | Immutable point, location, speed/compass status, flight-plan confirmation, altitude-validation, and `MapUiState` contract. |
 | `src/main/kotlin/ir/hrka/shahbaz/feature/map/MapViewModel.kt` | Location, compass, connectivity, geocoding, state reduction, and lifecycle coordination. |
 | `src/test/kotlin/ir/hrka/shahbaz/feature/map/MapUiStateTest.kt` | Pure JVM coverage for altitude parsing and flight-step transitions. |
 | `src/main/AndroidManifest.xml` | Internet/network/location permissions and the optional GPS declaration merged into the app. |
@@ -37,9 +42,9 @@ Consumer-facing Kotlin declarations use package `ir.hrka.shahbaz.feature.map`. T
 - `MapViewModel(application)` owns the feature state and Android-backed services.
 - `MapViewModel.uiState` is the observable `StateFlow<MapUiState>`.
 - `MapViewModel.onForeground()`, `onBackground()`, `onPermissionResult()`, `retryLocation()`, `setDestination()`, and `clearDestination()` handle lifecycle, recovery, and route events.
-- `MapViewModel.advanceToTakeoffAltitude()`, `returnToDestinationSelection()`, `updateTakeoffAltitude()`, and `confirmTakeoffAltitude()` handle the guided altitude workflow.
-- `MapUiState`, `PlacePoint`, `LocationStatus`, and `FlightSetupStep` form the screen state contract; `MapUiState.compassReading` carries the current `CompassReading` when available.
-- `GeoCoordinate` comes from the transitively exposed `:core:model` API.
+- `MapViewModel.advanceToTakeoffAltitude()`, `returnToDestinationSelection()`, `updateTakeoffAltitude()`, `confirmTakeoffAltitude()`, and `clearConfirmedFlightPlan()` handle setup confirmation and dashboard return.
+- `MapUiState`, `PlacePoint`, `LocationStatus`, `PhoneSpeedStatus`, `CompassSensorStatus`, and `FlightSetupStep` form the screen state contract. `MapUiState.origin` remains the live phone position; `confirmedFlightPlan` contains the fixed accepted setup snapshot.
+- `GeoCoordinate` and `FlightPlan` come from the transitively exposed `:core:model` API.
 - `CompassReading` and its supporting orientation models come from the transitively exposed `:compass` API.
 
 ## Dependency direction
@@ -59,7 +64,7 @@ graph LR
   domain -->|api| model
 ```
 
-`GeoCoordinate` is exposed because it appears in screen callbacks and state. `CompassReading` is exposed through `MapUiState`, so the standalone compass library is also an `api` dependency. Geodesy and coordinate formatting remain internal through `:core:domain`. The feature does not depend on `:app` or `:core:designsystem`; it reads `MaterialTheme` supplied by its host.
+`GeoCoordinate` and `FlightPlan` are exposed because they appear in screen callbacks or state. Compass readings, sources, and typed failures are exposed through `MapUiState`, so the standalone compass library is also an `api` dependency. Geodesy and coordinate formatting remain internal through `:core:domain`. The feature does not depend on `:app` or `:core:designsystem`; it reads `MaterialTheme` supplied by its host.
 
 ## Using this module
 
@@ -96,4 +101,4 @@ When changing the compass integration or public reading models, verify the stand
 .\gradlew.bat :compass:testDebugUnitTest :compass:lintDebug :feature:map:impl:testDebugUnitTest
 ```
 
-Feature-local JVM tests cover positive meter parsing, decimal points and commas, invalid altitude input, guarded step transitions, Previous-state preservation, confirmation, and input-length limits. Pure coordinate and geodesy rules remain covered in `:core:model` and `:core:domain`; orientation math and compass models are covered in `:compass`. Permission, GPS-off, stale location, connectivity, map loading, long-press, manual entry, destination-to-altitude navigation, recenter, geocoding, and sensor/display-rotation flows should also be verified through `:app`, preferably on a physical device.
+Feature-local JVM tests cover positive meter parsing, invalid altitude input, guarded step transitions, fixed flight-plan snapshots, live-origin independence, confirmation invalidation, speed-value invariants, and input-length limits. Pure coordinate, flight-plan, and geodesy rules remain covered in `:core:model` and `:core:domain`; orientation math and compass models are covered in `:compass`. Permission, GPS-off, speed availability, stale location, connectivity, map loading, navigation, geocoding, and sensor/display-rotation flows should also be verified through `:app`, preferably on a physical device.

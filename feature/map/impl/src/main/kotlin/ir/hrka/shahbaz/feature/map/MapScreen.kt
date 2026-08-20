@@ -575,8 +575,9 @@ private fun lineData(start: Position?, end: Position?): GeoJsonData {
  * The destination step shows read-only origin and destination coordinates, manual edit and clear
  * actions, and the WGS-84 route distance. Its Next action appears after a destination exists. The
  * altitude step explains that height is relative to the takeoff surface, accepts a positive meter
- * value, offers Previous without discarding the route or draft, and reveals its Next action only
- * for valid input. Inline network and map failure notices remain visible in either step.
+ * value, offers Previous without discarding the route or draft, and keeps Next visibly disabled
+ * with an explanation whenever the live takeoff origin is unavailable. Inline network and map
+ * failure notices remain visible in either step.
  *
  * @param state Current screen state used to populate route and flight-setup content.
  * @param mapReady Whether MapLibre has successfully finished loading its current style.
@@ -620,6 +621,15 @@ private fun TopLocationPanel(
     val takeoffAltitudeMeters = state.takeoffAltitudeMeters
     val altitudeInputIsInvalid = state.takeoffAltitudeInput.isNotBlank() &&
         takeoffAltitudeMeters == null
+    val takeoffConfirmationBlockerMessage = when (state.takeoffConfirmationBlocker) {
+        TakeoffConfirmationBlocker.LIVE_ORIGIN_UNAVAILABLE ->
+            stringResource(R.string.takeoff_origin_unavailable)
+        TakeoffConfirmationBlocker.DESTINATION_UNAVAILABLE ->
+            stringResource(R.string.takeoff_destination_unavailable)
+        TakeoffConfirmationBlocker.NOT_ALTITUDE_STEP,
+        TakeoffConfirmationBlocker.INVALID_ALTITUDE,
+        null -> null
+    }
     val panelTitle = stringResource(
         if (state.flightSetupStep == FlightSetupStep.DESTINATION) {
             R.string.route_details_step
@@ -792,13 +802,31 @@ private fun TopLocationPanel(
                         ),
                         keyboardActions = KeyboardActions(
                             onDone = {
-                                if (takeoffAltitudeMeters != null) {
+                                if (state.canConfirmTakeoffAltitude) {
                                     onConfirmTakeoffAltitude()
                                     keyboardController?.hide()
                                 }
                             }
                         ),
                     )
+
+                    if (takeoffConfirmationBlockerMessage != null) {
+                        Surface(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .semantics { liveRegion = LiveRegionMode.Polite },
+                            color = MaterialTheme.colorScheme.errorContainer,
+                            contentColor = MaterialTheme.colorScheme.onErrorContainer,
+                            shape = RoundedCornerShape(12.dp),
+                        ) {
+                            Text(
+                                text = takeoffConfirmationBlockerMessage,
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                                style = MaterialTheme.typography.bodySmall,
+                                fontWeight = FontWeight.SemiBold,
+                            )
+                        }
+                    }
 
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -813,16 +841,15 @@ private fun TopLocationPanel(
                         ) {
                             Text(stringResource(R.string.previous))
                         }
-                        if (takeoffAltitudeMeters != null) {
-                            Button(
-                                onClick = {
-                                    onConfirmTakeoffAltitude()
-                                    keyboardController?.hide()
-                                },
-                                modifier = Modifier.weight(1f),
-                            ) {
-                                Text(stringResource(R.string.next))
-                            }
+                        Button(
+                            onClick = {
+                                onConfirmTakeoffAltitude()
+                                keyboardController?.hide()
+                            },
+                            modifier = Modifier.weight(1f),
+                            enabled = state.canConfirmTakeoffAltitude,
+                        ) {
+                            Text(stringResource(R.string.next))
                         }
                     }
 

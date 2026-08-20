@@ -19,6 +19,8 @@
     <string name="altitude_meters_hint">Altitude in meters</string>
     <string name="meters_abbreviation">m</string>
     <string name="invalid_takeoff_altitude">Enter a valid altitude greater than 0 meters.</string>
+    <string name="takeoff_origin_unavailable">Current precise location was lost. Restore a live GPS fix before continuing; your destination and altitude are preserved.</string>
+    <string name="takeoff_destination_unavailable">The destination is no longer available. Return to the previous step and select it again.</string>
     <string name="takeoff_altitude_confirmed">Flight start altitude confirmed.</string>
     <string name="enter_coordinates">Enter coordinates</string>
     <string name="enter_destination_coordinates">Enter destination coordinates</string>

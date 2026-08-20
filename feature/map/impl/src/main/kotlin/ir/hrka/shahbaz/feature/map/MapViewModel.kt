@@ -38,7 +38,9 @@ import com.google.android.gms.location.LocationServices
 import com.google.android.gms.location.Priority
 import com.google.android.gms.tasks.CancellationTokenSource
 import ir.hrka.compass.Compass
+import ir.hrka.compass.CompassAvailability
 import ir.hrka.compass.CompassEvent
+import ir.hrka.compass.CompassFailureCode
 import ir.hrka.compass.CompassStartResult
 import ir.hrka.compass.GeomagneticPosition
 import ir.hrka.shahbaz.core.domain.haversineDistanceMeters
@@ -65,7 +67,7 @@ import kotlinx.coroutines.withContext
  * callbacks. Permission results are forwarded through [onPermissionResult], while destination
  * and takeoff-altitude actions are handled by [setDestination], [clearDestination],
  * [advanceToTakeoffAltitude], [returnToDestinationSelection], [updateTakeoffAltitude], and
- * [confirmTakeoffAltitude]. Consumers observe [uiState].
+ * [confirmTakeoffAltitude], and [clearConfirmedFlightPlan]. Consumers observe [uiState].
  *
  * @param application Application used to obtain process-scoped Android services and resources.
  */
@@ -132,6 +134,15 @@ class MapViewModel(application: Application) : AndroidViewModel(application) {
     /** Job that invalidates an origin after location availability remains stale. */
     private var locationStaleJob: Job? = null
 
+    /** Job that turns a missing or stopped compass stream into an explicit state. */
+    private var compassFreshnessJob: Job? = null
+
+    /** Invalidates delayed callbacks whenever a new foreground compass session starts or stops. */
+    private var compassSessionGeneration = 0L
+
+    /** Advances for every accepted compass callback so older freshness jobs cannot win a race. */
+    private var compassSampleGeneration = 0L
+
     /** Active reverse-geocoding job for the origin point. */
     private var originGeocodeJob: Job? = null
 
@@ -161,9 +172,7 @@ class MapViewModel(application: Application) : AndroidViewModel(application) {
          * @param availability Current fused-location availability reported by Google Play services.
          */
         override fun onLocationAvailability(availability: LocationAvailability) {
-            if (availability.isLocationAvailable) {
-                locationStaleJob?.cancel()
-            } else {
+            if (!availability.isLocationAvailable) {
                 scheduleLocationStaleCheck()
             }
         }
@@ -222,29 +231,103 @@ class MapViewModel(application: Application) : AndroidViewModel(application) {
      * updates begin so the UI never presents an outdated point as current.
      */
     fun onForeground() {
+        if (isForeground) return
         isForeground = true
+        compassSessionGeneration += 1
+        compassSampleGeneration = 0L
+        val compassSession = compassSessionGeneration
         registerLocationStateReceiver()
         val retainedOriginIsStale = _uiState.value.origin != null &&
             SystemClock.elapsedRealtime() - lastLocationElapsedRealtimeMillis >
             MAX_RETAINED_LOCATION_AGE_MILLIS
         if (retainedOriginIsStale) {
-            _uiState.update { it.copy(origin = null, locationStatus = LocationStatus.LOCATING) }
+            _uiState.update {
+                it.copy(
+                    origin = null,
+                    locationStatus = LocationStatus.LOCATING,
+                    phoneSpeedStatus = PhoneSpeedStatus.AwaitingLocation,
+                )
+            }
             clearCompassGeomagneticPosition()
         }
-        _uiState.update { it.copy(compassReading = null) }
+        _uiState.update {
+            it.copy(
+                compassReading = null,
+                compassStatus = CompassSensorStatus.Starting,
+                phoneSpeedStatus = PhoneSpeedStatus.AwaitingLocation,
+            )
+        }
         val compassStartResult = compass.start { event ->
+            if (!isForeground || compassSession != compassSessionGeneration) return@start
             when (event) {
                 is CompassEvent.Reading -> {
-                    _uiState.update { it.copy(compassReading = event.value) }
+                    compassSampleGeneration += 1
+                    _uiState.update {
+                        it.copy(
+                            compassReading = event.value,
+                            compassStatus = CompassSensorStatus.Active(
+                                source = event.value.sensorSource
+                            ),
+                        )
+                    }
+                    scheduleCompassFreshnessCheck(
+                        source = event.value.sensorSource,
+                        sessionGeneration = compassSession,
+                        sampleGeneration = compassSampleGeneration,
+                    )
                 }
 
                 is CompassEvent.Failure -> {
-                    _uiState.update { it.copy(compassReading = null) }
+                    compassFreshnessJob?.cancel()
+                    _uiState.update {
+                        it.copy(
+                            compassReading = if (
+                                event.failure.code == CompassFailureCode.INVALID_SENSOR_DATA
+                            ) {
+                                it.compassReading
+                            } else {
+                                null
+                            },
+                            compassStatus = CompassSensorStatus.Failed(event.failure),
+                        )
+                    }
                 }
             }
         }
-        if (compassStartResult is CompassStartResult.Failed) {
-            _uiState.update { it.copy(compassReading = null) }
+        when (compassStartResult) {
+            CompassStartResult.Started,
+            CompassStartResult.AlreadyRunning -> {
+                val status = when (val availability = compass.availability) {
+                    is CompassAvailability.Available -> CompassSensorStatus.AwaitingFirstSample(
+                        availability.source
+                    )
+                    is CompassAvailability.Unavailable -> CompassSensorStatus.Unavailable(
+                        availability.reason
+                    )
+                }
+                _uiState.update { it.copy(compassStatus = status) }
+                if (status is CompassSensorStatus.AwaitingFirstSample) {
+                    scheduleCompassFreshnessCheck(
+                        source = status.source,
+                        sessionGeneration = compassSession,
+                        sampleGeneration = compassSampleGeneration,
+                    )
+                }
+            }
+
+            is CompassStartResult.Failed -> {
+                val status = when (val availability = compass.availability) {
+                    is CompassAvailability.Unavailable -> CompassSensorStatus.Unavailable(
+                        availability.reason
+                    )
+                    is CompassAvailability.Available -> CompassSensorStatus.Failed(
+                        compassStartResult.failure
+                    )
+                }
+                _uiState.update {
+                    it.copy(compassReading = null, compassStatus = status)
+                }
+            }
         }
         refreshDeviceState()
     }
@@ -252,10 +335,19 @@ class MapViewModel(application: Application) : AndroidViewModel(application) {
     /** Stops foreground-only platform work and clears the transient compass heading. */
     fun onBackground() {
         isForeground = false
+        compassSessionGeneration += 1
+        compassFreshnessJob?.cancel()
+        compassFreshnessJob = null
         stopLocationUpdates()
         compass.stop()
         unregisterLocationStateReceiver()
-        _uiState.update { it.copy(compassReading = null) }
+        _uiState.update {
+            it.copy(
+                compassReading = null,
+                compassStatus = CompassSensorStatus.Inactive,
+                phoneSpeedStatus = PhoneSpeedStatus.Inactive,
+            )
+        }
     }
 
     /** Re-evaluates feature state after Android returns a location permission result. */
@@ -278,10 +370,7 @@ class MapViewModel(application: Application) : AndroidViewModel(application) {
     fun setDestination(coordinate: GeoCoordinate) {
         val fallbackName = appContext.getString(R.string.selected_destination)
         _uiState.update {
-            it.copy(
-                destination = PlacePoint(coordinate, fallbackName),
-                isTakeoffAltitudeConfirmed = false,
-            )
+            it.selectDestination(PlacePoint(coordinate, fallbackName))
         }
         resolveDestinationName(coordinate)
     }
@@ -289,14 +378,7 @@ class MapViewModel(application: Application) : AndroidViewModel(application) {
     /** Clears the selected destination and cancels its outstanding reverse-geocoding request. */
     fun clearDestination() {
         destinationGeocodeJob?.cancel()
-        _uiState.update {
-            it.copy(
-                destination = null,
-                flightSetupStep = FlightSetupStep.DESTINATION,
-                takeoffAltitudeInput = "",
-                isTakeoffAltitudeConfirmed = false,
-            )
-        }
+        _uiState.update { it.clearSelectedDestination() }
     }
 
     /** Advances from route selection to takeoff-altitude entry when a destination exists. */
@@ -323,6 +405,11 @@ class MapViewModel(application: Application) : AndroidViewModel(application) {
         _uiState.update { state -> state.confirmTakeoffAltitude() }
     }
 
+    /** Clears setup confirmation after the user returns from the flight dashboard. */
+    fun clearConfirmedFlightPlan() {
+        _uiState.update { state -> state.clearConfirmedFlightPlan() }
+    }
+
     /**
      * Reconciles foreground, permission, precision, and provider state before acquiring location.
      */
@@ -338,7 +425,13 @@ class MapViewModel(application: Application) : AndroidViewModel(application) {
                 stopLocationUpdates()
                 clearCompassGeomagneticPosition()
                 _uiState.update {
-                    it.copy(origin = null, locationStatus = LocationStatus.PERMISSION_REQUIRED)
+                    it.copy(
+                        origin = null,
+                        locationStatus = LocationStatus.PERMISSION_REQUIRED,
+                        phoneSpeedStatus = PhoneSpeedStatus.Unavailable(
+                            PhoneSpeedUnavailableReason.LOCATION_PERMISSION_REQUIRED
+                        ),
+                    )
                 }
             }
 
@@ -349,6 +442,9 @@ class MapViewModel(application: Application) : AndroidViewModel(application) {
                     it.copy(
                         origin = null,
                         locationStatus = LocationStatus.PRECISE_PERMISSION_REQUIRED,
+                        phoneSpeedStatus = PhoneSpeedStatus.Unavailable(
+                            PhoneSpeedUnavailableReason.PRECISE_LOCATION_PERMISSION_REQUIRED
+                        ),
                     )
                 }
             }
@@ -357,7 +453,13 @@ class MapViewModel(application: Application) : AndroidViewModel(application) {
                 stopLocationUpdates()
                 clearCompassGeomagneticPosition()
                 _uiState.update {
-                    it.copy(origin = null, locationStatus = LocationStatus.LOCATION_DISABLED)
+                    it.copy(
+                        origin = null,
+                        locationStatus = LocationStatus.LOCATION_DISABLED,
+                        phoneSpeedStatus = PhoneSpeedStatus.Unavailable(
+                            PhoneSpeedUnavailableReason.LOCATION_DISABLED
+                        ),
+                    )
                 }
             }
 
@@ -376,7 +478,12 @@ class MapViewModel(application: Application) : AndroidViewModel(application) {
         if (!hasFineLocationPermission()) return
 
         if (_uiState.value.origin == null) {
-            _uiState.update { it.copy(locationStatus = LocationStatus.LOCATING) }
+            _uiState.update {
+                it.copy(
+                    locationStatus = LocationStatus.LOCATING,
+                    phoneSpeedStatus = PhoneSpeedStatus.AwaitingLocation,
+                )
+            }
         } else {
             _uiState.update { it.copy(locationStatus = LocationStatus.READY) }
         }
@@ -405,7 +512,13 @@ class MapViewModel(application: Application) : AndroidViewModel(application) {
             locationUpdatesStarted = false
             clearCompassGeomagneticPosition()
             _uiState.update {
-                it.copy(origin = null, locationStatus = LocationStatus.PERMISSION_REQUIRED)
+                it.copy(
+                    origin = null,
+                    locationStatus = LocationStatus.PERMISSION_REQUIRED,
+                    phoneSpeedStatus = PhoneSpeedStatus.Unavailable(
+                        PhoneSpeedUnavailableReason.LOCATION_PERMISSION_REQUIRED
+                    ),
+                )
             }
         }
     }
@@ -432,7 +545,13 @@ class MapViewModel(application: Application) : AndroidViewModel(application) {
         } catch (_: SecurityException) {
             clearCompassGeomagneticPosition()
             _uiState.update {
-                it.copy(origin = null, locationStatus = LocationStatus.PERMISSION_REQUIRED)
+                it.copy(
+                    origin = null,
+                    locationStatus = LocationStatus.PERMISSION_REQUIRED,
+                    phoneSpeedStatus = PhoneSpeedStatus.Unavailable(
+                        PhoneSpeedUnavailableReason.LOCATION_PERMISSION_REQUIRED
+                    ),
+                )
             }
         }
     }
@@ -448,7 +567,14 @@ class MapViewModel(application: Application) : AndroidViewModel(application) {
         locationTimeoutJob = viewModelScope.launch {
             delay(CURRENT_LOCATION_TIMEOUT_MILLIS)
             if (_uiState.value.origin == null) {
-                _uiState.update { it.copy(locationStatus = LocationStatus.UNAVAILABLE) }
+                _uiState.update {
+                    it.copy(
+                        locationStatus = LocationStatus.UNAVAILABLE,
+                        phoneSpeedStatus = PhoneSpeedStatus.Unavailable(
+                            PhoneSpeedUnavailableReason.LOCATION_UNAVAILABLE
+                        ),
+                    )
+                }
             }
         }
     }
@@ -480,6 +606,7 @@ class MapViewModel(application: Application) : AndroidViewModel(application) {
         val keepExistingName = existing != null &&
             haversineDistanceMeters(existing.coordinate, coordinate) < ADDRESS_REFRESH_DISTANCE_METERS
         val fallbackName = appContext.getString(R.string.current_location)
+        val phoneSpeedStatus = phoneSpeedStatus(location)
 
         _uiState.update {
             it.copy(
@@ -490,10 +617,43 @@ class MapViewModel(application: Application) : AndroidViewModel(application) {
                     hasResolvedName = keepExistingName && existing.hasResolvedName,
                 ),
                 hasPrecisePermission = hasFineLocationPermission(),
+                phoneSpeedStatus = phoneSpeedStatus,
             )
         }
+        scheduleLocationStaleCheck()
 
         if (shouldRefreshName) resolveOriginName(coordinate)
+    }
+
+    /** Converts one accepted location's optional speed fields into typed dashboard-facing state. */
+    private fun phoneSpeedStatus(location: Location): PhoneSpeedStatus {
+        if (!location.hasSpeed()) {
+            return PhoneSpeedStatus.Unavailable(
+                PhoneSpeedUnavailableReason.SPEED_NOT_REPORTED
+            )
+        }
+        val metersPerSecond = location.speed
+        if (!metersPerSecond.isFinite() || metersPerSecond < 0f) {
+            return PhoneSpeedStatus.Unavailable(
+                PhoneSpeedUnavailableReason.INVALID_READING
+            )
+        }
+        val accuracyMetersPerSecond = if (location.hasSpeedAccuracy()) {
+            location.speedAccuracyMetersPerSecond.takeIf { accuracy ->
+                accuracy.isFinite() && accuracy >= 0f
+            }
+        } else {
+            null
+        }
+        val timestampEpochMillis = location.time.takeIf { it > 0L }
+            ?: System.currentTimeMillis()
+        return PhoneSpeedStatus.Available(
+            PhoneSpeedReading(
+                metersPerSecond = metersPerSecond,
+                accuracyMetersPerSecond = accuracyMetersPerSecond,
+                timestampEpochMillis = timestampEpochMillis,
+            )
+        )
     }
 
     /**
@@ -550,6 +710,9 @@ class MapViewModel(application: Application) : AndroidViewModel(application) {
                 it.copy(
                     origin = if (clearExistingOrigin) null else it.origin,
                     locationStatus = LocationStatus.UNAVAILABLE,
+                    phoneSpeedStatus = PhoneSpeedStatus.Unavailable(
+                        PhoneSpeedUnavailableReason.LOCATION_UNAVAILABLE
+                    ),
                 )
             }
         }
@@ -560,12 +723,22 @@ class MapViewModel(application: Application) : AndroidViewModel(application) {
      */
     private fun scheduleLocationStaleCheck() {
         locationStaleJob?.cancel()
+        val scheduledAt = SystemClock.elapsedRealtime()
+        val sampleAge = if (lastLocationElapsedRealtimeMillis == 0L) {
+            0L
+        } else {
+            (scheduledAt - lastLocationElapsedRealtimeMillis).coerceAtLeast(0L)
+        }
+        val delayMillis = (LOCATION_STALE_TIMEOUT_MILLIS - sampleAge).coerceAtLeast(0L)
         locationStaleJob = viewModelScope.launch {
-            delay(LOCATION_STALE_TIMEOUT_MILLIS)
+            delay(delayMillis)
             if (!isForeground) return@launch
-            val isStale = lastLocationElapsedRealtimeMillis == 0L ||
-                SystemClock.elapsedRealtime() - lastLocationElapsedRealtimeMillis >=
-                LOCATION_STALE_TIMEOUT_MILLIS
+            val now = SystemClock.elapsedRealtime()
+            val isStale = isElapsedSampleStale(
+                lastSampleElapsedRealtimeMillis = lastLocationElapsedRealtimeMillis,
+                nowElapsedRealtimeMillis = now.coerceAtLeast(lastLocationElapsedRealtimeMillis),
+                staleAfterMillis = LOCATION_STALE_TIMEOUT_MILLIS,
+            )
             if (isStale) {
                 val status = if (locationManager.isLocationEnabled) {
                     LocationStatus.UNAVAILABLE
@@ -573,7 +746,18 @@ class MapViewModel(application: Application) : AndroidViewModel(application) {
                     LocationStatus.LOCATION_DISABLED
                 }
                 clearCompassGeomagneticPosition()
-                _uiState.update { it.copy(origin = null, locationStatus = status) }
+                val speedReason = if (status == LocationStatus.LOCATION_DISABLED) {
+                    PhoneSpeedUnavailableReason.LOCATION_DISABLED
+                } else {
+                    PhoneSpeedUnavailableReason.LOCATION_UNAVAILABLE
+                }
+                _uiState.update {
+                    it.copy(
+                        origin = null,
+                        locationStatus = status,
+                        phoneSpeedStatus = PhoneSpeedStatus.Unavailable(speedReason),
+                    )
+                }
             }
         }
     }
@@ -843,8 +1027,38 @@ class MapViewModel(application: Application) : AndroidViewModel(application) {
             Manifest.permission.ACCESS_FINE_LOCATION,
         ) == PackageManager.PERMISSION_GRANTED
 
+    /** Schedules a generation-safe missing-first-sample or stale-stream transition. */
+    private fun scheduleCompassFreshnessCheck(
+        source: ir.hrka.compass.CompassSensorSource,
+        sessionGeneration: Long,
+        sampleGeneration: Long,
+    ) {
+        compassFreshnessJob?.cancel()
+        compassFreshnessJob = viewModelScope.launch {
+            delay(COMPASS_FRESHNESS_TIMEOUT_MILLIS)
+            if (
+                !isForeground ||
+                compassSessionGeneration != sessionGeneration ||
+                compassSampleGeneration != sampleGeneration
+            ) {
+                return@launch
+            }
+            _uiState.update { state ->
+                state.copy(
+                    compassStatus = compassTimeoutStatus(
+                        source = source,
+                        hasPriorReading = state.compassReading != null,
+                    )
+                )
+            }
+        }
+    }
+
     /** Releases all location, compass, broadcast, network, and coroutine work owned by this model. */
     override fun onCleared() {
+        compassSessionGeneration += 1
+        compassFreshnessJob?.cancel()
+        compassFreshnessJob = null
         stopLocationUpdates()
         compass.stop()
         unregisterLocationStateReceiver()
@@ -873,6 +1087,9 @@ class MapViewModel(application: Application) : AndroidViewModel(application) {
 
         /** Duration without location availability after which the origin is considered stale. */
         const val LOCATION_STALE_TIMEOUT_MILLIS = 20_000L
+
+        /** Maximum interval without a compass callback before its state is no longer live. */
+        const val COMPASS_FRESHNESS_TIMEOUT_MILLIS = 2_500L
 
         /** Minimum origin movement that warrants requesting a new reverse-geocoded name. */
         const val ADDRESS_REFRESH_DISTANCE_METERS = 100.0
