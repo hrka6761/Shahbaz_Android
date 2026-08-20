@@ -1,0 +1,92 @@
+# `:core:hardware_connection`
+
+A standalone, UI-free Android USB-host library for the production
+`shahbaz_interface_board`. It discovers only the board's native TinyUSB CDC identity
+(`VID 0x303A`, `PID 0x4001`), owns USB permission and attach/detach handling, performs Shahbaz
+Protocol v2 setup, and publishes typed link and sensor state. It has no dependency on any other
+Shahbaz project module, AndroidX, Compose, activity, fragment, or view API. Its only public runtime
+dependency is Kotlin coroutines because the simple API exposes `StateFlow`.
+
+## Public contract
+
+```kotlin
+import ir.hrka.shahbaz.hardwareconnection.HardwareConnection
+
+val board = HardwareConnection(applicationContext)
+
+val connection: StateFlow<BoardConnectionState> = board.connectionState
+val telemetry: StateFlow<BoardTelemetrySnapshot> = board.telemetry
+
+board.start()
+board.requestPermission() // module owns the Android permission request and result receiver
+board.retry()
+board.setQnh(1013.25)
+board.stop()
+board.close()
+```
+
+`BoardConnectionState.Ready` is deliberately strict. It is emitted only after all of the following:
+
+1. exact native-USB discovery and Android permission;
+2. CDC bulk IN/OUT open;
+3. Protocol v2 TimeSync with a non-zero, echoed session token;
+4. DeviceInfo validation for Protocol v2, ESP32-S3, clean board validation, and disabled actuators;
+5. StartTelemetry acknowledgement; and
+6. a current HeartbeatAck.
+
+Physical detach clears the parser, token, command sequences, telemetry, and raw sensor state. A
+reconnect always starts with a new TimeSync. CRC/COBS/length errors are bounded and observable in
+`BoardLinkDiagnostics`; CRC-valid frames with malformed payloads are rejected per-frame and cannot
+cancel the connection scope. Replay tracking mirrors the firmware's 12-entry USB priority queue:
+it accepts a late modulo-u32 frame only inside that bounded window and only when a validated,
+higher-priority frame could have overtaken it. Duplicate, too-old, and same-priority reordered
+frames cannot refresh health or become telemetry. Heartbeat, handshake, USB, session, permission,
+and device-validation failures are typed in `BoardLinkErrorCode`.
+
+SHT30 and MS5611 each have an independent `SensorState`: awaiting, available, stale, failed, or
+unavailable. If either sensor produces no first sample within
+`HardwareConnectionConfig.firstSensorSampleTimeoutMillis`, only that sensor becomes
+`Failed(NO_RESPONSE)`; the other remains usable, and any later valid sample recovers the failed
+sensor. A reading is exposed only when firmware validity, freshness, health, field type, and
+physical-range checks pass. Pressure remains raw Pa; altitude is recalculated on Android from the
+app-owned QNH. A sensor sample is accepted only after the current attachment reaches `Ready`, and
+its device timestamp must map into the configured freshness/future-skew window established by the
+current TimeSync. The first TimeSync device receive time remains an immutable attachment floor;
+periodic mappings support bounded backward conversion when HIGH traffic legitimately overtakes
+earlier NORMAL telemetry. Unknown sensor IDs and additional instances are retained as `RawSensorSample`
+keyed by `SensorKey`, allowing new board sensors without changing the USB layer; retention is
+strictly capped by `HardwareConnectionConfig.maximumUnknownSensors`.
+
+## Safety boundary
+
+The public API has no arm, motor, servo, actuator, or control-mode operation. The internal outbound
+policy also rejects those message types if invoked accidentally. Safe shutdown may send
+`StopTelemetry` followed by the tokenless `Disarm` safety override before closing USB.
+
+The library dynamically registers scoped receivers for permission and USB attach/detach while
+started. A consumer never creates a `PendingIntent`, receiver, `UsbManager`, device connection, or
+CDC endpoint. Its manifest declares USB host as optional so unsupported phones remain installable
+and report `USB_HOST_UNAVAILABLE` rather than disappearing from device compatibility.
+Receiver registration is transactional and reports `RECEIVER_REGISTRATION_FAILED` after rolling
+back a partial registration. Each client instance uses an unpredictable permission action. Calling
+`close()` on Android's main thread queues the complete `StopTelemetry`/`Disarm`/USB cleanup on the
+module's serial I/O dispatcher so UI teardown is not blocked.
+Heartbeat and DeviceStatus maintenance begins only after DeviceInfo validation; the validating
+stage cannot generate replies that its own inbound policy would reject.
+
+The outbound API is intentionally protocol-specific rather than a raw-byte escape hatch. This
+keeps TimeSync/session, CRC, freshness, heartbeat, and fail-closed actuator rules inside the module.
+
+## Verification
+
+```powershell
+.\gradlew.bat :core:hardware_connection:testDebugUnitTest :core:hardware_connection:lintDebug :core:hardware_connection:assembleRelease --no-daemon
+```
+
+Unit tests cover CRC-32C, COBS, the shared golden frame, bounded resynchronization, session reset,
+TimeSync rejection, actuator-policy exclusion, typed sensor validation, sequence regression,
+inbound priority/replay/reorder/wrap behavior, strict heartbeat/command acknowledgements, independent
+first-sample timeout and recovery, staleness/offline behavior, QNH recalculation, atomic receiver
+rollback, and bounded unknown-sensor extensibility. Android USB permission, physical
+detach/reconnect, endpoint compatibility, and live telemetry still require an OTG-capable physical
+phone and the native USB connector.

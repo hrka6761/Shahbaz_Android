@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Declares the optional USB-host capability used by the reusable board client. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- Keep installation possible so the API can report USB_HOST_UNAVAILABLE explicitly. -->
+    <uses-feature
+        android:name="android.hardware.usb.host"
+        android:required="false" />
+
+</manifest>

@@ -12,6 +12,7 @@ maplibreCompose = "0.13.1"
 maplibreAndroid = "13.0.2"
 playServicesLocation = "21.4.0"
 fragment = "1.8.9"
+coroutines = "1.10.2"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
@@ -37,6 +38,7 @@ maplibre-compose = { group = "org.maplibre.compose", name = "maplibre-compose", 
 maplibre-android-opengl = { group = "org.maplibre.gl", name = "android-sdk-opengl", version.ref = "maplibreAndroid" }
 google-play-services-location = { group = "com.google.android.gms", name = "play-services-location", version.ref = "playServicesLocation" }
 androidx-fragment = { group = "androidx.fragment", name = "fragment", version.ref = "fragment" }
+kotlinx-coroutines-core = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-core", version.ref = "coroutines" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }
