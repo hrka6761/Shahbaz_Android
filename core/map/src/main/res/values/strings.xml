@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Localized copy and accessibility text owned by the reusable flight-route map. -->
+<resources>
+    <string name="flight_map_description">Flight route map showing the origin and destination</string>
+    <string name="flight_map_description_with_position">Flight route map showing the origin, destination, and current tracked position</string>
+    <string name="flight_map_loading">Loading flight map&#8230;</string>
+    <string name="flight_map_offline_title">Map offline</string>
+    <string name="flight_map_offline_message">The route remains available, but map tiles may be missing until the connection returns.</string>
+    <string name="flight_map_error_title">Map unavailable</string>
+    <string name="flight_map_error_message">The map style could not be loaded. Check the connection and try again.</string>
+    <string name="flight_map_retry">Try again</string>
+</resources>
