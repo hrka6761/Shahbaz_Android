@@ -251,9 +251,9 @@ class MapUiStateTest {
         assertEquals(movedOrigin, movedState.origin)
     }
 
-    /** Verifies route replacement and explicit dashboard return invalidate confirmation. */
+    /** Verifies Back from dashboard restores the same completed altitude-selection draft. */
     @Test
-    fun `route changes and dashboard return clear confirmed plan`() {
+    fun `dashboard return preserves location altitude and altitude selection step`() {
         val origin = PlacePoint(GeoCoordinate(35.6, 51.3), "Origin")
         val destination = PlacePoint(GeoCoordinate(35.7, 51.4), "Destination")
         val confirmedState = MapUiState(
@@ -272,8 +272,12 @@ class MapUiStateTest {
 
         assertNull(changedRoute.confirmedFlightPlan)
         assertNull(returnedFromDashboard.confirmedFlightPlan)
+        assertEquals(FlightSetupStep.TAKEOFF_ALTITUDE, returnedFromDashboard.flightSetupStep)
+        assertEquals(origin, returnedFromDashboard.origin)
         assertEquals(destination, returnedFromDashboard.destination)
         assertEquals("50", returnedFromDashboard.takeoffAltitudeInput)
+        assertEquals(50.0, returnedFromDashboard.takeoffAltitudeMeters!!, 0.0)
+        assertTrue(returnedFromDashboard.canConfirmTakeoffAltitude)
     }
 
     /** Verifies malformed speed samples cannot masquerade as available dashboard data. */
