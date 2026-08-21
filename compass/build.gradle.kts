@@ -10,7 +10,7 @@ version = "0.1.0"
 android {
     namespace = "ir.hrka.compass"
     compileSdk {
-        version = release(36)
+        version = release(37)
     }
 
     defaultConfig {

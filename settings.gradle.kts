@@ -1,7 +1,6 @@
 /** Defines plugin repositories, dependency repositories, and the Shahbaz module graph. */
 pluginManagement {
     repositories {
-        maven(url = "https://maven.myket.ir")
         google {
             content {
                 includeGroupByRegex("com\\.android.*")
@@ -11,14 +10,15 @@ pluginManagement {
         }
         mavenCentral()
         gradlePluginPortal()
+        maven(url = "https://maven.myket.ir")
     }
 }
 dependencyResolutionManagement {
     repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
     repositories {
-        maven(url = "https://maven.myket.ir")
         google()
         mavenCentral()
+        maven(url = "https://maven.myket.ir")
     }
 }
 

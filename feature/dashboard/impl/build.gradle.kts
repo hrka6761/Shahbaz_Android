@@ -7,7 +7,7 @@ plugins {
 android {
     namespace = "ir.hrka.shahbaz.feature.dashboard.impl"
     compileSdk {
-        version = release(36)
+        version = release(37)
     }
 
     defaultConfig {
