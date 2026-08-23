@@ -93,11 +93,22 @@ internal fun connectionGateAction(state: BoardConnectionState): ConnectionGateAc
     is BoardConnectionState.Opening,
     is BoardConnectionState.Synchronizing,
     is BoardConnectionState.ValidatingDevice,
-    is BoardConnectionState.AwaitingHeartbeat -> ConnectionGateAction.NONE
+    is BoardConnectionState.AwaitingHeartbeat,
+    is BoardConnectionState.StartingTelemetry -> ConnectionGateAction.NONE
 }
 
 internal fun shouldBlockDashboard(state: BoardConnectionState): Boolean =
     state !is BoardConnectionState.Ready
+
+/** Keeps firmware evidence warnings visible without treating them as live-link failures. */
+internal fun boardReadyStatusKind(state: BoardConnectionState): InstrumentStatusKind {
+    val ready = state as? BoardConnectionState.Ready ?: return InstrumentStatusKind.NOT_CONNECTED
+    return if (ready.deviceInfo.boardValidationIssueMask == 0L) {
+        InstrumentStatusKind.LIVE
+    } else {
+        InstrumentStatusKind.DEGRADED
+    }
+}
 
 /** Shared, pure status classification for visual and textual instrument state. */
 internal enum class InstrumentStatusKind {
@@ -246,7 +257,8 @@ private fun BoardConnectionGate(
         state is BoardConnectionState.Opening ||
         state is BoardConnectionState.Synchronizing ||
         state is BoardConnectionState.ValidatingDevice ||
-        state is BoardConnectionState.AwaitingHeartbeat
+        state is BoardConnectionState.AwaitingHeartbeat ||
+        state is BoardConnectionState.StartingTelemetry
 
     Box(
         modifier = Modifier
@@ -319,6 +331,7 @@ private fun connectionTitle(state: BoardConnectionState): String = stringResourc
         is BoardConnectionState.Synchronizing -> R.string.board_sync_title
         is BoardConnectionState.ValidatingDevice -> R.string.board_validating_title
         is BoardConnectionState.AwaitingHeartbeat -> R.string.board_heartbeat_title
+        is BoardConnectionState.StartingTelemetry -> R.string.board_telemetry_start_title
         is BoardConnectionState.Disconnected -> R.string.board_disconnected_title
         is BoardConnectionState.Failed -> R.string.board_failed_title
         is BoardConnectionState.Ready -> R.string.board_ready_title
@@ -338,6 +351,8 @@ private fun connectionMessage(state: BoardConnectionState): String = when (state
     is BoardConnectionState.Synchronizing -> stringResource(R.string.board_sync_message)
     is BoardConnectionState.ValidatingDevice -> stringResource(R.string.board_validating_message)
     is BoardConnectionState.AwaitingHeartbeat -> stringResource(R.string.board_heartbeat_message)
+    is BoardConnectionState.StartingTelemetry ->
+        stringResource(R.string.board_telemetry_start_message)
     is BoardConnectionState.Disconnected -> stringResource(
         R.string.board_disconnected_message,
         disconnectReasonText(state.reason),
@@ -389,6 +404,8 @@ internal fun instrumentColumnCount(availableWidthDp: Float): Int = when {
 @Composable
 private fun DashboardHeader(state: DashboardUiState) {
     val plan = state.flightPlan
+    val ready = state.boardConnection as BoardConnectionState.Ready
+    val advisoryIssueMask = ready.deviceInfo.boardValidationIssueMask
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.SpaceBetween,
@@ -412,10 +429,26 @@ private fun DashboardHeader(state: DashboardUiState) {
                 color = CockpitMuted,
                 style = MaterialTheme.typography.bodySmall,
             )
+            if (advisoryIssueMask != 0L) {
+                Text(
+                    text = stringResource(
+                        R.string.board_advisory_issue_mask,
+                        advisoryIssueMask,
+                    ),
+                    color = WarningAmber,
+                    style = MaterialTheme.typography.labelSmall,
+                )
+            }
         }
         StatusPill(
-            text = stringResource(R.string.board_ready_status),
-            kind = InstrumentStatusKind.LIVE,
+            text = stringResource(
+                if (advisoryIssueMask == 0L) {
+                    R.string.board_ready_status
+                } else {
+                    R.string.board_ready_with_advisories_status
+                }
+            ),
+            kind = boardReadyStatusKind(state.boardConnection),
         )
     }
 }

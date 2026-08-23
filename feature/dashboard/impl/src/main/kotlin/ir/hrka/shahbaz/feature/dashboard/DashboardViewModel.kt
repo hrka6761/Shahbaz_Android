@@ -99,6 +99,13 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
         }
     }
 
+    /** Reconciles USB permission after transient system UI, including the permission dialog. */
+    fun onHostResume() {
+        if (hostForeground && mutableUiState.value.flightPlan != null) {
+            board.refresh()
+        }
+    }
+
     /** Releases the external board whenever the host is no longer visible. */
     fun onHostBackground() {
         hostForeground = false

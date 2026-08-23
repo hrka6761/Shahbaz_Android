@@ -6,7 +6,8 @@ permission handling, Protocol v2 framing, session protection, and telemetry tran
 independent inside `:core:hardware_connection`.
 
 `DashboardScreen` is fail-closed: instruments are not shown until `BoardConnectionState.Ready`,
-which means TimeSync, DeviceInfo validation, and heartbeat have all succeeded. The screen then uses
+which means TimeSync, DeviceInfo validation, heartbeat recovery, and the StartTelemetry
+acknowledgement have all succeeded. The screen then uses
 an adaptive, exact 70% instruments / 30% route-map split. Landscape uses side-by-side panes and
 portrait uses stacked panes. Map load/offline errors stay inside the map pane and do not hide
 working instruments.

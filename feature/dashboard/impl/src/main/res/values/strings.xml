@@ -5,6 +5,8 @@
     <string name="flight_target_format">Target altitude: %1$.1f m above takeoff</string>
     <string name="flight_plan_missing">Flight plan unavailable</string>
     <string name="board_ready_status">Board ready</string>
+    <string name="board_ready_with_advisories_status">Board ready · review warnings</string>
+    <string name="board_advisory_issue_mask">Hardware evidence advisory mask: 0x%1$08X</string>
 
     <string name="board_gate_eyebrow">SHAHBAZ INTERFACE BOARD</string>
     <string name="board_gate_blocking_note">Flight instruments stay locked until USB, TimeSync, DeviceInfo, and heartbeat checks succeed.</string>
@@ -25,7 +27,9 @@
     <string name="board_validating_title">Validating board identity</string>
     <string name="board_validating_message">Checking target, firmware capabilities, and safety state.</string>
     <string name="board_heartbeat_title">Waiting for board heartbeat</string>
-    <string name="board_heartbeat_message">The secure session is ready; waiting for proof that the board is responsive.</string>
+    <string name="board_heartbeat_message">Recovering and verifying the board heartbeat before telemetry starts.</string>
+    <string name="board_telemetry_start_title">Starting board telemetry</string>
+    <string name="board_telemetry_start_message">The heartbeat is healthy; waiting for the board to confirm sensor streaming.</string>
     <string name="board_disconnected_title">Board disconnected</string>
     <string name="board_disconnected_message">The USB board link closed: %1$s.</string>
     <string name="board_failed_title">Board connection failed</string>

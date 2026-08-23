@@ -52,11 +52,30 @@ class DashboardPresentationDecisionsTest {
                 BoardConnectionState.AwaitingHeartbeat(Device, DeviceInfo)
             )
         )
+        assertTrue(
+            shouldBlockDashboard(
+                BoardConnectionState.StartingTelemetry(Device, DeviceInfo)
+            )
+        )
         assertFalse(
             shouldBlockDashboard(
                 BoardConnectionState.Ready(Device, DeviceInfo, 100L)
             )
         )
+    }
+
+    @Test
+    fun readyBoardEvidenceWarningsAreDegradedButDoNotBlockTheDashboard() {
+        val clean = BoardConnectionState.Ready(Device, DeviceInfo, 10L)
+        val advisory = BoardConnectionState.Ready(
+            Device,
+            DeviceInfo.copy(boardValidationIssueMask = 0x2FF0),
+            10L,
+        )
+
+        assertEquals(InstrumentStatusKind.LIVE, boardReadyStatusKind(clean))
+        assertEquals(InstrumentStatusKind.DEGRADED, boardReadyStatusKind(advisory))
+        assertFalse(shouldBlockDashboard(advisory))
     }
 
     @Test
