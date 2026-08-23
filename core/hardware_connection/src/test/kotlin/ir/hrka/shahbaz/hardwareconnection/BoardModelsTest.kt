@@ -30,5 +30,11 @@ class BoardModelsTest {
         assertThrows(IllegalArgumentException::class.java) {
             HardwareConnectionConfig(maximumUnknownSensors = 0)
         }
+        assertThrows(IllegalArgumentException::class.java) {
+            HardwareConnectionConfig(initialTimeSyncMaximumAttempts = 0)
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            HardwareConnectionConfig(initialTimeSyncRetryIntervalMillis = 0)
+        }
     }
 }

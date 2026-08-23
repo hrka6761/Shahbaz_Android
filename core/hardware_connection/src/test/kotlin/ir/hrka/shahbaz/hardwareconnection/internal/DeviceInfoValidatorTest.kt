@@ -27,6 +27,33 @@ class DeviceInfoValidatorTest {
     }
 
     @Test
+    fun knownAdvisoryEvidenceIsAcceptedAndRetained() {
+        val defaultEvidence = safe.copy(boardValidationIssueMask = 0x2FF0)
+        val everyKnownAdvisory = safe.copy(
+            boardValidationIssueMask = ADVISORY_BOARD_VALIDATION_ISSUE_MASK,
+        )
+
+        assertNull(defaultEvidence.validationError())
+        assertNull(everyKnownAdvisory.validationError())
+        org.junit.Assert.assertEquals(0x2FF0L, defaultEvidence.boardValidationIssueMask)
+    }
+
+    @Test
+    fun everyKnownFatalValidationIssueIsRejected() {
+        (0 until 64).forEach { bit ->
+            val issue = 1L shl bit
+            if (issue and FATAL_BOARD_VALIDATION_ISSUE_MASK != 0L) {
+                assertNotNull(safe.copy(boardValidationIssueMask = issue).validationError())
+            }
+        }
+    }
+
+    @Test
+    fun unknownFutureValidationIssuesAreRejected() {
+        assertNotNull(safe.copy(boardValidationIssueMask = 0x1_0000).validationError())
+    }
+
+    @Test
     fun actuatorAvailabilityIsRejectedEvenWhenChannelsAreInactive() {
         assertNotNull(safe.copy(actuatorAvailable = true).validationError())
     }

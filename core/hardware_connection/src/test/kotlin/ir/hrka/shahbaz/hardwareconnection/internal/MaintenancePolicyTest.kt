@@ -16,6 +16,9 @@ class MaintenancePolicyTest {
         assertTrue(
             allowsPostValidationMaintenance(BoardConnectionState.AwaitingHeartbeat(device, info)),
         )
+        assertTrue(
+            allowsPostValidationMaintenance(BoardConnectionState.StartingTelemetry(device, info)),
+        )
         assertTrue(allowsPostValidationMaintenance(BoardConnectionState.Ready(device, info, 10L)))
     }
 

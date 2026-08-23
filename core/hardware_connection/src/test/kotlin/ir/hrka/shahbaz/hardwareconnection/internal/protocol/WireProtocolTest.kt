@@ -69,11 +69,13 @@ class WireProtocolTest {
         assertEquals(null, session.sessionToken)
         val newRequest = session.buildTimeSync()
         assertEquals(1u, newRequest.sequence)
+        val requestHostUs = now
+        now = 1_100uL
         val response = deviceFrame(
             MessageType.TIME_SYNC_RESPONSE,
             sequence = 7u,
             senderUs = 2_000uL,
-            payload = u64(now) + u64(1_001uL) + u64(1_002uL) + u64(0x1122uL),
+            payload = u64(requestHostUs) + u64(1_001uL) + u64(1_002uL) + u64(0x1122uL),
         )
         val events = session.feed(response)
         val frame = (events.single() as BoardProtocolSession.Event.FrameReceived).frame
@@ -100,6 +102,36 @@ class WireProtocolTest {
         ).frame
         assertThrows(ProtocolException::class.java) { session.acceptTimeSync(frame, now) }
         assertEquals(null, session.sessionToken)
+    }
+
+    @Test
+    fun delayedResponseToAnEarlierBoundedRetryCanEstablishTheSession() {
+        var now = 1_000uL
+        val session = BoardProtocolSession { now }
+        session.attach()
+        session.buildTimeSync()
+        now = 1_500uL
+        session.buildTimeSync()
+
+        now = 1_600uL
+        val delayedFirstResponse = deviceFrame(
+            MessageType.TIME_SYNC_RESPONSE,
+            sequence = 1u,
+            senderUs = 2_020uL,
+            payload = u64(1_000uL) + u64(2_000uL) + u64(2_020uL) + u64(0x55uL),
+        )
+        val frame = (
+            session.feed(delayedFirstResponse).single() as BoardProtocolSession.Event.FrameReceived
+        ).frame
+
+        assertEquals(0x55uL, session.acceptTimeSync(frame, now))
+        assertEquals(0x55uL, session.sessionToken)
+        session.requireFreshDeviceFrameTimestamp(
+            frameSenderUs = 2_600uL,
+            receivedHostUs = 1_610uL,
+            maximumAgeUs = 100uL,
+            maximumFutureSkewUs = 100uL,
+        )
     }
 
     @Test
@@ -205,10 +237,22 @@ class WireProtocolTest {
         MessageType.DEVICE_INFO_RESPONSE.requireAllowedInboundAt(
             InboundSessionStage.VALIDATING_DEVICE,
         )
+        MessageType.HEARTBEAT_ACK.requireAllowedInboundAt(
+            InboundSessionStage.AWAITING_HEARTBEAT,
+        )
+        MessageType.COMMAND_ACK.requireAllowedInboundAt(
+            InboundSessionStage.STARTING_TELEMETRY,
+        )
         MessageType.DEVICE_STATUS_RESPONSE.requireAllowedInboundAt(
-            InboundSessionStage.AWAITING_READY,
+            InboundSessionStage.STARTING_TELEMETRY,
         )
         MessageType.SENSOR_SAMPLE.requireAllowedInboundAt(InboundSessionStage.READY)
+
+        assertThrows(ProtocolException::class.java) {
+            MessageType.COMMAND_ACK.requireAllowedInboundAt(
+                InboundSessionStage.AWAITING_HEARTBEAT,
+            )
+        }
     }
 
     @Test
@@ -427,7 +471,7 @@ class WireProtocolTest {
         session.requireFreshInboundSequence(heartbeat.header.sequence, heartbeat.header.priority)
         session.requireFreshDeviceFrameTimestamp(
             frameSenderUs = heartbeat.header.senderMonotonicUs,
-            receivedHostUs = 10_250uL,
+            receivedHostUs = 10_200uL,
             maximumAgeUs = 100uL,
             maximumFutureSkewUs = 100uL,
         )
