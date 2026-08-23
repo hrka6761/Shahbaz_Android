@@ -12,9 +12,18 @@ import android.hardware.usb.UsbManager
 import android.os.Build
 import android.os.Looper
 import android.os.SystemClock
+import ir.hrka.shahbaz.hardwareconnection.internal.AcceptedTimeSyncAction
+import ir.hrka.shahbaz.hardwareconnection.internal.InitialTimeSyncAction
 import ir.hrka.shahbaz.hardwareconnection.internal.TelemetryStore
+import ir.hrka.shahbaz.hardwareconnection.internal.UsbPermissionReconciliation
+import ir.hrka.shahbaz.hardwareconnection.internal.ValidatedHandshakeAction
 import ir.hrka.shahbaz.hardwareconnection.internal.allowsPostValidationMaintenance
+import ir.hrka.shahbaz.hardwareconnection.internal.acceptedTimeSyncAction
+import ir.hrka.shahbaz.hardwareconnection.internal.initialTimeSyncAction
 import ir.hrka.shahbaz.hardwareconnection.internal.registerReceiversAtomically
+import ir.hrka.shahbaz.hardwareconnection.internal.usbPermissionPendingIntentFlags
+import ir.hrka.shahbaz.hardwareconnection.internal.usbPermissionReconciliation
+import ir.hrka.shahbaz.hardwareconnection.internal.validatedHandshakeAction
 import ir.hrka.shahbaz.hardwareconnection.internal.validationError
 import ir.hrka.shahbaz.hardwareconnection.internal.protocol.ApplicationAction
 import ir.hrka.shahbaz.hardwareconnection.internal.protocol.BoardProtocolSession
@@ -52,6 +61,9 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
+
+private const val USB_PERMISSION_DEVICE_ID_EXTRA =
+    "ir.hrka.shahbaz.hardwareconnection.extra.USB_PERMISSION_DEVICE_ID"
 
 /**
  * Owns one sensor-only Android USB-host connection to `shahbaz_interface_board`.
@@ -105,15 +117,19 @@ class HardwareConnection(
     private var lastHeartbeatAckMillis = 0L
     private var timeSyncSentMillis = 0L
     private var timeSyncPending = false
+    private var initialTimeSyncAttemptsSent = 0
     private var lastDeviceStatusSentMillis = 0L
 
     private val permissionReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
             if (intent?.action != permissionAction) return
-            val device = intent.usbDevice() ?: return
-            val granted = intent.getBooleanExtra(UsbManager.EXTRA_PERMISSION_GRANTED, false)
+            val requestedDeviceId = if (intent.hasExtra(USB_PERMISSION_DEVICE_ID_EXTRA)) {
+                intent.getIntExtra(USB_PERMISSION_DEVICE_ID_EXTRA, 0)
+            } else {
+                null
+            }
             scope.launch {
-                handlePermissionResult(device, granted && usbManager.hasPermission(device))
+                handlePermissionResult(requestedDeviceId)
             }
         }
     }
@@ -153,6 +169,14 @@ class HardwareConnection(
     fun start() {
         if (closed.get()) return
         scope.launch { startInternal() }
+    }
+
+    /** Reconciles current attachment and permission state without reopening a healthy link. */
+    fun refresh() {
+        if (closed.get()) return
+        scope.launch {
+            if (!started) startInternal() else scanAndConnect()
+        }
     }
 
     /** Safely closes the board link and unregisters dynamic USB receivers. */
@@ -300,6 +324,9 @@ class HardwareConnection(
         val matches = transport.matchingDevices()
         when {
             matches.isEmpty() -> {
+                if (transport.openedDeviceId() != null || session.attached) {
+                    closeLink(sendSafetyShutdown = false)
+                }
                 selectedDevice = null
                 selectedDescriptor = null
                 mutableConnectionState.value = BoardConnectionState.Searching
@@ -321,6 +348,12 @@ class HardwareConnection(
                 val descriptor = device.toPublicDescriptor()
                 selectedDevice = device
                 selectedDescriptor = descriptor
+                if (
+                    transport.openedDeviceId() == device.deviceId &&
+                    session.attached
+                ) {
+                    return
+                }
                 if (!transport.hasPermission(device)) {
                     mutableConnectionState.value = BoardConnectionState.PermissionRequired(descriptor)
                 } else {
@@ -343,12 +376,14 @@ class HardwareConnection(
             return
         }
         mutableConnectionState.value = BoardConnectionState.RequestingPermission(descriptor)
-        val resultIntent = Intent(permissionAction).setPackage(applicationContext.packageName)
+        val resultIntent = Intent(permissionAction)
+            .setPackage(applicationContext.packageName)
+            .putExtra(USB_PERMISSION_DEVICE_ID_EXTRA, device.deviceId)
         val pendingIntent = PendingIntent.getBroadcast(
             applicationContext,
             device.deviceId,
             resultIntent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+            usbPermissionPendingIntentFlags(),
         )
         try {
             usbManager.requestPermission(device, pendingIntent)
@@ -363,22 +398,40 @@ class HardwareConnection(
         }
     }
 
-    private fun handlePermissionResult(device: UsbDevice, granted: Boolean) {
-        if (!started || selectedDevice?.deviceId != device.deviceId) return
-        if (!granted) {
-            mutableConnectionState.value = BoardConnectionState.Failed(
-                BoardLinkError(
-                    BoardLinkErrorCode.PERMISSION_DENIED,
-                    "USB permission was denied",
-                    recoverable = true,
-                ),
+    private fun handlePermissionResult(requestedDeviceId: Int?) {
+        if (!started) return
+        val device = selectedDevice
+        val descriptor = selectedDescriptor
+        when (
+            usbPermissionReconciliation(
+                selectedDeviceId = device?.deviceId,
+                requestedDeviceId = requestedDeviceId,
+                selectedDeviceIsAttached = device?.let { transport.isAttached(it.deviceId) } == true,
+                selectedDeviceHasPermission = device?.let(transport::hasPermission) == true,
             )
-            return
+        ) {
+            UsbPermissionReconciliation.RESCAN -> scanAndConnect()
+            UsbPermissionReconciliation.OPEN -> {
+                if (device == null || descriptor == null) {
+                    scanAndConnect()
+                } else {
+                    open(device, descriptor)
+                }
+            }
+            UsbPermissionReconciliation.DENIED -> {
+                mutableConnectionState.value = BoardConnectionState.Failed(
+                    BoardLinkError(
+                        BoardLinkErrorCode.PERMISSION_DENIED,
+                        "USB permission was denied",
+                        recoverable = true,
+                    ),
+                )
+            }
         }
-        open(device, device.toPublicDescriptor())
     }
 
     private fun open(device: UsbDevice, descriptor: BoardUsbDevice) {
+        if (transport.openedDeviceId() == device.deviceId && session.attached) return
         closeLink(sendSafetyShutdown = true)
         generation += 1
         val linkGeneration = generation
@@ -392,7 +445,7 @@ class HardwareConnection(
                 resetHandshakeState()
                 mutableConnectionState.value = BoardConnectionState.Synchronizing(descriptor)
                 stageDeadlineMillis = connectedAtMillis + config.handshakeTimeoutMillis
-                if (!sendTimeSync()) return
+                if (!sendInitialTimeSync()) return
                 startLinkMaintenance(linkGeneration)
             }
             AndroidUsbCdcTransport.OpenResult.PermissionMissing ->
@@ -473,7 +526,10 @@ class HardwareConnection(
             return
         }
         activeToken = token
-        if (deviceInfo != null) return // Periodic drift correction; readiness remains valid.
+        if (
+            acceptedTimeSyncAction(priorToken != null) ==
+            AcceptedTimeSyncAction.REFRESH_MAPPING_ONLY
+        ) return
         val descriptor = selectedDescriptor ?: return
         mutableConnectionState.value = BoardConnectionState.ValidatingDevice(descriptor)
         stageDeadlineMillis = SystemClock.elapsedRealtime() + config.handshakeTimeoutMillis
@@ -489,10 +545,15 @@ class HardwareConnection(
             MessageType.DEVICE_INFO_RESPONSE -> handleDeviceInfo(frame)
             MessageType.HEARTBEAT_ACK -> {
                 frame.requireHeartbeatAckPayload()
-                requireHandshakeResponseIsExpected("HeartbeatAck")
+                requireHeartbeatResponseIsExpected()
+                val firstAcknowledgement = !heartbeatAcknowledged
                 heartbeatAcknowledged = true
                 lastHeartbeatAckMillis = (receivedAtUs / 1_000uL).toLong()
-                maybePublishReady()
+                if (firstAcknowledgement) {
+                    if (!send(session.buildDeviceStatus())) return
+                    lastDeviceStatusSentMillis = SystemClock.elapsedRealtime()
+                }
+                advanceValidatedHandshake()
             }
             MessageType.COMMAND_ACK -> {
                 if (telemetryStartAcknowledged) {
@@ -505,13 +566,16 @@ class HardwareConnection(
                     ProtocolErrorKind.PAYLOAD_INVALID,
                     "CommandAck decoder rejected its message type",
                 )
+                requireStartTelemetryResponseIsExpected()
                 val expectedSequence = telemetryStartSequence ?: throw ProtocolException(
                     ProtocolErrorKind.POLICY_REJECTED,
                     "Unsolicited CommandAck before StartTelemetry",
                 )
                 ack.requireAcknowledges(expectedSequence, ApplicationAction.START_TELEMETRY)
                 telemetryStartAcknowledged = true
-                maybePublishReady()
+                telemetryStore.awaitingTelemetry(SystemClock.elapsedRealtime())
+                publishTelemetry()
+                advanceValidatedHandshake()
             }
             MessageType.COMMAND_NACK -> {
                 val nack = frame.decodeCommandNack() ?: throw ProtocolException(
@@ -587,7 +651,8 @@ class HardwareConnection(
     private fun currentInboundSessionStage(): InboundSessionStage =
         when (mutableConnectionState.value) {
             is BoardConnectionState.ValidatingDevice -> InboundSessionStage.VALIDATING_DEVICE
-            is BoardConnectionState.AwaitingHeartbeat -> InboundSessionStage.AWAITING_READY
+            is BoardConnectionState.AwaitingHeartbeat -> InboundSessionStage.AWAITING_HEARTBEAT
+            is BoardConnectionState.StartingTelemetry -> InboundSessionStage.STARTING_TELEMETRY
             is BoardConnectionState.Ready -> InboundSessionStage.READY
             else -> InboundSessionStage.NOT_SYNCHRONIZED
         }
@@ -605,38 +670,65 @@ class HardwareConnection(
         val descriptor = selectedDescriptor ?: return
         mutableConnectionState.value = BoardConnectionState.AwaitingHeartbeat(descriptor, info)
         stageDeadlineMillis = SystemClock.elapsedRealtime() + config.handshakeTimeoutMillis
-        val start = session.buildStartTelemetry()
-        telemetryStartSequence = start.sequence
-        if (!send(start)) return
-        telemetryStore.awaitingTelemetry(SystemClock.elapsedRealtime())
-        publishTelemetry()
         if (!sendHeartbeat()) return
-        if (send(session.buildDeviceStatus())) {
-            lastDeviceStatusSentMillis = SystemClock.elapsedRealtime()
+    }
+
+    private fun advanceValidatedHandshake() {
+        val info = deviceInfo ?: return
+        val descriptor = selectedDescriptor ?: return
+        when (
+            validatedHandshakeAction(
+                heartbeatAcknowledged = heartbeatAcknowledged,
+                telemetryStartRequested = telemetryStartSequence != null,
+                telemetryStartAcknowledged = telemetryStartAcknowledged,
+            )
+        ) {
+            ValidatedHandshakeAction.WAIT_FOR_HEARTBEAT,
+            ValidatedHandshakeAction.WAIT_FOR_TELEMETRY_ACK -> Unit
+            ValidatedHandshakeAction.START_TELEMETRY -> {
+                mutableConnectionState.value = BoardConnectionState.StartingTelemetry(
+                    descriptor,
+                    info,
+                )
+                stageDeadlineMillis = SystemClock.elapsedRealtime() + config.handshakeTimeoutMillis
+                val start = session.buildStartTelemetry()
+                telemetryStartSequence = start.sequence
+                if (!send(start)) return
+            }
+            ValidatedHandshakeAction.READY -> {
+                if (activeToken == null) return
+                mutableConnectionState.value = BoardConnectionState.Ready(
+                    descriptor,
+                    info,
+                    connectedAtMillis,
+                )
+            }
         }
     }
 
-    private fun maybePublishReady() {
-        val info = deviceInfo ?: return
-        val descriptor = selectedDescriptor ?: return
-        if (!heartbeatAcknowledged || !telemetryStartAcknowledged || activeToken == null) return
-        mutableConnectionState.value = BoardConnectionState.Ready(
-            descriptor,
-            info,
-            connectedAtMillis,
-        )
-    }
-
-    private fun requireHandshakeResponseIsExpected(name: String) {
+    private fun requireHeartbeatResponseIsExpected() {
         if (
             activeToken == null ||
             deviceInfo == null ||
-            telemetryStartSequence == null ||
             lastHeartbeatSentMillis == 0L
         ) {
             throw ProtocolException(
                 ProtocolErrorKind.POLICY_REJECTED,
-                "Unsolicited $name before the current handshake requested it",
+                "Unsolicited HeartbeatAck before the current handshake requested it",
+            )
+        }
+    }
+
+    private fun requireStartTelemetryResponseIsExpected() {
+        if (
+            activeToken == null ||
+            deviceInfo == null ||
+            !heartbeatAcknowledged ||
+            telemetryStartSequence == null
+        ) {
+            throw ProtocolException(
+                ProtocolErrorKind.POLICY_REJECTED,
+                "Unsolicited CommandAck before heartbeat recovery and StartTelemetry",
             )
         }
     }
@@ -681,22 +773,50 @@ class HardwareConnection(
             handlePhysicalDetach()
             return
         }
-        when (mutableConnectionState.value) {
-            is BoardConnectionState.Synchronizing -> if (now > stageDeadlineMillis) {
-                fail(BoardLinkErrorCode.TIME_SYNC_TIMEOUT, "TimeSync response timed out", true)
-                return
+        val connectionState = mutableConnectionState.value
+        when (connectionState) {
+            is BoardConnectionState.Synchronizing -> when (
+                initialTimeSyncAction(
+                    elapsedSinceLastAttemptMillis = now - timeSyncSentMillis,
+                    attemptsSent = initialTimeSyncAttemptsSent,
+                    retryIntervalMillis = config.initialTimeSyncRetryIntervalMillis,
+                    maximumAttempts = config.initialTimeSyncMaximumAttempts,
+                )
+            ) {
+                InitialTimeSyncAction.WAIT -> Unit
+                InitialTimeSyncAction.RETRY -> if (!sendInitialTimeSync()) return
+                InitialTimeSyncAction.FAIL -> {
+                    fail(
+                        BoardLinkErrorCode.TIME_SYNC_TIMEOUT,
+                        "Initial TimeSync failed after $initialTimeSyncAttemptsSent attempts",
+                        true,
+                    )
+                    return
+                }
             }
             is BoardConnectionState.ValidatingDevice -> if (now > stageDeadlineMillis) {
                 fail(BoardLinkErrorCode.DEVICE_INFO_TIMEOUT, "DeviceInfo response timed out", true)
                 return
             }
             is BoardConnectionState.AwaitingHeartbeat -> if (now > stageDeadlineMillis) {
-                fail(BoardLinkErrorCode.HEARTBEAT_TIMEOUT, "Heartbeat/start-telemetry acknowledgement timed out", true)
+                fail(BoardLinkErrorCode.HEARTBEAT_TIMEOUT, "Heartbeat acknowledgement timed out", true)
+                return
+            }
+            is BoardConnectionState.StartingTelemetry -> if (now > stageDeadlineMillis) {
+                fail(
+                    BoardLinkErrorCode.TELEMETRY_START_TIMEOUT,
+                    "StartTelemetry acknowledgement timed out",
+                    true,
+                )
                 return
             }
             else -> Unit
         }
-        if (timeSyncPending && now - timeSyncSentMillis > config.handshakeTimeoutMillis) {
+        if (
+            connectionState !is BoardConnectionState.Synchronizing &&
+            timeSyncPending &&
+            now - timeSyncSentMillis > config.handshakeTimeoutMillis
+        ) {
             fail(BoardLinkErrorCode.TIME_SYNC_TIMEOUT, "Periodic TimeSync response timed out", true)
             return
         }
@@ -714,7 +834,10 @@ class HardwareConnection(
                     fail(BoardLinkErrorCode.HEARTBEAT_TIMEOUT, "Board heartbeat became unhealthy", true)
                     return
                 }
-                if (now - lastDeviceStatusSentMillis >= 1_000L) {
+                if (
+                    heartbeatAcknowledged &&
+                    now - lastDeviceStatusSentMillis >= 1_000L
+                ) {
                     lastDeviceStatusSentMillis = now
                     if (!send(session.buildDeviceStatus())) return
                 }
@@ -736,6 +859,11 @@ class HardwareConnection(
             timeSyncSentMillis = SystemClock.elapsedRealtime()
         }
         return sent
+    }
+
+    private fun sendInitialTimeSync(): Boolean {
+        initialTimeSyncAttemptsSent += 1
+        return sendTimeSync()
     }
 
     private fun sendHeartbeat(): Boolean {
@@ -805,6 +933,7 @@ class HardwareConnection(
         lastHeartbeatAckMillis = 0L
         timeSyncSentMillis = 0L
         timeSyncPending = false
+        initialTimeSyncAttemptsSent = 0
         lastDeviceStatusSentMillis = 0L
     }
 

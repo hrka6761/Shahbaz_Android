@@ -18,6 +18,8 @@ data class HardwareConnectionConfig(
     val sensorTimestampFutureToleranceMillis: Long = 500,
     val firstSensorSampleTimeoutMillis: Long = 5_000,
     val maximumUnknownSensors: Int = 32,
+    val initialTimeSyncMaximumAttempts: Int = 4,
+    val initialTimeSyncRetryIntervalMillis: Long = 500,
     val handshakeTimeoutMillis: Long = 2_000,
     val heartbeatIntervalMillis: Long = 350,
     val heartbeatTimeoutMillis: Long = 1_000,
@@ -28,6 +30,8 @@ data class HardwareConnectionConfig(
         require(sensorTimestampFutureToleranceMillis in 0..Long.MAX_VALUE / 1_000)
         require(firstSensorSampleTimeoutMillis > 0)
         require(maximumUnknownSensors in 1..256)
+        require(initialTimeSyncMaximumAttempts in 1..10)
+        require(initialTimeSyncRetryIntervalMillis > 0)
         require(handshakeTimeoutMillis > 0)
         require(heartbeatIntervalMillis in 100..heartbeatTimeoutMillis)
         require(heartbeatTimeoutMillis > 0)
@@ -72,8 +76,12 @@ sealed interface BoardConnectionState {
         val device: BoardUsbDevice,
         val deviceInfo: BoardDeviceInfo,
     ) : BoardConnectionState
+    data class StartingTelemetry(
+        val device: BoardUsbDevice,
+        val deviceInfo: BoardDeviceInfo,
+    ) : BoardConnectionState
 
-    /** TimeSync, DeviceInfo, StartTelemetry acknowledgement, and HeartbeatAck all succeeded. */
+    /** TimeSync, DeviceInfo, HeartbeatAck, and StartTelemetry acknowledgement all succeeded. */
     data class Ready(
         val device: BoardUsbDevice,
         val deviceInfo: BoardDeviceInfo,
@@ -109,6 +117,7 @@ enum class BoardLinkErrorCode {
     DEVICE_INFO_TIMEOUT,
     DEVICE_INFO_INVALID,
     HEARTBEAT_TIMEOUT,
+    TELEMETRY_START_TIMEOUT,
     SESSION_REJECTED,
     PROTOCOL_ERROR,
     INTERNAL_ERROR,
