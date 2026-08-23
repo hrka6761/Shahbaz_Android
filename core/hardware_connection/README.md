@@ -19,6 +19,7 @@ val telemetry: StateFlow<BoardTelemetrySnapshot> = board.telemetry
 
 board.start()
 board.requestPermission() // module owns the Android permission request and result receiver
+board.refresh() // idempotently reconcile attachment/permission after host resume
 board.retry()
 board.setQnh(1013.25)
 board.stop()
@@ -29,10 +30,11 @@ board.close()
 
 1. exact native-USB discovery and Android permission;
 2. CDC bulk IN/OUT open;
-3. Protocol v2 TimeSync with a non-zero, echoed session token;
-4. DeviceInfo validation for Protocol v2, ESP32-S3, clean board validation, and disabled actuators;
-5. StartTelemetry acknowledgement; and
-6. a current HeartbeatAck.
+3. Protocol v2 TimeSync with a non-zero, echoed session token (using bounded initial retries);
+4. DeviceInfo validation for Protocol v2, ESP32-S3, accepted advisory evidence, no fatal or
+   unknown validation bits, and disabled actuators;
+5. a current HeartbeatAck; and
+6. StartTelemetry acknowledgement.
 
 Physical detach clears the parser, token, command sequences, telemetry, and raw sensor state. A
 reconnect always starts with a new TimeSync. CRC/COBS/length errors are bounded and observable in
@@ -64,15 +66,20 @@ policy also rejects those message types if invoked accidentally. Safe shutdown m
 `StopTelemetry` followed by the tokenless `Disarm` safety override before closing USB.
 
 The library dynamically registers scoped receivers for permission and USB attach/detach while
-started. A consumer never creates a `PendingIntent`, receiver, `UsbManager`, device connection, or
-CDC endpoint. Its manifest declares USB host as optional so unsupported phones remain installable
-and report `USB_HOST_UNAVAILABLE` rather than disappearing from device compatibility.
+started, scans for a board that was connected before the app or dashboard, and can idempotently
+reconcile current attachment and authoritative `UsbManager.hasPermission` state after host resume.
+A consumer never creates a `PendingIntent`, receiver, `UsbManager`, device connection, or CDC
+endpoint. Each open explicitly drives CDC DTR/RTS from `0` to `3`, and close drives it back to `0`,
+so firmware observes a fresh logical session even without a physical unplug. Its manifest declares
+USB host as optional so unsupported phones remain installable and report `USB_HOST_UNAVAILABLE`
+rather than disappearing from device compatibility.
 Receiver registration is transactional and reports `RECEIVER_REGISTRATION_FAILED` after rolling
 back a partial registration. Each client instance uses an unpredictable permission action. Calling
 `close()` on Android's main thread queues the complete `StopTelemetry`/`Disarm`/USB cleanup on the
 module's serial I/O dispatcher so UI teardown is not blocked.
-Heartbeat and DeviceStatus maintenance begins only after DeviceInfo validation; the validating
-stage cannot generate replies that its own inbound policy would reject.
+Heartbeat recovery begins after DeviceInfo validation. The initial DeviceStatus request and
+StartTelemetry are sent only after the first valid HeartbeatAck, and `Ready` is published only
+after the exact StartTelemetry acknowledgement.
 
 The outbound API is intentionally protocol-specific rather than a raw-byte escape hatch. This
 keeps TimeSync/session, CRC, freshness, heartbeat, and fail-closed actuator rules inside the module.
@@ -84,9 +91,11 @@ keeps TimeSync/session, CRC, freshness, heartbeat, and fail-closed actuator rule
 ```
 
 Unit tests cover CRC-32C, COBS, the shared golden frame, bounded resynchronization, session reset,
-TimeSync rejection, actuator-policy exclusion, typed sensor validation, sequence regression,
+TimeSync rejection and bounded retry, advisory/fatal/unknown DeviceInfo masks,
+actuator-policy exclusion, typed sensor validation, sequence regression,
 inbound priority/replay/reorder/wrap behavior, strict heartbeat/command acknowledgements, independent
 first-sample timeout and recovery, staleness/offline behavior, QNH recalculation, atomic receiver
-rollback, and bounded unknown-sensor extensibility. Android USB permission, physical
+rollback, mutable permission-result policy, staged handshake decisions, CDC logical-session
+control-line policy, and bounded unknown-sensor extensibility. Android USB permission, physical
 detach/reconnect, endpoint compatibility, and live telemetry still require an OTG-capable physical
 phone and the native USB connector.

@@ -16,8 +16,8 @@ orientation and a compact route map.
 6. Use **Previous** to correct the destination without losing the altitude draft, or select the
    second **Next** to freeze the flight plan and open the dashboard.
 7. Connect the Shahbaz interface board over USB and approve Android's USB-device prompt. The
-   dashboard remains blocked until TimeSync, board validation, telemetry start, and heartbeat
-   acknowledgement have all succeeded.
+   dashboard remains blocked until TimeSync, board validation, heartbeat recovery, and the exact
+   telemetry-start acknowledgement have all succeeded.
 
 The current dashboard shows SHT30 temperature/humidity; MS5611 pressure, QNH-derived altitude,
 and takeoff-relative altitude; phone compass/cardinal deviations; and display-corrected X/Y/Z

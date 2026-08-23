@@ -115,6 +115,14 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    /** Reconciles a USB grant after Android's permission activity returns to this host. */
+    override fun onResume() {
+        super.onResume()
+        if (mapViewModel.uiState.value.confirmedFlightPlan != null) {
+            dashboardViewModel.onHostResume()
+        }
+    }
+
     /** Stops foreground-only feature work before the activity leaves the visible lifecycle. */
     override fun onStop() {
         hostStarted = false
