@@ -65,7 +65,8 @@ internal enum class ProtocolErrorKind {
 internal enum class InboundSessionStage {
     NOT_SYNCHRONIZED,
     VALIDATING_DEVICE,
-    AWAITING_READY,
+    AWAITING_HEARTBEAT,
+    STARTING_TELEMETRY,
     READY,
 }
 
@@ -73,12 +74,14 @@ internal fun MessageType.requireAllowedInboundAt(stage: InboundSessionStage) {
     val allowed = when (this) {
         MessageType.DEVICE_INFO_RESPONSE -> stage == InboundSessionStage.VALIDATING_DEVICE
         MessageType.HEARTBEAT_ACK ->
-            stage == InboundSessionStage.AWAITING_READY || stage == InboundSessionStage.READY
-        MessageType.COMMAND_ACK -> stage == InboundSessionStage.AWAITING_READY
+            stage == InboundSessionStage.AWAITING_HEARTBEAT ||
+                stage == InboundSessionStage.STARTING_TELEMETRY ||
+                stage == InboundSessionStage.READY
+        MessageType.COMMAND_ACK -> stage == InboundSessionStage.STARTING_TELEMETRY
         MessageType.COMMAND_NACK -> stage != InboundSessionStage.NOT_SYNCHRONIZED
         MessageType.SENSOR_SAMPLE -> stage == InboundSessionStage.READY
         MessageType.DEVICE_STATUS_RESPONSE ->
-            stage == InboundSessionStage.AWAITING_READY || stage == InboundSessionStage.READY
+            stage == InboundSessionStage.STARTING_TELEMETRY || stage == InboundSessionStage.READY
         else -> false
     }
     if (!allowed) {

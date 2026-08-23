@@ -61,14 +61,11 @@ internal class AndroidUsbCdcTransport(
             ?: return OpenResult.Incompatible("CDC-ACM bulk IN/OUT interfaces are missing")
         val opened = usbManager.openDevice(device) ?: return OpenResult.OpenFailed
         return try {
-            if (
-                endpoints.communication != null &&
-                !opened.claimInterface(endpoints.communication, true)
-            ) {
+            if (!opened.claimInterface(endpoints.communication, true)) {
                 opened.close()
                 OpenResult.Incompatible("CDC communication interface could not be claimed")
             } else if (!opened.claimInterface(endpoints.data, true)) {
-                endpoints.communication?.let(opened::releaseInterface)
+                opened.releaseInterface(endpoints.communication)
                 opened.close()
                 OpenResult.Incompatible("CDC data interface could not be claimed")
             } else {
@@ -141,6 +138,11 @@ internal class AndroidUsbCdcTransport(
             val data = dataInterface
             val communication = communicationInterface
             if (current != null) {
+                runCatching {
+                    if (communication != null) {
+                        setControlLineState(current, communication, CDC_CONTROL_LINE_IDLE)
+                    }
+                }
                 runCatching { if (data != null) current.releaseInterface(data) }
                 runCatching { if (communication != null) current.releaseInterface(communication) }
                 runCatching { current.close() }
@@ -176,8 +178,7 @@ internal class AndroidUsbCdcTransport(
         }
     }
 
-    private fun configureCdc(connection: UsbDeviceConnection, communication: UsbInterface?) {
-        if (communication == null) return
+    private fun configureCdc(connection: UsbDeviceConnection, communication: UsbInterface) {
         val lineCoding = byteArrayOf(
             0x00, 0xC2.toByte(), 0x01, 0x00, // 115200, informational for TinyUSB CDC.
             0x00, 0x00, 0x08, // one stop bit, no parity, 8 data bits.
@@ -186,10 +187,24 @@ internal class AndroidUsbCdcTransport(
             0x21, 0x20, 0, communication.id, lineCoding, lineCoding.size, 1_000,
         )
         if (codingResult < 0) throw IllegalStateException("CDC SET_LINE_CODING failed")
-        val lineStateResult = connection.controlTransfer(
-            0x21, 0x22, 0x0003, communication.id, null, 0, 1_000,
+        cdcOpenControlLineStates().forEach { state ->
+            setControlLineState(connection, communication, state)
+        }
+    }
+
+    private fun setControlLineState(
+        connection: UsbDeviceConnection,
+        communication: UsbInterface,
+        state: Int,
+    ) {
+        val result = connection.controlTransfer(
+            0x21, 0x22, state, communication.id, null, 0, 1_000,
         )
-        if (lineStateResult < 0) throw IllegalStateException("CDC SET_CONTROL_LINE_STATE failed")
+        if (result < 0) {
+            throw IllegalStateException(
+                "CDC SET_CONTROL_LINE_STATE 0x${state.toString(16).padStart(4, '0')} failed",
+            )
+        }
     }
 
     private fun clearHandles() {
@@ -226,15 +241,16 @@ internal class AndroidUsbCdcTransport(
             }
             val bulkInput = input
             val bulkOutput = output
-            if (bulkInput != null && bulkOutput != null) {
-                return Endpoints(communication, data, bulkInput, bulkOutput)
+            val control = communication
+            if (control != null && bulkInput != null && bulkOutput != null) {
+                return Endpoints(control, data, bulkInput, bulkOutput)
             }
         }
         return null
     }
 
     private data class Endpoints(
-        val communication: UsbInterface?,
+        val communication: UsbInterface,
         val data: UsbInterface,
         val input: UsbEndpoint,
         val output: UsbEndpoint,

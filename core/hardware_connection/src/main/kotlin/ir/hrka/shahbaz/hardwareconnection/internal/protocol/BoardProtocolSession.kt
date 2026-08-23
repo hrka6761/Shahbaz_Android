@@ -24,7 +24,7 @@ internal class BoardProtocolSession(
 
     private val accumulator = FrameAccumulator()
     private var nextSequence = 1u
-    private var pendingTimeSyncHostUs: ULong? = null
+    private val pendingTimeSyncHostUs = linkedSetOf<ULong>()
     private var lastSuccessfulTimeSyncHostUs: ULong? = null
     private var timeMapping: TimeMapping? = null
     private var attachmentDeviceFloorUs: ULong? = null
@@ -54,7 +54,7 @@ internal class BoardProtocolSession(
     fun buildTimeSync(): EncodedCommand {
         requireAttached()
         val now = monotonicMicros()
-        pendingTimeSyncHostUs = now
+        pendingTimeSyncHostUs += now
         return encode(SafeRequests.timeSync(now))
     }
 
@@ -200,10 +200,9 @@ internal class BoardProtocolSession(
             ProtocolErrorKind.PAYLOAD_INVALID,
             "frame is not TimeSyncResponse",
         )
-        val pending = pendingTimeSyncHostUs
+        val pending = pendingTimeSyncHostUs.firstOrNull { it == timeSync.clientSendUs }
         if (
             pending == null ||
-            timeSync.clientSendUs != pending ||
             timeSync.sessionToken == 0uL ||
             timeSync.deviceTxUs < timeSync.deviceRxUs ||
             frame.header.senderMonotonicUs < timeSync.deviceTxUs
@@ -219,13 +218,27 @@ internal class BoardProtocolSession(
                 "TimeSync host clock regressed",
             )
         }
+        val deviceProcessingUs = timeSync.deviceTxUs - timeSync.deviceRxUs
+        val hostRoundTripUs = receivedHostUs - pending
+        if (
+            deviceProcessingUs > hostRoundTripUs ||
+            pending > ULong.MAX_VALUE - deviceProcessingUs
+        ) {
+            throw ProtocolException(
+                ProtocolErrorKind.PAYLOAD_INVALID,
+                "TimeSync processing interval exceeds the host round trip",
+            )
+        }
         sessionToken = timeSync.sessionToken
-        pendingTimeSyncHostUs = null
+        pendingTimeSyncHostUs.clear()
         lastSuccessfulTimeSyncHostUs = receivedHostUs
         if (attachmentDeviceFloorUs == null) attachmentDeviceFloorUs = timeSync.deviceRxUs
         timeMapping = TimeMapping(
             deviceReferenceUs = timeSync.deviceTxUs,
-            hostReferenceUs = receivedHostUs,
+            // Use the conservative lower bound for when the device transmitted. This prevents
+            // a response delayed in Android scheduling from projecting immediately-following
+            // DeviceInfo/telemetry timestamps into the future.
+            hostReferenceUs = pending + deviceProcessingUs,
         )
         return timeSync.sessionToken
     }
@@ -336,7 +349,7 @@ internal class BoardProtocolSession(
     private fun reset() {
         accumulator.reset()
         nextSequence = 1u
-        pendingTimeSyncHostUs = null
+        pendingTimeSyncHostUs.clear()
         lastSuccessfulTimeSyncHostUs = null
         timeMapping = null
         attachmentDeviceFloorUs = null
