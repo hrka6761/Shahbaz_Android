@@ -7,6 +7,8 @@ import androidx.lifecycle.viewModelScope
 import ir.hrka.shahbaz.core.model.FlightPlan
 import ir.hrka.shahbaz.hardwareconnection.BoardConnectionState
 import ir.hrka.shahbaz.hardwareconnection.HardwareConnection
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -22,6 +24,10 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
     val uiState: StateFlow<DashboardUiState> = mutableUiState.asStateFlow()
 
     private var hostForeground = false
+    private var boardStopDeferredForPermission = false
+    private var usbPermissionRequestPending = false
+    private var usbPermissionRequestReturnedToHost = false
+    private var permissionResultBackgroundStopJob: Job? = null
     private var baselineCaptureGate: TakeoffBaselineCaptureGate? = null
 
     init {
@@ -35,6 +41,24 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
                     else -> null
                 }
                 mutableUiState.update { it.copy(boardConnection = connection) }
+                if (
+                    usbPermissionRequestResolved(
+                        requestPending = usbPermissionRequestPending,
+                        connection = connection,
+                        permissionRequiredIsTerminal = usbPermissionRequestReturnedToHost,
+                    )
+                ) {
+                    usbPermissionRequestPending = false
+                    usbPermissionRequestReturnedToHost = false
+                    if (
+                        shouldSchedulePermissionResultBackgroundStop(
+                            hostForeground = hostForeground,
+                            permissionStopDeferred = boardStopDeferredForPermission,
+                        )
+                    ) {
+                        schedulePermissionResultBackgroundStop()
+                    }
+                }
             }
         }
         viewModelScope.launch {
@@ -76,6 +100,10 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
 
     /** Clears the plan when returning to setup and releases the external board connection. */
     fun clearFlightPlan() {
+        cancelPermissionResultBackgroundStop()
+        boardStopDeferredForPermission = false
+        usbPermissionRequestPending = false
+        usbPermissionRequestReturnedToHost = false
         baselineCaptureGate = null
         mutableUiState.update {
             DashboardUiState(
@@ -93,7 +121,14 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
 
     /** Marks the activity visible; sources start only after a valid flight plan exists. */
     fun onHostForeground() {
+        cancelPermissionResultBackgroundStop()
         hostForeground = true
+        usbPermissionRequestReturnedToHost = permissionRequestReturnedToHostAfterForeground(
+            alreadyReturned = usbPermissionRequestReturnedToHost,
+            permissionStopDeferred = boardStopDeferredForPermission,
+            requestPending = usbPermissionRequestPending,
+        )
+        boardStopDeferredForPermission = false
         if (mutableUiState.value.flightPlan != null) {
             startSources()
         }
@@ -109,10 +144,43 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
     /** Releases the external board whenever the host is no longer visible. */
     fun onHostBackground() {
         hostForeground = false
+        val connection = mutableUiState.value.boardConnection
+        if (
+            usbPermissionRequestResolved(
+                requestPending = usbPermissionRequestPending,
+                connection = connection,
+                permissionRequiredIsTerminal = usbPermissionRequestReturnedToHost,
+            )
+        ) {
+            usbPermissionRequestPending = false
+            usbPermissionRequestReturnedToHost = false
+            boardStopDeferredForPermission = true
+            schedulePermissionResultBackgroundStop()
+            return
+        }
+        if (
+            !shouldStopBoardForHostBackground(
+                connection,
+                usbPermissionRequestPending,
+                boardStopDeferredForPermission,
+            )
+        ) {
+            boardStopDeferredForPermission = true
+            return
+        }
+        cancelPermissionResultBackgroundStop()
+        boardStopDeferredForPermission = false
         stopSources()
     }
 
-    fun requestUsbPermission() = board.requestPermission()
+    fun requestUsbPermission() {
+        // Set this before crossing dispatchers so an immediate Activity.onStop cannot unregister
+        // the result receiver in the short interval before core publishes RequestingPermission.
+        cancelPermissionResultBackgroundStop()
+        usbPermissionRequestPending = true
+        usbPermissionRequestReturnedToHost = false
+        board.requestPermission()
+    }
 
     fun retryBoardConnection() = board.retry()
 
@@ -130,4 +198,66 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
     private fun stopSources() {
         board.stop()
     }
+
+    private fun schedulePermissionResultBackgroundStop() {
+        cancelPermissionResultBackgroundStop()
+        permissionResultBackgroundStopJob = viewModelScope.launch {
+            delay(PERMISSION_RESULT_FOREGROUND_GRACE_MILLIS)
+            if (!hostForeground && boardStopDeferredForPermission) {
+                boardStopDeferredForPermission = false
+                stopSources()
+            }
+            permissionResultBackgroundStopJob = null
+        }
+    }
+
+    private fun cancelPermissionResultBackgroundStop() {
+        permissionResultBackgroundStopJob?.cancel()
+        permissionResultBackgroundStopJob = null
+    }
 }
+
+private const val PERMISSION_RESULT_FOREGROUND_GRACE_MILLIS = 3_000L
+
+/** A USB permission PendingIntent must remain observable while Android's system prompt is active. */
+internal fun shouldKeepBoardStartedForPermissionResult(
+    connection: BoardConnectionState,
+    requestPending: Boolean = false,
+): Boolean = requestPending || connection is BoardConnectionState.RequestingPermission
+
+/** True once a requested grant/denial has advanced beyond the permission gate states. */
+internal fun usbPermissionRequestResolved(
+    requestPending: Boolean,
+    connection: BoardConnectionState,
+    permissionRequiredIsTerminal: Boolean = false,
+): Boolean = when {
+    !requestPending -> false
+    connection is BoardConnectionState.RequestingPermission -> false
+    connection is BoardConnectionState.PermissionRequired -> permissionRequiredIsTerminal
+    else -> true
+}
+
+/** A stopped host gets a bounded chance to return before the resolved client is released. */
+internal fun shouldSchedulePermissionResultBackgroundStop(
+    hostForeground: Boolean,
+    permissionStopDeferred: Boolean,
+): Boolean = !hostForeground && permissionStopDeferred
+
+/** Foreground callbacks are idempotent and cannot erase a previously observed prompt return. */
+internal fun permissionRequestReturnedToHostAfterForeground(
+    alreadyReturned: Boolean,
+    permissionStopDeferred: Boolean,
+    requestPending: Boolean,
+): Boolean = alreadyReturned || (permissionStopDeferred && requestPending)
+
+/**
+ * Once a permission prompt caused onStop, its result may arrive before onStart. Keep the client
+ * alive through that result transition; onHostForeground clears the deferral, so a later ordinary
+ * background transition still closes the established link.
+ */
+internal fun shouldStopBoardForHostBackground(
+    connection: BoardConnectionState,
+    requestPending: Boolean,
+    permissionStopAlreadyDeferred: Boolean,
+): Boolean = !permissionStopAlreadyDeferred &&
+    !shouldKeepBoardStartedForPermissionResult(connection, requestPending)

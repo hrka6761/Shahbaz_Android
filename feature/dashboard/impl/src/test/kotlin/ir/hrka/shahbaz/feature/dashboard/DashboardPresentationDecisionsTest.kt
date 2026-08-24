@@ -25,6 +25,138 @@ import org.junit.Test
 
 class DashboardPresentationDecisionsTest {
     @Test
+    fun repeatedForegroundCallbacksPreservePermissionRequestReturn() {
+        val firstForeground = permissionRequestReturnedToHostAfterForeground(
+            alreadyReturned = false,
+            permissionStopDeferred = true,
+            requestPending = true,
+        )
+        val repeatedForeground = permissionRequestReturnedToHostAfterForeground(
+            alreadyReturned = firstForeground,
+            permissionStopDeferred = false,
+            requestPending = true,
+        )
+
+        assertTrue(firstForeground)
+        assertTrue(repeatedForeground)
+    }
+
+    @Test
+    fun deferredPermissionRequestReturningToPermissionRequiredIsTerminal() {
+        val requestPending = true
+
+        assertFalse(
+            usbPermissionRequestResolved(
+                requestPending = requestPending,
+                connection = BoardConnectionState.PermissionRequired(Device),
+                permissionRequiredIsTerminal = false,
+            ),
+        )
+        assertFalse(
+            usbPermissionRequestResolved(
+                requestPending = requestPending,
+                connection = BoardConnectionState.RequestingPermission(Device),
+                permissionRequiredIsTerminal = true,
+            ),
+        )
+        assertTrue(
+            usbPermissionRequestResolved(
+                requestPending = requestPending,
+                connection = BoardConnectionState.PermissionRequired(Device),
+                permissionRequiredIsTerminal = true,
+            ),
+        )
+        assertTrue(
+            shouldSchedulePermissionResultBackgroundStop(
+                hostForeground = false,
+                permissionStopDeferred = true,
+            ),
+        )
+    }
+
+    @Test
+    fun usbPermissionRequestKeepsReceiverAliveAcrossSystemPromptLifecycle() {
+        assertTrue(
+            shouldKeepBoardStartedForPermissionResult(
+                BoardConnectionState.RequestingPermission(Device),
+            ),
+        )
+        assertFalse(
+            shouldKeepBoardStartedForPermissionResult(
+                BoardConnectionState.PermissionRequired(Device),
+            ),
+        )
+        assertTrue(
+            shouldKeepBoardStartedForPermissionResult(
+                BoardConnectionState.PermissionRequired(Device),
+                requestPending = true,
+            ),
+        )
+        assertFalse(shouldKeepBoardStartedForPermissionResult(BoardConnectionState.Searching))
+
+        assertFalse(
+            shouldStopBoardForHostBackground(
+                connection = BoardConnectionState.Opening(Device),
+                requestPending = false,
+                permissionStopAlreadyDeferred = true,
+            ),
+        )
+        assertTrue(
+            shouldStopBoardForHostBackground(
+                connection = BoardConnectionState.Ready(Device, DeviceInfo, 1L),
+                requestPending = false,
+                permissionStopAlreadyDeferred = false,
+            ),
+        )
+
+        assertFalse(
+            usbPermissionRequestResolved(
+                requestPending = true,
+                connection = BoardConnectionState.RequestingPermission(Device),
+                permissionRequiredIsTerminal = true,
+            ),
+        )
+        assertTrue(
+            usbPermissionRequestResolved(
+                requestPending = true,
+                connection = BoardConnectionState.Opening(Device),
+            ),
+        )
+        assertFalse(
+            usbPermissionRequestResolved(
+                requestPending = false,
+                connection = BoardConnectionState.Opening(Device),
+            ),
+        )
+        assertFalse(
+            usbPermissionRequestResolved(
+                requestPending = true,
+                connection = BoardConnectionState.PermissionRequired(Device),
+                permissionRequiredIsTerminal = false,
+            ),
+        )
+        assertTrue(
+            usbPermissionRequestResolved(
+                requestPending = true,
+                connection = BoardConnectionState.PermissionRequired(Device),
+                permissionRequiredIsTerminal = true,
+            ),
+        )
+        assertTrue(
+            shouldSchedulePermissionResultBackgroundStop(
+                hostForeground = false,
+                permissionStopDeferred = true,
+            ),
+        )
+        assertFalse(
+            shouldSchedulePermissionResultBackgroundStop(
+                hostForeground = true,
+                permissionStopDeferred = true,
+            ),
+        )
+    }
+
+    @Test
     fun paneLayoutUsesLandscapeOnlyWhenWidthExceedsHeight() {
         assertEquals(DashboardPaneLayout.LANDSCAPE, dashboardPaneLayout(900f, 500f))
         assertEquals(DashboardPaneLayout.PORTRAIT, dashboardPaneLayout(500f, 900f))

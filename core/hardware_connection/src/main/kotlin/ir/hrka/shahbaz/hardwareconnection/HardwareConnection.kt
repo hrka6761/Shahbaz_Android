@@ -12,8 +12,10 @@ import android.hardware.usb.UsbManager
 import android.os.Build
 import android.os.Looper
 import android.os.SystemClock
+import android.util.Log
 import ir.hrka.shahbaz.hardwareconnection.internal.AcceptedTimeSyncAction
 import ir.hrka.shahbaz.hardwareconnection.internal.InitialTimeSyncAction
+import ir.hrka.shahbaz.hardwareconnection.internal.ReenumerationGraceAction
 import ir.hrka.shahbaz.hardwareconnection.internal.TelemetryStore
 import ir.hrka.shahbaz.hardwareconnection.internal.UsbPermissionReconciliation
 import ir.hrka.shahbaz.hardwareconnection.internal.ValidatedHandshakeAction
@@ -21,6 +23,8 @@ import ir.hrka.shahbaz.hardwareconnection.internal.allowsPostValidationMaintenan
 import ir.hrka.shahbaz.hardwareconnection.internal.acceptedTimeSyncAction
 import ir.hrka.shahbaz.hardwareconnection.internal.initialTimeSyncAction
 import ir.hrka.shahbaz.hardwareconnection.internal.registerReceiversAtomically
+import ir.hrka.shahbaz.hardwareconnection.internal.reenumerationGraceAction
+import ir.hrka.shahbaz.hardwareconnection.internal.soleDeviceReplacesOpenedLink
 import ir.hrka.shahbaz.hardwareconnection.internal.usbPermissionPendingIntentFlags
 import ir.hrka.shahbaz.hardwareconnection.internal.usbPermissionReconciliation
 import ir.hrka.shahbaz.hardwareconnection.internal.validatedHandshakeAction
@@ -64,6 +68,8 @@ import kotlinx.coroutines.withContext
 
 private const val USB_PERMISSION_DEVICE_ID_EXTRA =
     "ir.hrka.shahbaz.hardwareconnection.extra.USB_PERMISSION_DEVICE_ID"
+private const val USB_LOG_TAG = "ShahbazUsb"
+private const val USB_REENUMERATION_GRACE_MILLIS = 2_000L
 
 /**
  * Owns one sensor-only Android USB-host connection to `shahbaz_interface_board`.
@@ -106,6 +112,7 @@ class HardwareConnection(
     private var selectedDescriptor: BoardUsbDevice? = null
     private var generation = 0L
     private var linkJob: Job? = null
+    private var reenumerationGraceJob: Job? = null
     private var deviceInfo: BoardDeviceInfo? = null
     private var activeToken: ULong? = null
     private var telemetryStartSequence: UInt? = null
@@ -128,6 +135,30 @@ class HardwareConnection(
             } else {
                 null
             }
+            val frameworkDeviceIdForLog = runCatching { intent.usbDevice()?.deviceId }
+                .fold(
+                    onSuccess = { it?.toString() ?: "null" },
+                    onFailure = { "unavailable(${it.javaClass.simpleName})" },
+                )
+            val frameworkGrantedForLog = runCatching {
+                intent.getBooleanExtra(UsbManager.EXTRA_PERMISSION_GRANTED, false)
+            }.fold(
+                onSuccess = { it.toString() },
+                onFailure = { "unavailable(${it.javaClass.simpleName})" },
+            )
+            val frameworkGrantedExtraPresentForLog = runCatching {
+                intent.hasExtra(UsbManager.EXTRA_PERMISSION_GRANTED)
+            }.fold(
+                onSuccess = { it.toString() },
+                onFailure = { "unavailable(${it.javaClass.simpleName})" },
+            )
+            Log.i(
+                USB_LOG_TAG,
+                "permission callback appDeviceId=$requestedDeviceId " +
+                    "frameworkDeviceId=$frameworkDeviceIdForLog " +
+                    "frameworkGrantedExtraPresent=$frameworkGrantedExtraPresentForLog " +
+                    "frameworkGranted=$frameworkGrantedForLog",
+            )
             scope.launch {
                 handlePermissionResult(requestedDeviceId)
             }
@@ -141,6 +172,11 @@ class HardwareConnection(
             scope.launch {
                 when (action) {
                     UsbManager.ACTION_USB_DEVICE_ATTACHED -> {
+                        Log.i(
+                            USB_LOG_TAG,
+                            "ATTACHED broadcast deviceId=${announcedDevice?.deviceId} " +
+                                "matchingIds=${matchingDeviceIdsForLog()}",
+                        )
                         if (
                             transport.openedDeviceId() == null ||
                             announcedDevice?.isExactShahbazIdentity() == true
@@ -150,12 +186,21 @@ class HardwareConnection(
                     }
                     UsbManager.ACTION_USB_DEVICE_DETACHED -> {
                         val openedId = transport.openedDeviceId()
+                        val announcedStillAttachedForLog = announcedDevice?.let {
+                            attachmentStateForLog(it.deviceId)
+                        } ?: "null"
+                        Log.w(
+                            USB_LOG_TAG,
+                            "DETACHED broadcast deviceId=${announcedDevice?.deviceId} " +
+                                "openedDeviceId=$openedId " +
+                                "announcedStillAttached=$announcedStillAttachedForLog " +
+                                "matchingIds=${matchingDeviceIdsForLog()}",
+                        )
                         if (
                             announcedDevice != null &&
-                            openedId == announcedDevice.deviceId &&
-                            !transport.isAttached(announcedDevice.deviceId)
+                            openedId == announcedDevice.deviceId
                         ) {
-                            handlePhysicalDetach()
+                            handlePhysicalDetach("DETACHED broadcast")
                         } else if (openedId == null) {
                             scanAndConnect()
                         }
@@ -322,6 +367,7 @@ class HardwareConnection(
     private fun scanAndConnect() {
         if (!started) return
         val matches = transport.matchingDevices()
+        if (matches.isNotEmpty()) cancelReenumerationGrace()
         when {
             matches.isEmpty() -> {
                 if (transport.openedDeviceId() != null || session.attached) {
@@ -346,6 +392,15 @@ class HardwareConnection(
             else -> {
                 val device = matches.single()
                 val descriptor = device.toPublicDescriptor()
+                val openedDeviceId = transport.openedDeviceId()
+                if (soleDeviceReplacesOpenedLink(openedDeviceId, device.deviceId)) {
+                    Log.w(
+                        USB_LOG_TAG,
+                        "re-enumerated device replaces open link " +
+                            "openedDeviceId=$openedDeviceId replacementDeviceId=${device.deviceId}",
+                    )
+                    closeLink(sendSafetyShutdown = false)
+                }
                 selectedDevice = device
                 selectedDescriptor = descriptor
                 if (
@@ -376,6 +431,12 @@ class HardwareConnection(
             return
         }
         mutableConnectionState.value = BoardConnectionState.RequestingPermission(descriptor)
+        Log.i(
+            USB_LOG_TAG,
+            "permission request deviceId=${device.deviceId} " +
+                "attached=${attachmentStateForLog(device.deviceId)} " +
+                "hasPermission=${permissionStateForLog(device)}",
+        )
         val resultIntent = Intent(permissionAction)
             .setPackage(applicationContext.packageName)
             .putExtra(USB_PERMISSION_DEVICE_ID_EXTRA, device.deviceId)
@@ -388,6 +449,7 @@ class HardwareConnection(
         try {
             usbManager.requestPermission(device, pendingIntent)
         } catch (error: RuntimeException) {
+            Log.e(USB_LOG_TAG, "permission request failed deviceId=${device.deviceId}", error)
             mutableConnectionState.value = BoardConnectionState.Failed(
                 BoardLinkError(
                     BoardLinkErrorCode.PERMISSION_DENIED,
@@ -402,12 +464,21 @@ class HardwareConnection(
         if (!started) return
         val device = selectedDevice
         val descriptor = selectedDescriptor
+        val selectedIsAttached = device?.let { transport.isAttached(it.deviceId) } == true
+        val selectedHasPermission = device?.let(transport::hasPermission) == true
+        Log.i(
+            USB_LOG_TAG,
+            "permission reconcile appDeviceId=$requestedDeviceId " +
+                "selectedDeviceId=${device?.deviceId} " +
+                "attached=$selectedIsAttached hasPermission=$selectedHasPermission " +
+                "matchingIds=${matchingDeviceIdsForLog()}",
+        )
         when (
             usbPermissionReconciliation(
                 selectedDeviceId = device?.deviceId,
                 requestedDeviceId = requestedDeviceId,
-                selectedDeviceIsAttached = device?.let { transport.isAttached(it.deviceId) } == true,
-                selectedDeviceHasPermission = device?.let(transport::hasPermission) == true,
+                selectedDeviceIsAttached = selectedIsAttached,
+                selectedDeviceHasPermission = selectedHasPermission,
             )
         ) {
             UsbPermissionReconciliation.RESCAN -> scanAndConnect()
@@ -432,12 +503,19 @@ class HardwareConnection(
 
     private fun open(device: UsbDevice, descriptor: BoardUsbDevice) {
         if (transport.openedDeviceId() == device.deviceId && session.attached) return
+        Log.i(
+            USB_LOG_TAG,
+            "open requested deviceId=${device.deviceId} generation=$generation " +
+                "attached=${attachmentStateForLog(device.deviceId)} " +
+                "hasPermission=${permissionStateForLog(device)}",
+        )
         closeLink(sendSafetyShutdown = true)
         generation += 1
         val linkGeneration = generation
         mutableConnectionState.value = BoardConnectionState.Opening(descriptor)
         when (val result = transport.open(device, linkGeneration)) {
             AndroidUsbCdcTransport.OpenResult.Opened -> {
+                Log.i(USB_LOG_TAG, "open succeeded deviceId=${device.deviceId} generation=$linkGeneration")
                 selectedDevice = device
                 selectedDescriptor = descriptor
                 session.attach()
@@ -448,8 +526,10 @@ class HardwareConnection(
                 if (!sendInitialTimeSync()) return
                 startLinkMaintenance(linkGeneration)
             }
-            AndroidUsbCdcTransport.OpenResult.PermissionMissing ->
+            AndroidUsbCdcTransport.OpenResult.PermissionMissing -> {
+                Log.w(USB_LOG_TAG, "open lost permission deviceId=${device.deviceId}")
                 mutableConnectionState.value = BoardConnectionState.PermissionRequired(descriptor)
+            }
             AndroidUsbCdcTransport.OpenResult.OpenFailed -> failWithoutOpen(
                 BoardLinkErrorCode.DEVICE_OPEN_FAILED,
                 "UsbManager.openDevice returned null",
@@ -769,9 +849,16 @@ class HardwareConnection(
     private fun maintenanceTick(linkGeneration: Long) {
         if (linkGeneration != generation || !session.attached) return
         val now = SystemClock.elapsedRealtime()
-        if (transport.openedDeviceId()?.let { !transport.isAttached(it) } == true) {
-            handlePhysicalDetach()
-            return
+        transport.openedDeviceId()?.let { openedDeviceId ->
+            if (!transport.isAttached(openedDeviceId)) {
+                Log.w(
+                    USB_LOG_TAG,
+                    "maintenance attachment missing openedDeviceId=$openedDeviceId " +
+                        "matchingIds=${matchingDeviceIdsForLog()}",
+                )
+                handlePhysicalDetach("maintenance device-list check")
+                return
+            }
         }
         val connectionState = mutableConnectionState.value
         when (connectionState) {
@@ -882,13 +969,81 @@ class HardwareConnection(
         return false
     }
 
-    private fun handlePhysicalDetach() {
+    private fun handlePhysicalDetach(source: String) {
+        val detachedDeviceId = transport.openedDeviceId()
+        Log.w(
+            USB_LOG_TAG,
+            "physical detach confirmed source=$source openedDeviceId=$detachedDeviceId " +
+                "matchingIds=${matchingDeviceIdsForLog()}",
+        )
         closeLink(sendSafetyShutdown = false)
         selectedDevice = null
         selectedDescriptor = null
-        mutableConnectionState.value = BoardConnectionState.Disconnected(
-            BoardDisconnectReason.USB_DETACHED,
+        val currentMatchingDeviceIds = runCatching {
+            transport.matchingDevices().map { it.deviceId }
+        }.getOrElse { emptyList() }
+        when (
+            reenumerationGraceAction(
+                graceExpired = false,
+                matchingDeviceCount = currentMatchingDeviceIds.size,
+            )
+        ) {
+            ReenumerationGraceAction.RESCAN_REPLACEMENT -> {
+                Log.i(
+                    USB_LOG_TAG,
+                    "rescanning after detach deviceId=$detachedDeviceId " +
+                        "replacementIds=$currentMatchingDeviceIds",
+                )
+                scanAndConnect()
+            }
+            ReenumerationGraceAction.WAIT_FOR_REPLACEMENT -> {
+                mutableConnectionState.value = BoardConnectionState.Searching
+                startReenumerationGrace(detachedDeviceId, generation)
+            }
+            ReenumerationGraceAction.PUBLISH_DETACHED -> Unit // Grace has not expired here.
+        }
+    }
+
+    private fun startReenumerationGrace(detachedDeviceId: Int?, detachGeneration: Long) {
+        cancelReenumerationGrace()
+        Log.i(
+            USB_LOG_TAG,
+            "waiting ${USB_REENUMERATION_GRACE_MILLIS}ms for USB re-enumeration " +
+                "detachedDeviceId=$detachedDeviceId generation=$detachGeneration",
         )
+        reenumerationGraceJob = scope.launch {
+            delay(USB_REENUMERATION_GRACE_MILLIS)
+            if (!started || generation != detachGeneration) {
+                reenumerationGraceJob = null
+                return@launch
+            }
+            val matchingDeviceCount = runCatching { transport.matchingDevices().size }
+                .getOrDefault(0)
+            reenumerationGraceJob = null
+            when (
+                reenumerationGraceAction(
+                    graceExpired = true,
+                    matchingDeviceCount = matchingDeviceCount,
+                )
+            ) {
+                ReenumerationGraceAction.RESCAN_REPLACEMENT -> scanAndConnect()
+                ReenumerationGraceAction.PUBLISH_DETACHED -> {
+                    Log.w(
+                        USB_LOG_TAG,
+                        "USB re-enumeration grace expired detachedDeviceId=$detachedDeviceId",
+                    )
+                    mutableConnectionState.value = BoardConnectionState.Disconnected(
+                        BoardDisconnectReason.USB_DETACHED,
+                    )
+                }
+                ReenumerationGraceAction.WAIT_FOR_REPLACEMENT -> Unit
+            }
+        }
+    }
+
+    private fun cancelReenumerationGrace() {
+        reenumerationGraceJob?.cancel()
+        reenumerationGraceJob = null
     }
 
     private fun fail(code: BoardLinkErrorCode, message: String, recoverable: Boolean) {
@@ -906,6 +1061,7 @@ class HardwareConnection(
     }
 
     private fun closeLink(sendSafetyShutdown: Boolean) {
+        cancelReenumerationGrace()
         linkJob?.cancel()
         linkJob = null
         if (sendSafetyShutdown && session.attached) {
@@ -998,6 +1154,19 @@ class HardwareConnection(
 
     private fun UsbDevice.isExactShahbazIdentity(): Boolean =
         hasExactShahbazBoardUsbIdentity(vendorId, productId)
+
+    private fun matchingDeviceIdsForLog(): String = runCatching {
+        transport.matchingDevices()
+            .joinToString(prefix = "[", postfix = "]") { it.deviceId.toString() }
+    }.getOrElse { "unavailable(${it.javaClass.simpleName})" }
+
+    private fun attachmentStateForLog(deviceId: Int): String = runCatching {
+        transport.isAttached(deviceId).toString()
+    }.getOrElse { "unavailable(${it.javaClass.simpleName})" }
+
+    private fun permissionStateForLog(device: UsbDevice): String = runCatching {
+        transport.hasPermission(device).toString()
+    }.getOrElse { "unavailable(${it.javaClass.simpleName})" }
 
     private fun Intent.usbDevice(): UsbDevice? = if (Build.VERSION.SDK_INT >= 33) {
         getParcelableExtra(UsbManager.EXTRA_DEVICE, UsbDevice::class.java)

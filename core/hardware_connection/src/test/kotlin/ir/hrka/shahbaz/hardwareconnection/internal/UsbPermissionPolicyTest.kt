@@ -53,4 +53,50 @@ class UsbPermissionPolicyTest {
             usbPermissionReconciliation(null, 7, false, false),
         )
     }
+
+    @Test
+    fun fastReenumerationRevokesOldLinkAndRescansDifferentOrReusedId() {
+        assertTrue(soleDeviceReplacesOpenedLink(openedDeviceId = 7, soleDeviceId = 8))
+        assertFalse(soleDeviceReplacesOpenedLink(openedDeviceId = 8, soleDeviceId = 8))
+        assertFalse(soleDeviceReplacesOpenedLink(openedDeviceId = null, soleDeviceId = 8))
+
+        assertEquals(
+            ReenumerationGraceAction.RESCAN_REPLACEMENT,
+            reenumerationGraceAction(
+                graceExpired = false,
+                matchingDeviceCount = listOf(8).size,
+            ),
+        )
+        assertEquals(
+            ReenumerationGraceAction.RESCAN_REPLACEMENT,
+            reenumerationGraceAction(
+                graceExpired = false,
+                matchingDeviceCount = listOf(7).size,
+            ),
+        )
+    }
+
+    @Test
+    fun detachedEmptySnapshotWaitsForReplacementWithinGrace() {
+        assertEquals(
+            ReenumerationGraceAction.WAIT_FOR_REPLACEMENT,
+            reenumerationGraceAction(graceExpired = false, matchingDeviceCount = 0),
+        )
+        assertEquals(
+            ReenumerationGraceAction.RESCAN_REPLACEMENT,
+            reenumerationGraceAction(graceExpired = false, matchingDeviceCount = 1),
+        )
+    }
+
+    @Test
+    fun trueDetachPublishesOnlyAfterReenumerationGraceExpires() {
+        assertEquals(
+            ReenumerationGraceAction.WAIT_FOR_REPLACEMENT,
+            reenumerationGraceAction(graceExpired = false, matchingDeviceCount = 0),
+        )
+        assertEquals(
+            ReenumerationGraceAction.PUBLISH_DETACHED,
+            reenumerationGraceAction(graceExpired = true, matchingDeviceCount = 0),
+        )
+    }
 }

@@ -34,3 +34,26 @@ internal fun usbPermissionReconciliation(
         UsbPermissionReconciliation.DENIED
     }
 }
+
+/** A re-enumerated sole device must never inherit an open transport/session for the old id. */
+internal fun soleDeviceReplacesOpenedLink(openedDeviceId: Int?, soleDeviceId: Int): Boolean =
+    openedDeviceId != null && openedDeviceId != soleDeviceId
+
+internal enum class ReenumerationGraceAction {
+    WAIT_FOR_REPLACEMENT,
+    RESCAN_REPLACEMENT,
+    PUBLISH_DETACHED,
+}
+
+/** Keeps a confirmed detach non-terminal while Android rebuilds the same USB attachment. */
+internal fun reenumerationGraceAction(
+    graceExpired: Boolean,
+    matchingDeviceCount: Int,
+): ReenumerationGraceAction {
+    require(matchingDeviceCount >= 0)
+    return when {
+        matchingDeviceCount > 0 -> ReenumerationGraceAction.RESCAN_REPLACEMENT
+        graceExpired -> ReenumerationGraceAction.PUBLISH_DETACHED
+        else -> ReenumerationGraceAction.WAIT_FOR_REPLACEMENT
+    }
+}

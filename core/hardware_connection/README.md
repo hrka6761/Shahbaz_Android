@@ -68,8 +68,11 @@ policy also rejects those message types if invoked accidentally. Safe shutdown m
 The library dynamically registers scoped receivers for permission and USB attach/detach while
 started, scans for a board that was connected before the app or dashboard, and can idempotently
 reconcile current attachment and authoritative `UsbManager.hasPermission` state after host resume.
+A confirmed detach first enters a bounded two-second searching grace so a reset/re-enumerated board
+can replace its old Android attachment without flashing a false terminal-disconnect dialog.
 A consumer never creates a `PendingIntent`, receiver, `UsbManager`, device connection, or CDC
-endpoint. Each open explicitly drives CDC DTR/RTS from `0` to `3`, and close drives it back to `0`,
+endpoint. Each open drives CDC DTR to `0`, requires the exact seven-byte line-coding transfer, then
+drives DTR to `1` while leaving RTS deasserted. Close drives DTR back to `0`,
 so firmware observes a fresh logical session even without a physical unplug. Its manifest declares
 USB host as optional so unsupported phones remain installable and report `USB_HOST_UNAVAILABLE`
 rather than disappearing from device compatibility.

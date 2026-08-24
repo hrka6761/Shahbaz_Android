@@ -8,6 +8,7 @@ import android.hardware.usb.UsbDeviceConnection
 import android.hardware.usb.UsbEndpoint
 import android.hardware.usb.UsbInterface
 import android.hardware.usb.UsbManager
+import android.util.Log
 import ir.hrka.shahbaz.hardwareconnection.hasExactShahbazBoardUsbIdentity
 import java.io.Closeable
 import java.util.concurrent.atomic.AtomicBoolean
@@ -50,6 +51,11 @@ internal class AndroidUsbCdcTransport(
     }
 
     fun open(device: UsbDevice, generation: Long): OpenResult {
+        Log.i(
+            USB_LOG_TAG,
+            "CDC open begin deviceId=${device.deviceId} generation=$generation " +
+                "vid=0x${device.vendorId.toString(16)} pid=0x${device.productId.toString(16)}",
+        )
         close()
         if (
             !hasExactShahbazBoardUsbIdentity(device.vendorId, device.productId)
@@ -78,11 +84,22 @@ internal class AndroidUsbCdcTransport(
                 outputEndpoint = endpoints.output
                 configureCdc(opened, endpoints.communication)
                 startReader(generation)
+                Log.i(
+                    USB_LOG_TAG,
+                    "CDC open complete deviceId=${device.deviceId} generation=$generation " +
+                        "controlInterface=${endpoints.communication.id} " +
+                        "dataInterface=${endpoints.data.id}",
+                )
                 OpenResult.Opened
             }
-        } catch (error: RuntimeException) {
+        } catch (error: Throwable) {
+            Log.e(USB_LOG_TAG, "CDC open failed deviceId=${device.deviceId} generation=$generation", error)
+            // Handles are installed before configuration, so normal close attempts DTR-low before
+            // releasing either claimed interface. The direct close is a fallback for claim errors.
+            runCatching { close() }
             runCatching { opened.close() }
             clearHandles()
+            if (error is Error) throw error
             OpenResult.Failed(error)
         }
     }
@@ -124,6 +141,9 @@ internal class AndroidUsbCdcTransport(
     fun openedDeviceId(): Int? = device?.deviceId
 
     override fun close() {
+        device?.let {
+            Log.i(USB_LOG_TAG, "CDC close deviceId=${it.deviceId} generation=$generation")
+        }
         running.set(false)
         val thread = readerThread
         if (thread != null && thread !== Thread.currentThread()) {
@@ -183,12 +203,40 @@ internal class AndroidUsbCdcTransport(
             0x00, 0xC2.toByte(), 0x01, 0x00, // 115200, informational for TinyUSB CDC.
             0x00, 0x00, 0x08, // one stop bit, no parity, 8 data bits.
         )
+        check(lineCoding.size == CDC_LINE_CODING_SIZE)
+        cdcOpenRequestOrder().forEach { request ->
+            when (request) {
+                CdcOpenRequest.DROP_DTR -> setControlLineState(
+                    connection,
+                    communication,
+                    CDC_CONTROL_LINE_IDLE,
+                )
+                CdcOpenRequest.SET_LINE_CODING -> setLineCoding(
+                    connection,
+                    communication,
+                    lineCoding,
+                )
+                CdcOpenRequest.ASSERT_DTR -> setControlLineState(
+                    connection,
+                    communication,
+                    CDC_CONTROL_LINE_ACTIVE,
+                )
+            }
+        }
+    }
+
+    private fun setLineCoding(
+        connection: UsbDeviceConnection,
+        communication: UsbInterface,
+        lineCoding: ByteArray,
+    ) {
         val codingResult = connection.controlTransfer(
             0x21, 0x20, 0, communication.id, lineCoding, lineCoding.size, 1_000,
         )
-        if (codingResult < 0) throw IllegalStateException("CDC SET_LINE_CODING failed")
-        cdcOpenControlLineStates().forEach { state ->
-            setControlLineState(connection, communication, state)
+        if (!cdcLineCodingTransferSucceeded(codingResult)) {
+            throw IllegalStateException(
+                "CDC SET_LINE_CODING transferred $codingResult/$CDC_LINE_CODING_SIZE bytes",
+            )
         }
     }
 
@@ -200,9 +248,10 @@ internal class AndroidUsbCdcTransport(
         val result = connection.controlTransfer(
             0x21, 0x22, state, communication.id, null, 0, 1_000,
         )
-        if (result < 0) {
+        if (!cdcControlLineTransferSucceeded(result)) {
             throw IllegalStateException(
-                "CDC SET_CONTROL_LINE_STATE 0x${state.toString(16).padStart(4, '0')} failed",
+                "CDC SET_CONTROL_LINE_STATE 0x${state.toString(16).padStart(4, '0')} " +
+                    "returned $result instead of 0",
             )
         }
     }
@@ -262,5 +311,9 @@ internal class AndroidUsbCdcTransport(
         data object OpenFailed : OpenResult
         data class Incompatible(val message: String) : OpenResult
         data class Failed(val cause: Throwable) : OpenResult
+    }
+
+    private companion object {
+        const val USB_LOG_TAG = "ShahbazUsb"
     }
 }
