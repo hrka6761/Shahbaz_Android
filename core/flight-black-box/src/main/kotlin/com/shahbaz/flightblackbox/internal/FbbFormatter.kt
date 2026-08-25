@@ -82,6 +82,9 @@ internal class FbbFormatter(
         return listOf(mainLine) + formatDetail(detailId, detail)
     }
 
+    fun footer(status: FbbReportStatus, endedAtEpochMillis: Long, latestSequence: Long): List<String> =
+        footerLines(status, endedAtEpochMillis, latestSequence)
+
     fun throwableEvent(
         sequence: Long,
         type: FbbEventType,
@@ -132,6 +135,16 @@ internal class FbbFormatter(
         fun formatWallTime(epochMillis: Long): String =
             Instant.ofEpochMilli(epochMillis).atZone(ZoneId.systemDefault()).format(WallTimeFormatter)
 
+        fun footerLines(
+            status: FbbReportStatus,
+            endedAtEpochMillis: Long,
+            latestSequence: Long,
+        ): List<String> = listOf(
+            "--------------------------------------------------",
+            "REPORT END | status=$status | ended=${formatWallTime(endedAtEpochMillis)} | " +
+                "latestEvent=${latestSequence.toLatestEventId()} #END",
+        )
+
         fun formatRelative(nanos: Long): String {
             val millis = (nanos.coerceAtLeast(0L) / 1_000_000L)
             val hours = millis / 3_600_000L
@@ -167,6 +180,9 @@ internal class FbbFormatter(
                 append(" #END")
             }
         }
+
+        private fun Long.toLatestEventId(): String =
+            if (this > 0L) formatEventId(this) else "none"
     }
 }
 

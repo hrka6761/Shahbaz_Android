@@ -197,6 +197,18 @@ class DashboardPresentationDecisionsTest {
     }
 
     @Test
+    fun dashboardBlockReasonMatchesConnectionStateForReports() {
+        assertEquals("Searching", dashboardBlockReason(BoardConnectionState.Searching))
+        assertEquals("PermissionRequired", dashboardBlockReason(BoardConnectionState.PermissionRequired(Device)))
+        assertEquals("ValidatingDevice", dashboardBlockReason(BoardConnectionState.ValidatingDevice(Device)))
+        assertEquals("Ready", dashboardBlockReason(BoardConnectionState.Ready(Device, DeviceInfo, 100L)))
+        assertEquals(
+            "Disconnected",
+            dashboardBlockReason(BoardConnectionState.Disconnected(BoardDisconnectReason.USB_DETACHED)),
+        )
+    }
+
+    @Test
     fun readyBoardEvidenceWarningsAreDegradedButDoNotBlockTheDashboard() {
         val clean = BoardConnectionState.Ready(Device, DeviceInfo, 10L)
         val advisory = BoardConnectionState.Ready(

@@ -145,6 +145,14 @@ internal class FbbStorage private constructor(private val rootDir: File) {
         FileOutputStream(report, true).use { output ->
             output.write(line.toByteArray(Charsets.UTF_8))
             output.write('\n'.code)
+            FbbFormatter.footerLines(
+                status = FbbReportStatus.ABNORMAL_TERMINATION,
+                endedAtEpochMillis = nowEpochMillis,
+                latestSequence = sequence,
+            ).forEach { footerLine ->
+                output.write(footerLine.toByteArray(Charsets.UTF_8))
+                output.write('\n'.code)
+            }
             output.flush()
             output.channel.force(true)
         }

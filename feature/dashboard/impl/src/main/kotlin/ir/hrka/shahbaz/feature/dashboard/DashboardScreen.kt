@@ -31,6 +31,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.key
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -52,6 +53,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.shahbaz.flightblackbox.FbbEventType
+import com.shahbaz.flightblackbox.FbbPersistence
+import com.shahbaz.flightblackbox.FlightBlackBox
 import ir.hrka.compass.CompassAccuracyLevel
 import ir.hrka.compass.CompassDirection
 import ir.hrka.compass.CompassReading
@@ -99,6 +103,21 @@ internal fun connectionGateAction(state: BoardConnectionState): ConnectionGateAc
 
 internal fun shouldBlockDashboard(state: BoardConnectionState): Boolean =
     state !is BoardConnectionState.Ready
+
+internal fun dashboardBlockReason(state: BoardConnectionState): String = when (state) {
+    BoardConnectionState.Stopped -> "Stopped"
+    BoardConnectionState.Searching -> "Searching"
+    is BoardConnectionState.PermissionRequired -> "PermissionRequired"
+    is BoardConnectionState.RequestingPermission -> "RequestingPermission"
+    is BoardConnectionState.Opening -> "Opening"
+    is BoardConnectionState.Synchronizing -> "Synchronizing"
+    is BoardConnectionState.ValidatingDevice -> "ValidatingDevice"
+    is BoardConnectionState.AwaitingHeartbeat -> "AwaitingHeartbeat"
+    is BoardConnectionState.StartingTelemetry -> "StartingTelemetry"
+    is BoardConnectionState.Ready -> "Ready"
+    is BoardConnectionState.Disconnected -> "Disconnected"
+    is BoardConnectionState.Failed -> "Failed"
+}
 
 /** Keeps firmware evidence warnings visible without treating them as live-link failures. */
 internal fun boardReadyStatusKind(state: BoardConnectionState): InstrumentStatusKind {
@@ -183,6 +202,37 @@ fun DashboardScreen(
     onRetryBoardConnection: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val blocked = shouldBlockDashboard(state.boardConnection)
+    val blockReason = dashboardBlockReason(state.boardConnection)
+    LaunchedEffect(Unit) {
+        FlightBlackBox.record(
+            type = FbbEventType.UI,
+            description = "DashboardScreen visible",
+            metadata = mapOf(
+                "boardConnection" to blockReason,
+                "blockedUntilBoardReady" to if (blocked) blockReason else false,
+                "hasFlightPlan" to (state.flightPlan != null),
+            ),
+            persistence = FbbPersistence.IMPORTANT,
+        )
+    }
+    LaunchedEffect(state.boardConnection) {
+        FlightBlackBox.record(
+            type = if (blocked) FbbEventType.DECISION else FbbEventType.UI,
+            description = if (blocked) {
+                "DashboardScreen blocked until board ready"
+            } else {
+                "DashboardScreen ready content visible"
+            },
+            metadata = mapOf(
+                "boardConnection" to blockReason,
+                "blockedUntilBoardReady" to if (blocked) blockReason else false,
+                "connectionGateAction" to connectionGateAction(state.boardConnection),
+                "hasFlightPlan" to (state.flightPlan != null),
+            ),
+            persistence = FbbPersistence.IMPORTANT,
+        )
+    }
     Surface(
         modifier = modifier
             .fillMaxSize()
@@ -190,7 +240,7 @@ fun DashboardScreen(
         color = CockpitBackground,
         contentColor = CockpitOnSurface,
     ) {
-        if (shouldBlockDashboard(state.boardConnection)) {
+        if (blocked) {
             BoardConnectionGate(
                 state = state.boardConnection,
                 onRequestPermission = onRequestUsbPermission,

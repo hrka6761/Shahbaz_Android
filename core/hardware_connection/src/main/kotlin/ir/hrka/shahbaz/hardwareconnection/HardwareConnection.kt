@@ -131,6 +131,8 @@ class HardwareConnection(
     private var initialTimeSyncAttemptsSent = 0
     private var lastDeviceStatusSentMillis = 0L
     private var lastUsbEvent: FbbEventRef? = null
+    private var lastCommandSentType: MessageType? = null
+    private var lastCommandSentSequence: UInt? = null
 
     private val permissionReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
@@ -224,7 +226,7 @@ class HardwareConnection(
                                 "deviceId" to announcedDevice?.deviceId,
                                 "openedDeviceId" to openedId,
                                 "announcedStillAttached" to announcedStillAttachedForLog,
-                            ),
+                            ) + usbDiagnosticContextMetadata(),
                             persistence = FbbPersistence.IMPORTANT,
                         )
                         Log.w(
@@ -1403,6 +1405,8 @@ class HardwareConnection(
             ),
         )
         if (transport.write(generation, command.bytes)) {
+            lastCommandSentType = command.type
+            lastCommandSentSequence = command.sequence
             lastUsbEvent = tx
             return true
         }
@@ -1427,7 +1431,10 @@ class HardwareConnection(
             type = FbbEventType.SYSTEM,
             description = "USB physical detach confirmed",
             cause = lastUsbEvent,
-            metadata = mapOf("source" to source, "openedDeviceId" to detachedDeviceId),
+            metadata = mapOf(
+                "source" to source,
+                "openedDeviceId" to detachedDeviceId,
+            ) + usbDiagnosticContextMetadata(),
             persistence = FbbPersistence.IMPORTANT,
         )
         Log.w(
@@ -1568,6 +1575,8 @@ class HardwareConnection(
         timeSyncPending = false
         initialTimeSyncAttemptsSent = 0
         lastDeviceStatusSentMillis = 0L
+        lastCommandSentType = null
+        lastCommandSentSequence = null
     }
 
     private fun publishTelemetry() {
@@ -1627,6 +1636,30 @@ class HardwareConnection(
         "vid" to "0x${vendorId.toString(16)}",
         "pid" to "0x${productId.toString(16)}",
     )
+
+    private fun usbDiagnosticContextMetadata(): Map<String, Any?> = mapOf(
+        "connection" to mutableConnectionState.value.fbbKind(),
+        "stage" to currentInboundSessionStage(),
+        "generation" to generation,
+        "selectedDeviceId" to selectedDescriptor?.deviceId,
+        "lastCommand" to lastCommandSentType,
+        "lastCommandSequence" to lastCommandSentSequence,
+    )
+
+    private fun BoardConnectionState.fbbKind(): String = when (this) {
+        BoardConnectionState.Stopped -> "Stopped"
+        BoardConnectionState.Searching -> "Searching"
+        is BoardConnectionState.PermissionRequired -> "PermissionRequired"
+        is BoardConnectionState.RequestingPermission -> "RequestingPermission"
+        is BoardConnectionState.Opening -> "Opening"
+        is BoardConnectionState.Synchronizing -> "Synchronizing"
+        is BoardConnectionState.ValidatingDevice -> "ValidatingDevice"
+        is BoardConnectionState.AwaitingHeartbeat -> "AwaitingHeartbeat"
+        is BoardConnectionState.StartingTelemetry -> "StartingTelemetry"
+        is BoardConnectionState.Ready -> "Ready"
+        is BoardConnectionState.Disconnected -> "Disconnected"
+        is BoardConnectionState.Failed -> "Failed"
+    }
 
     private fun DecodedFrame.fbbMetadata(receivedAtUs: ULong): Map<String, Any?> = mapOf(
         "messageType" to header.messageType,

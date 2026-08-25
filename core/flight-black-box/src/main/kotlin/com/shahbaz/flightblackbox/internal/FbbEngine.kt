@@ -29,6 +29,7 @@ internal class FbbEngine private constructor(
     private val queueAccessLock = Any()
     private val writerProcessingLock = Any()
     private val running = AtomicBoolean(true)
+    private val footerWritten = AtomicBoolean(false)
     private val latestProducedSequence = AtomicLong(0L)
     private val latestWrittenSequence = AtomicLong(0L)
     private val latestDurableSequence = AtomicLong(0L)
@@ -138,6 +139,7 @@ internal class FbbEngine private constructor(
                             latestDurableSequence = sequence,
                         )
                     }
+                    writeFooterLocked(FbbReportStatus.CRASHED)
                     storage.writeSessionMetadata(metadata)
                 }
             }
@@ -165,9 +167,12 @@ internal class FbbEngine private constructor(
     }
 
     fun completeSession() {
-        flushAndForce()
-        updateMetadata { copy(status = FbbReportStatus.COMPLETED) }
-        storage.writeSessionMetadata(metadata)
+        synchronized(recordLock) {
+            flushAndForce()
+            updateMetadata { copy(status = FbbReportStatus.COMPLETED) }
+            writeFooterLocked(FbbReportStatus.COMPLETED)
+            storage.writeSessionMetadata(metadata)
+        }
     }
 
     fun health(): FbbHealth = FbbHealth(
@@ -284,6 +289,23 @@ internal class FbbEngine private constructor(
             }
         }.onFailure(::rememberWriterFailure)
         record.ack?.countDown()
+    }
+
+    private fun writeFooterLocked(status: FbbReportStatus) {
+        if (!footerWritten.compareAndSet(false, true)) return
+        runCatching {
+            fileWriter.append(
+                formatter.footer(
+                    status = status,
+                    endedAtEpochMillis = clock.wallClockMillis(),
+                    latestSequence = latestWrittenSequence.get(),
+                ),
+                flush = true,
+                force = true,
+            )
+            latestDurableSequence.set(latestWrittenSequence.get())
+            lastForceElapsedNanos = clock.elapsedRealtimeNanos()
+        }.onFailure(::rememberWriterFailure)
     }
 
     private fun shouldAwaitAck(persistence: FbbPersistence): Boolean =

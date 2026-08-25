@@ -160,6 +160,8 @@ class FbbEngineTest {
         val recoveredText = firstDescriptor.file.readText()
         assertTrue(recoveredText.contains("ABNORMAL_TERMINATION"))
         assertTrue(recoveredText.contains("truncatedIncompleteTail=true"))
+        assertTrue(recoveredText.contains("REPORT END | status=ABNORMAL_TERMINATION"))
+        assertTrue(recoveredText.contains("latestEvent=E000003"))
         assertFalse(recoveredText.contains("PARTIAL WITHOUT TERMINATOR"))
         assertEquals(
             FbbReportStatus.ABNORMAL_TERMINATION,
@@ -203,12 +205,15 @@ class FbbEngineTest {
         engine.flushAndForce()
         engine.completeSession()
         engine.close()
+        val reportText = storage.listDescriptors(activeSessionId = null).single().file.readText()
 
         val reports = FlightBlackBoxReports(storage, activeSessionId = null)
         val details = reports.getReportDetails(engine.activeSessionId)
 
         assertNotNull(details)
         assertEquals(FbbReportStatus.COMPLETED, details?.descriptor?.status)
+        assertTrue(reportText.contains("REPORT END | status=COMPLETED"))
+        assertTrue(reportText.contains("latestEvent=E000003"))
         assertEquals(3, details?.eventCount)
         assertEquals(1, details?.warningCount)
         assertEquals(1, details?.errorCount)

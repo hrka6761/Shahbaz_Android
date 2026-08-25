@@ -78,11 +78,12 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
                 ) {
                     val resolved = FlightBlackBox.record(
                         type = FbbEventType.DECISION,
-                        description = "USB permission request resolved -> clear pending flags",
+                        description = "USB permission request completed -> clear pending flags",
                         cause = lastBoardConnectionEvent,
                         metadata = mapOf(
                             "connection" to connection.fbbKind(),
-                            "returnedToHost" to usbPermissionRequestReturnedToHost,
+                            "hostReturnObserved" to usbPermissionRequestReturnedToHost,
+                            "hostForeground" to hostForeground,
                         ),
                         persistence = FbbPersistence.IMPORTANT,
                     )
@@ -124,10 +125,11 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
     }
 
     /** Installs a new immutable flight plan and resets only flight-relative derived state. */
-    fun setFlightPlan(plan: FlightPlan) {
+    fun setFlightPlan(plan: FlightPlan, cause: FbbEventRef? = null) {
         val event = FlightBlackBox.record(
             type = FbbEventType.CALL,
             description = "DashboardViewModel.setFlightPlan()",
+            cause = cause,
             metadata = mapOf("hostForeground" to hostForeground),
             persistence = FbbPersistence.IMPORTANT,
         )
@@ -232,6 +234,19 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
             description = "DashboardViewModel.onHostResume()",
             persistence = FbbPersistence.IMPORTANT,
         )
+        if (usbPermissionRequestPending && !usbPermissionRequestReturnedToHost) {
+            usbPermissionRequestReturnedToHost = true
+            FlightBlackBox.record(
+                type = FbbEventType.STATE,
+                description = "USB permission prompt returned to dashboard host",
+                cause = event,
+                metadata = mapOf(
+                    "connection" to mutableUiState.value.boardConnection.fbbKind(),
+                    "hostForeground" to hostForeground,
+                ),
+                persistence = FbbPersistence.IMPORTANT,
+            )
+        }
         if (hostForeground && mutableUiState.value.flightPlan != null) {
             FlightBlackBox.record(
                 type = FbbEventType.DECISION,

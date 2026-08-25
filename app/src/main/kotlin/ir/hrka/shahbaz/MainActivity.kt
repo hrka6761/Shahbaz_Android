@@ -153,7 +153,14 @@ class MainActivity : ComponentActivity() {
                     if (flightPlan == null) {
                         dashboardViewModel.clearFlightPlan()
                     } else {
-                        dashboardViewModel.setFlightPlan(flightPlan)
+                        val dashboardNav = FlightBlackBox.record(
+                            type = FbbEventType.NAV,
+                            description = "MapScreen -> DashboardScreen",
+                            parent = activityCreateEvent,
+                            metadata = mapOf("appRoute" to appRoute),
+                            persistence = FbbPersistence.IMPORTANT,
+                        )
+                        dashboardViewModel.setFlightPlan(flightPlan, cause = dashboardNav)
                         if (hostStarted) dashboardViewModel.onHostForeground()
                     }
                 }
