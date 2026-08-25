@@ -5,15 +5,29 @@ import android.Manifest
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
-import android.provider.Settings
+import android.provider.Settings as AndroidSettings
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.activity.ComponentActivity
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.systemBarsPadding
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Settings
+import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.Icon
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.shahbaz.flightblackbox.FbbEventRef
 import com.shahbaz.flightblackbox.FbbEventType
@@ -31,6 +45,7 @@ import ir.hrka.shahbaz.feature.map.LocationStatus
 import ir.hrka.shahbaz.feature.map.MapScreen
 import ir.hrka.shahbaz.feature.map.MapUiState
 import ir.hrka.shahbaz.feature.map.MapViewModel
+import ir.hrka.shahbaz.feature.settings.SettingsScreen
 
 /** Thin application-shell activity that renders the map feature and owns system navigation. */
 class MainActivity : ComponentActivity() {
@@ -93,9 +108,40 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         setContent {
             ShahbazTheme {
+                var appRoute by rememberSaveable { mutableStateOf(AppRoute.FLIGHT.name) }
                 val mapState by mapViewModel.uiState.collectAsStateWithLifecycle()
                 val dashboardState by dashboardViewModel.uiState.collectAsStateWithLifecycle()
                 val flightPlan = mapState.confirmedFlightPlan
+
+                fun openSettings() {
+                    val request = FlightBlackBox.record(
+                        type = FbbEventType.USER,
+                        description = "App shell Settings button clicked",
+                        parent = activityCreateEvent,
+                        persistence = FbbPersistence.IMPORTANT,
+                    )
+                    appRoute = AppRoute.SETTINGS.name
+                    FlightBlackBox.record(
+                        type = FbbEventType.NAV,
+                        description = "Flight shell -> SettingsScreen",
+                        cause = request,
+                    )
+                }
+
+                fun closeSettings() {
+                    val request = FlightBlackBox.record(
+                        type = FbbEventType.USER,
+                        description = "SettingsScreen back requested",
+                        parent = activityCreateEvent,
+                        persistence = FbbPersistence.IMPORTANT,
+                    )
+                    appRoute = AppRoute.FLIGHT.name
+                    FlightBlackBox.record(
+                        type = FbbEventType.NAV,
+                        description = "SettingsScreen -> Flight shell",
+                        cause = request,
+                    )
+                }
 
                 LaunchedEffect(mapState) {
                     dashboardViewModel.updatePhoneSensors(
@@ -112,7 +158,11 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
-                BackHandler(enabled = flightPlan != null) {
+                BackHandler(enabled = appRoute == AppRoute.SETTINGS.name) {
+                    closeSettings()
+                }
+
+                BackHandler(enabled = appRoute == AppRoute.FLIGHT.name && flightPlan != null) {
                     val back = FlightBlackBox.record(
                         type = FbbEventType.USER,
                         description = "System back pressed on DashboardScreen",
@@ -128,26 +178,41 @@ class MainActivity : ComponentActivity() {
                     )
                 }
 
-                if (flightPlan == null) {
-                    MapScreen(
-                        state = mapState,
-                        onDestinationSelected = mapViewModel::setDestination,
-                        onClearDestination = mapViewModel::clearDestination,
-                        onAdvanceToTakeoffAltitude = mapViewModel::advanceToTakeoffAltitude,
-                        onReturnToDestinationSelection = mapViewModel::returnToDestinationSelection,
-                        onTakeoffAltitudeChanged = mapViewModel::updateTakeoffAltitude,
-                        onConfirmTakeoffAltitude = mapViewModel::confirmTakeoffAltitude,
-                        onRequestPermission = ::requestLocationPermission,
-                        onOpenAppSettings = ::openAppSettings,
-                        onOpenLocationSettings = ::openLocationSettings,
-                        onRetryLocation = mapViewModel::retryLocation,
-                    )
-                } else {
-                    DashboardScreen(
-                        state = dashboardState,
-                        onRequestUsbPermission = dashboardViewModel::requestUsbPermission,
-                        onRetryBoardConnection = dashboardViewModel::retryBoardConnection,
-                    )
+                Box(Modifier.fillMaxSize()) {
+                    if (appRoute == AppRoute.SETTINGS.name) {
+                        SettingsScreen(onBack = ::closeSettings)
+                    } else {
+                        if (flightPlan == null) {
+                            MapScreen(
+                                state = mapState,
+                                onDestinationSelected = mapViewModel::setDestination,
+                                onClearDestination = mapViewModel::clearDestination,
+                                onAdvanceToTakeoffAltitude = mapViewModel::advanceToTakeoffAltitude,
+                                onReturnToDestinationSelection = mapViewModel::returnToDestinationSelection,
+                                onTakeoffAltitudeChanged = mapViewModel::updateTakeoffAltitude,
+                                onConfirmTakeoffAltitude = mapViewModel::confirmTakeoffAltitude,
+                                onRequestPermission = ::requestLocationPermission,
+                                onOpenAppSettings = ::openAppSettings,
+                                onOpenLocationSettings = ::openLocationSettings,
+                                onRetryLocation = mapViewModel::retryLocation,
+                            )
+                        } else {
+                            DashboardScreen(
+                                state = dashboardState,
+                                onRequestUsbPermission = dashboardViewModel::requestUsbPermission,
+                                onRetryBoardConnection = dashboardViewModel::retryBoardConnection,
+                            )
+                        }
+                        FloatingActionButton(
+                            onClick = ::openSettings,
+                            modifier = Modifier
+                                .align(Alignment.TopEnd)
+                                .systemBarsPadding()
+                                .padding(16.dp),
+                        ) {
+                            Icon(Icons.Rounded.Settings, contentDescription = "Open settings")
+                        }
+                    }
                 }
             }
         }
@@ -301,7 +366,7 @@ class MainActivity : ComponentActivity() {
         )
         startActivity(
             Intent(
-                Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                AndroidSettings.ACTION_APPLICATION_DETAILS_SETTINGS,
                 Uri.fromParts("package", packageName, null),
             )
         )
@@ -309,7 +374,7 @@ class MainActivity : ComponentActivity() {
             type = FbbEventType.SYSTEM,
             description = "Android app details settings opened",
             cause = request,
-            metadata = mapOf("action" to Settings.ACTION_APPLICATION_DETAILS_SETTINGS),
+            metadata = mapOf("action" to AndroidSettings.ACTION_APPLICATION_DETAILS_SETTINGS),
             persistence = FbbPersistence.IMPORTANT,
         )
     }
@@ -321,15 +386,20 @@ class MainActivity : ComponentActivity() {
             description = "MapScreen.OpenLocationSettings clicked",
             persistence = FbbPersistence.IMPORTANT,
         )
-        startActivity(Intent(Settings.ACTION_LOCATION_SOURCE_SETTINGS))
+        startActivity(Intent(AndroidSettings.ACTION_LOCATION_SOURCE_SETTINGS))
         FlightBlackBox.record(
             type = FbbEventType.SYSTEM,
             description = "Android location settings opened",
             cause = request,
-            metadata = mapOf("action" to Settings.ACTION_LOCATION_SOURCE_SETTINGS),
+            metadata = mapOf("action" to AndroidSettings.ACTION_LOCATION_SOURCE_SETTINGS),
             persistence = FbbPersistence.IMPORTANT,
         )
     }
+}
+
+private enum class AppRoute {
+    FLIGHT,
+    SETTINGS,
 }
 
 /** Maps the existing phone-only sensor pipeline into dashboard state with explicit provenance. */
