@@ -39,6 +39,7 @@ android {
 }
 
 dependencies {
+    implementation(projects.flightBlackBox)
     implementation(projects.core.designsystem)
     implementation(projects.feature.map.impl)
     implementation(projects.feature.dashboard.impl)

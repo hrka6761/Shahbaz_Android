@@ -47,6 +47,10 @@ internal class FbbEngine private constructor(
 
     val activeSessionId: String = session.id
 
+    @Volatile
+    var processStartEvent: FbbEventRef? = null
+        private set
+
     private val writerThread = Thread(::writerLoop, "ShahbazFlightBlackBoxWriter").apply {
         isDaemon = true
         start()
@@ -351,7 +355,7 @@ internal class FbbEngine private constructor(
             )
             engine.latestDurableSequence.set(0L)
             if (installCrashHandler) FbbCrashHandler.install(engine)
-            engine.record(
+            engine.processStartEvent = engine.record(
                 FbbEvent(
                     type = FbbEventType.TRIGGER,
                     description = "${appInfo.appName} process started",

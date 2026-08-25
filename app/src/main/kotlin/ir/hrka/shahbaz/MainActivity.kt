@@ -15,6 +15,10 @@ import androidx.activity.ComponentActivity
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.shahbaz.flightblackbox.FbbEventRef
+import com.shahbaz.flightblackbox.FbbEventType
+import com.shahbaz.flightblackbox.FbbPersistence
+import com.shahbaz.flightblackbox.FlightBlackBox
 import ir.hrka.shahbaz.core.designsystem.ShahbazTheme
 import ir.hrka.shahbaz.feature.dashboard.DashboardPhoneSensors
 import ir.hrka.shahbaz.feature.dashboard.DashboardScreen
@@ -39,11 +43,37 @@ class MainActivity : ComponentActivity() {
     /** Tracks whether Activity lifecycle currently permits dashboard sensor acquisition. */
     private var hostStarted = false
 
+    /** Root lifecycle event for app-shell causal chains owned by this Activity instance. */
+    private var activityCreateEvent: FbbEventRef? = null
+
+    /** Most recent Android location permission request event awaiting a result callback. */
+    private var locationPermissionRequestEvent: FbbEventRef? = null
+
     /** Runtime-permission contract requesting coarse and precise location together. */
     private val locationPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
-    ) {
+    ) { grants ->
+        val result = FlightBlackBox.record(
+            type = FbbEventType.SYSTEM,
+            description = "Android location permission result received",
+            cause = locationPermissionRequestEvent,
+            metadata = mapOf(
+                "fineGranted" to (grants[Manifest.permission.ACCESS_FINE_LOCATION] == true),
+                "coarseGranted" to (grants[Manifest.permission.ACCESS_COARSE_LOCATION] == true),
+            ),
+            persistence = FbbPersistence.IMPORTANT,
+        )
+        val call = FlightBlackBox.record(
+            type = FbbEventType.CALL,
+            description = "MapViewModel.onPermissionResult()",
+            cause = result,
+        )
         mapViewModel.onPermissionResult()
+        FlightBlackBox.record(
+            type = FbbEventType.RETURN,
+            description = "MapViewModel.onPermissionResult() completed",
+            cause = call,
+        )
     }
 
     /**
@@ -52,6 +82,13 @@ class MainActivity : ComponentActivity() {
      * @param savedInstanceState previously saved activity state when the system recreates it.
      */
     override fun onCreate(savedInstanceState: Bundle?) {
+        activityCreateEvent = FlightBlackBox.record(
+            type = FbbEventType.CALL,
+            description = "MainActivity.onCreate()",
+            cause = FlightBlackBox.processStartEvent(),
+            metadata = mapOf("hasSavedState" to (savedInstanceState != null)),
+            persistence = FbbPersistence.IMPORTANT,
+        )
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         setContent {
@@ -76,8 +113,19 @@ class MainActivity : ComponentActivity() {
                 }
 
                 BackHandler(enabled = flightPlan != null) {
+                    val back = FlightBlackBox.record(
+                        type = FbbEventType.USER,
+                        description = "System back pressed on DashboardScreen",
+                        parent = activityCreateEvent,
+                        persistence = FbbPersistence.IMPORTANT,
+                    )
                     dashboardViewModel.clearFlightPlan()
                     mapViewModel.clearConfirmedFlightPlan()
+                    FlightBlackBox.record(
+                        type = FbbEventType.NAV,
+                        description = "DashboardScreen -> MapScreen",
+                        cause = back,
+                    )
                 }
 
                 if (flightPlan == null) {
@@ -103,36 +151,139 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
+        FlightBlackBox.record(
+            type = FbbEventType.UI,
+            description = "MainActivity Compose content installed",
+            cause = activityCreateEvent,
+        )
     }
 
     /** Notifies the map feature that foreground-only work may start. */
     override fun onStart() {
+        val start = FlightBlackBox.record(
+            type = FbbEventType.CALL,
+            description = "MainActivity.onStart()",
+            cause = activityCreateEvent,
+            persistence = FbbPersistence.IMPORTANT,
+        )
         super.onStart()
         hostStarted = true
+        FlightBlackBox.record(
+            type = FbbEventType.STATE,
+            description = "hostStarted: false -> true",
+            cause = start,
+        )
+        val foreground = FlightBlackBox.record(
+            type = FbbEventType.CALL,
+            description = "MapViewModel.onForeground()",
+            cause = start,
+        )
         mapViewModel.onForeground()
+        val foregroundReturn = FlightBlackBox.record(
+            type = FbbEventType.RETURN,
+            description = "MapViewModel.onForeground() completed",
+            cause = foreground,
+        )
         if (mapViewModel.uiState.value.confirmedFlightPlan != null) {
+            val decision = FlightBlackBox.record(
+                type = FbbEventType.DECISION,
+                description = "confirmedFlightPlan present -> dashboard host foreground",
+                cause = foregroundReturn,
+            )
+            val dashboardForeground = FlightBlackBox.record(
+                type = FbbEventType.CALL,
+                description = "DashboardViewModel.onHostForeground()",
+                cause = decision,
+            )
             dashboardViewModel.onHostForeground()
+            FlightBlackBox.record(
+                type = FbbEventType.RETURN,
+                description = "DashboardViewModel.onHostForeground() completed",
+                cause = dashboardForeground,
+            )
         }
     }
 
     /** Reconciles a USB grant after Android's permission activity returns to this host. */
     override fun onResume() {
+        val resume = FlightBlackBox.record(
+            type = FbbEventType.CALL,
+            description = "MainActivity.onResume()",
+            cause = activityCreateEvent,
+        )
         super.onResume()
         if (mapViewModel.uiState.value.confirmedFlightPlan != null) {
+            val decision = FlightBlackBox.record(
+                type = FbbEventType.DECISION,
+                description = "confirmedFlightPlan present -> refresh dashboard host",
+                cause = resume,
+            )
+            val dashboardResume = FlightBlackBox.record(
+                type = FbbEventType.CALL,
+                description = "DashboardViewModel.onHostResume()",
+                cause = decision,
+            )
             dashboardViewModel.onHostResume()
+            FlightBlackBox.record(
+                type = FbbEventType.RETURN,
+                description = "DashboardViewModel.onHostResume() completed",
+                cause = dashboardResume,
+            )
         }
     }
 
     /** Stops foreground-only feature work before the activity leaves the visible lifecycle. */
     override fun onStop() {
+        val stop = FlightBlackBox.record(
+            type = FbbEventType.CALL,
+            description = "MainActivity.onStop()",
+            cause = activityCreateEvent,
+            persistence = FbbPersistence.IMPORTANT,
+        )
         hostStarted = false
+        FlightBlackBox.record(
+            type = FbbEventType.STATE,
+            description = "hostStarted: true -> false",
+            cause = stop,
+        )
+        val dashboardBackground = FlightBlackBox.record(
+            type = FbbEventType.CALL,
+            description = "DashboardViewModel.onHostBackground()",
+            cause = stop,
+        )
         dashboardViewModel.onHostBackground()
+        FlightBlackBox.record(
+            type = FbbEventType.RETURN,
+            description = "DashboardViewModel.onHostBackground() completed",
+            cause = dashboardBackground,
+        )
+        val mapBackground = FlightBlackBox.record(
+            type = FbbEventType.CALL,
+            description = "MapViewModel.onBackground()",
+            cause = stop,
+        )
         mapViewModel.onBackground()
+        FlightBlackBox.record(
+            type = FbbEventType.RETURN,
+            description = "MapViewModel.onBackground() completed",
+            cause = mapBackground,
+        )
         super.onStop()
     }
 
     /** Launches the runtime request for coarse and precise location permissions. */
     private fun requestLocationPermission() {
+        val request = FlightBlackBox.record(
+            type = FbbEventType.USER,
+            description = "MapScreen.LocationPermission.Request clicked",
+            persistence = FbbPersistence.IMPORTANT,
+        )
+        locationPermissionRequestEvent = request
+        FlightBlackBox.record(
+            type = FbbEventType.CALL,
+            description = "ActivityResultLauncher.launch(location permissions)",
+            cause = request,
+        )
         locationPermissionLauncher.launch(
             arrayOf(
                 Manifest.permission.ACCESS_FINE_LOCATION,
@@ -143,17 +294,41 @@ class MainActivity : ComponentActivity() {
 
     /** Opens this application's system settings page for permission correction. */
     private fun openAppSettings() {
+        val request = FlightBlackBox.record(
+            type = FbbEventType.USER,
+            description = "MapScreen.OpenAppSettings clicked",
+            persistence = FbbPersistence.IMPORTANT,
+        )
         startActivity(
             Intent(
                 Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
                 Uri.fromParts("package", packageName, null),
             )
         )
+        FlightBlackBox.record(
+            type = FbbEventType.SYSTEM,
+            description = "Android app details settings opened",
+            cause = request,
+            metadata = mapOf("action" to Settings.ACTION_APPLICATION_DETAILS_SETTINGS),
+            persistence = FbbPersistence.IMPORTANT,
+        )
     }
 
     /** Opens device location settings so the user can enable location services. */
     private fun openLocationSettings() {
+        val request = FlightBlackBox.record(
+            type = FbbEventType.USER,
+            description = "MapScreen.OpenLocationSettings clicked",
+            persistence = FbbPersistence.IMPORTANT,
+        )
         startActivity(Intent(Settings.ACTION_LOCATION_SOURCE_SETTINGS))
+        FlightBlackBox.record(
+            type = FbbEventType.SYSTEM,
+            description = "Android location settings opened",
+            cause = request,
+            metadata = mapOf("action" to Settings.ACTION_LOCATION_SOURCE_SETTINGS),
+            persistence = FbbPersistence.IMPORTANT,
+        )
     }
 }
 

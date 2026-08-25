@@ -46,6 +46,9 @@ object FlightBlackBox {
     /** Records one event and returns its stable event id when the recorder is initialized. */
     fun record(event: FbbEvent): FbbEventRef? = engine?.record(event)
 
+    /** Event id for the process-start trigger written during initialization. */
+    fun processStartEvent(): FbbEventRef? = engine?.processStartEvent
+
     /** Convenience overload for concise event producer call sites. */
     fun record(
         type: FbbEventType,
