@@ -152,6 +152,10 @@ object FlightBlackBox {
     fun reports(context: Context): FlightBlackBoxReports =
         FlightBlackBoxReports(FbbStorage.fromFilesDir(context.filesDir), engine?.activeSessionId)
 
+    /** Persisted recorder configuration used by Settings and read during process startup. */
+    fun configuration(context: Context): FlightBlackBoxConfiguration =
+        FlightBlackBoxConfiguration(context.applicationContext)
+
     /** Test-only reset hook kept internal to the module's package API surface. */
     internal fun resetForTests() {
         synchronized(this) {

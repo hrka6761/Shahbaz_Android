@@ -16,7 +16,10 @@ class ShahbazApplication : Application() {
 
     override fun onCreate() {
         super.onCreate()
-        FlightBlackBox.initialize(this)
+        FlightBlackBox.initialize(
+            context = this,
+            config = FlightBlackBox.configuration(this).read(),
+        )
         lastLifecycleEvent = FlightBlackBox.record(
             type = FbbEventType.APP,
             description = "ShahbazApplication.onCreate()",
