@@ -27,7 +27,7 @@ android {
 dependencies {
     api(projects.compass)
     api(projects.core.model)
-    implementation(projects.flightBlackBox)
+    implementation(projects.core.flightBlackBox)
     implementation(projects.core.domain)
 
     implementation(libs.androidx.core.ktx)

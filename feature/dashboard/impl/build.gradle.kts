@@ -29,7 +29,7 @@ dependencies {
     api(projects.compass)
     api(projects.core.hardwareConnection)
 
-    implementation(projects.flightBlackBox)
+    implementation(projects.core.flightBlackBox)
     implementation(projects.core.map)
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.viewmodel.ktx)

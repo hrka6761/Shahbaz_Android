@@ -112,7 +112,7 @@ class FbbEngineTest {
         val text = storage.listDescriptors(engine.activeSessionId).single().file.readText()
         val sequences = EventIdPattern.matcher(text).run {
             val values = mutableListOf<Int>()
-            while (find()) values += group(1).toInt()
+            while (find()) values += requireNotNull(group(1)).toInt()
             values
         }
         assertEquals((1..201).toList(), sequences)

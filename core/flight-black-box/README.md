@@ -1,6 +1,6 @@
 # Shahbaz Flight Black Box
 
-`flight-black-box` is an independent diagnostics module. Shahbaz modules may depend on it, but it
+`:core:flight-black-box` is an independent diagnostics module. Shahbaz modules may depend on it, but it
 does not depend on app, feature, USB, navigation, Settings, or business-logic modules.
 
 ## Architecture
