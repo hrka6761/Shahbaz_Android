@@ -142,6 +142,40 @@ data class FbbReportDescriptor(
     val sizeBytes: Long,
 )
 
+/** Parsed report facts used by Settings without loading the full report into memory. */
+data class FbbReportDetails(
+    val descriptor: FbbReportDescriptor,
+    val endedAtEpochMillis: Long?,
+    val durationMillis: Long?,
+    val eventCount: Int,
+    val warningCount: Int,
+    val errorCount: Int,
+    val crashCount: Int,
+)
+
+/** Aggregate report-storage facts for cleanup and quota UI. */
+data class FbbReportStorageStats(
+    val reportCount: Int,
+    val activeReportCount: Int,
+    val totalBytes: Long,
+)
+
+/** Window of report text read from a large report file. */
+data class FbbReportTextChunk(
+    val sessionId: String,
+    val startOffsetBytes: Long,
+    val nextOffsetBytes: Long?,
+    val endOfFile: Boolean,
+    val text: String,
+)
+
+/** One bounded search hit from a report file. */
+data class FbbReportSearchMatch(
+    val sessionId: String,
+    val lineNumber: Int,
+    val excerpt: String,
+)
+
 /** Marks a function or class as intended for Flight Black Box tracing. */
 @Target(AnnotationTarget.CLASS, AnnotationTarget.FUNCTION, AnnotationTarget.CONSTRUCTOR)
 @Retention(AnnotationRetention.BINARY)

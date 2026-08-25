@@ -216,24 +216,25 @@ internal class FbbEngine private constructor(
 
     private fun writerLoop() {
         while (running.get() || queue.isNotEmpty()) {
-            val record = synchronized(queueAccessLock) {
-                runCatching {
-                    queue.poll(config.normalFlushIntervalMillis, TimeUnit.MILLISECONDS)
-                }.getOrElse {
-                    if (it is InterruptedException) Thread.currentThread().interrupt()
-                    rememberWriterFailure(it)
-                    null
-                }
-            }
-            if (record == null) {
-                flushIfDue()
-            } else {
+            synchronized(queueAccessLock) {
+                val record =
+                    runCatching {
+                        queue.poll(config.normalFlushIntervalMillis, TimeUnit.MILLISECONDS)
+                    }.getOrElse {
+                        if (it is InterruptedException) Thread.currentThread().interrupt()
+                        rememberWriterFailure(it)
+                        null
+                    }
                 synchronized(writerProcessingLock) {
-                    writeRecord(
-                        record = record,
-                        flush = shouldFlush(record),
-                        force = shouldForce(record),
-                    )
+                    if (record == null) {
+                        flushIfDueLocked()
+                    } else {
+                        writeRecord(
+                            record = record,
+                            flush = shouldFlush(record),
+                            force = shouldForce(record),
+                        )
+                    }
                 }
             }
         }
@@ -244,6 +245,24 @@ internal class FbbEngine private constructor(
             val record = queue.poll() ?: return
             writeRecord(record, flush = shouldFlush(record), force = shouldForce(record))
         }
+    }
+
+    private fun flushIfDueLocked() {
+        val force = shouldForceByInterval()
+        runCatching {
+            fileWriter.flush(force = force)
+            if (force) {
+                latestDurableSequence.set(latestWrittenSequence.get())
+                lastForceElapsedNanos = clock.elapsedRealtimeNanos()
+            }
+            updateMetadata {
+                copy(
+                    latestWrittenSequence = this@FbbEngine.latestWrittenSequence.get(),
+                    latestDurableSequence = this@FbbEngine.latestDurableSequence.get(),
+                )
+            }
+            storage.updateActiveMetadata(metadata)
+        }.onFailure(::rememberWriterFailure)
     }
 
     private fun writeRecord(record: FbbPendingRecord, flush: Boolean, force: Boolean) {
@@ -265,26 +284,6 @@ internal class FbbEngine private constructor(
             }
         }.onFailure(::rememberWriterFailure)
         record.ack?.countDown()
-    }
-
-    private fun flushIfDue() {
-        synchronized(writerProcessingLock) {
-            val force = shouldForceByInterval()
-            runCatching {
-                fileWriter.flush(force = force)
-                if (force) {
-                    latestDurableSequence.set(latestWrittenSequence.get())
-                    lastForceElapsedNanos = clock.elapsedRealtimeNanos()
-                }
-                updateMetadata {
-                    copy(
-                        latestWrittenSequence = this@FbbEngine.latestWrittenSequence.get(),
-                        latestDurableSequence = this@FbbEngine.latestDurableSequence.get(),
-                    )
-                }
-                storage.updateActiveMetadata(metadata)
-            }.onFailure(::rememberWriterFailure)
-        }
     }
 
     private fun shouldAwaitAck(persistence: FbbPersistence): Boolean =

@@ -9,6 +9,7 @@ import java.util.regex.Pattern
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -181,6 +182,59 @@ class FbbEngineTest {
         assertTrue(active.file.exists())
 
         engine.close()
+    }
+
+    @Test
+    fun repositorySupportsSettingsReportManagementWithoutReadingWholeFiles() {
+        val storage = newStorage()
+        val engine = startEngine(storage)
+        engine.record(
+            FbbEvent(
+                type = FbbEventType.WARNING,
+                description = "Location provider is stale",
+            )
+        )
+        engine.record(
+            FbbEvent(
+                type = FbbEventType.ERROR,
+                description = "Protocol failure while decoding frame",
+            )
+        )
+        engine.flushAndForce()
+        engine.completeSession()
+        engine.close()
+
+        val reports = FlightBlackBoxReports(storage, activeSessionId = null)
+        val details = reports.getReportDetails(engine.activeSessionId)
+
+        assertNotNull(details)
+        assertEquals(FbbReportStatus.COMPLETED, details?.descriptor?.status)
+        assertEquals(3, details?.eventCount)
+        assertEquals(1, details?.warningCount)
+        assertEquals(1, details?.errorCount)
+        assertTrue((details?.durationMillis ?: 0L) > 0L)
+        assertTrue((reports.storageStats().totalBytes) > 0L)
+
+        val chunk = reports.readReportChunk(engine.activeSessionId, maxBytes = 128)
+        assertNotNull(chunk)
+        assertEquals(engine.activeSessionId, chunk?.sessionId)
+        assertTrue(chunk?.text?.contains("SHAHBAZ FLIGHT BLACK BOX") == true)
+
+        val matches = reports.searchReport(engine.activeSessionId, "Protocol failure")
+        assertEquals(1, matches.size)
+        assertEquals(engine.activeSessionId, matches.single().sessionId)
+        assertTrue(matches.single().excerpt.contains("Protocol failure"))
+
+        assertEquals(0, reports.cleanupToMaxStorageBytes(maxBytes = 0L))
+        assertNotNull(reports.getReportFile(engine.activeSessionId))
+        assertEquals(
+            1,
+            reports.cleanupToMaxStorageBytes(
+                maxBytes = 0L,
+                includeCrashOrErrorReports = true,
+            ),
+        )
+        assertNull(reports.getReportFile(engine.activeSessionId))
     }
 
     private fun newStorage(): FbbStorage =
