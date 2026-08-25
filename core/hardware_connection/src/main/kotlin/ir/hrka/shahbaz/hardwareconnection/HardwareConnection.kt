@@ -13,6 +13,10 @@ import android.os.Build
 import android.os.Looper
 import android.os.SystemClock
 import android.util.Log
+import com.shahbaz.flightblackbox.FbbEventRef
+import com.shahbaz.flightblackbox.FbbEventType
+import com.shahbaz.flightblackbox.FbbPersistence
+import com.shahbaz.flightblackbox.FlightBlackBox
 import ir.hrka.shahbaz.hardwareconnection.internal.AcceptedTimeSyncAction
 import ir.hrka.shahbaz.hardwareconnection.internal.InitialTimeSyncAction
 import ir.hrka.shahbaz.hardwareconnection.internal.ReenumerationGraceAction
@@ -126,6 +130,7 @@ class HardwareConnection(
     private var timeSyncPending = false
     private var initialTimeSyncAttemptsSent = 0
     private var lastDeviceStatusSentMillis = 0L
+    private var lastUsbEvent: FbbEventRef? = null
 
     private val permissionReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
@@ -152,6 +157,18 @@ class HardwareConnection(
                 onSuccess = { it.toString() },
                 onFailure = { "unavailable(${it.javaClass.simpleName})" },
             )
+            lastUsbEvent = FlightBlackBox.record(
+                type = FbbEventType.SYSTEM,
+                description = "USB permission broadcast received",
+                cause = lastUsbEvent,
+                metadata = mapOf(
+                    "requestedDeviceId" to requestedDeviceId,
+                    "frameworkDeviceId" to frameworkDeviceIdForLog,
+                    "frameworkGrantedExtraPresent" to frameworkGrantedExtraPresentForLog,
+                    "frameworkGranted" to frameworkGrantedForLog,
+                ),
+                persistence = FbbPersistence.IMPORTANT,
+            )
             Log.i(
                 USB_LOG_TAG,
                 "permission callback appDeviceId=$requestedDeviceId " +
@@ -172,6 +189,16 @@ class HardwareConnection(
             scope.launch {
                 when (action) {
                     UsbManager.ACTION_USB_DEVICE_ATTACHED -> {
+                        lastUsbEvent = FlightBlackBox.record(
+                            type = FbbEventType.SYSTEM,
+                            description = "USB device attached broadcast",
+                            cause = lastUsbEvent,
+                            metadata = mapOf(
+                                "deviceId" to announcedDevice?.deviceId,
+                                "matchingIds" to matchingDeviceIdsForLog(),
+                            ),
+                            persistence = FbbPersistence.IMPORTANT,
+                        )
                         Log.i(
                             USB_LOG_TAG,
                             "ATTACHED broadcast deviceId=${announcedDevice?.deviceId} " +
@@ -189,6 +216,17 @@ class HardwareConnection(
                         val announcedStillAttachedForLog = announcedDevice?.let {
                             attachmentStateForLog(it.deviceId)
                         } ?: "null"
+                        lastUsbEvent = FlightBlackBox.record(
+                            type = FbbEventType.SYSTEM,
+                            description = "USB device detached broadcast",
+                            cause = lastUsbEvent,
+                            metadata = mapOf(
+                                "deviceId" to announcedDevice?.deviceId,
+                                "openedDeviceId" to openedId,
+                                "announcedStillAttached" to announcedStillAttachedForLog,
+                            ),
+                            persistence = FbbPersistence.IMPORTANT,
+                        )
                         Log.w(
                             USB_LOG_TAG,
                             "DETACHED broadcast deviceId=${announcedDevice?.deviceId} " +
@@ -213,12 +251,23 @@ class HardwareConnection(
     /** Registers USB lifecycle observation and discovers an already attached production board. */
     fun start() {
         if (closed.get()) return
+        lastUsbEvent = FlightBlackBox.record(
+            type = FbbEventType.CALL,
+            description = "HardwareConnection.start()",
+            cause = lastUsbEvent,
+            persistence = FbbPersistence.IMPORTANT,
+        )
         scope.launch { startInternal() }
     }
 
     /** Reconciles current attachment and permission state without reopening a healthy link. */
     fun refresh() {
         if (closed.get()) return
+        lastUsbEvent = FlightBlackBox.record(
+            type = FbbEventType.CALL,
+            description = "HardwareConnection.refresh()",
+            cause = lastUsbEvent,
+        )
         scope.launch {
             if (!started) startInternal() else scanAndConnect()
         }
@@ -227,12 +276,24 @@ class HardwareConnection(
     /** Safely closes the board link and unregisters dynamic USB receivers. */
     fun stop() {
         if (closed.get()) return
+        lastUsbEvent = FlightBlackBox.record(
+            type = FbbEventType.CALL,
+            description = "HardwareConnection.stop()",
+            cause = lastUsbEvent,
+            persistence = FbbPersistence.IMPORTANT,
+        )
         scope.launch { stopInternal(BoardDisconnectReason.APP_STOPPED, publishStopped = true) }
     }
 
     /** Discards a failed/partial link and performs exact VID/PID discovery again. */
     fun retry() {
         if (closed.get()) return
+        lastUsbEvent = FlightBlackBox.record(
+            type = FbbEventType.USER,
+            description = "HardwareConnection.retry()",
+            cause = lastUsbEvent,
+            persistence = FbbPersistence.IMPORTANT,
+        )
         scope.launch {
             if (!started) startInternal() else {
                 closeLink(sendSafetyShutdown = true)
@@ -244,6 +305,12 @@ class HardwareConnection(
     /** Requests Android's per-attachment USB permission for the one discovered board. */
     fun requestPermission() {
         if (closed.get()) return
+        lastUsbEvent = FlightBlackBox.record(
+            type = FbbEventType.CALL,
+            description = "HardwareConnection.requestPermission()",
+            cause = lastUsbEvent,
+            persistence = FbbPersistence.IMPORTANT,
+        )
         scope.launch { requestPermissionInternal() }
     }
 
@@ -261,6 +328,12 @@ class HardwareConnection(
 
     override fun close() {
         if (!closed.compareAndSet(false, true)) return
+        FlightBlackBox.record(
+            type = FbbEventType.LIFECYCLE,
+            description = "HardwareConnection.close()",
+            cause = lastUsbEvent,
+            persistence = FbbPersistence.IMPORTANT,
+        )
         if (Looper.myLooper() == Looper.getMainLooper()) {
             // Preserve StopTelemetry + Disarm, but never block Android's main thread on USB I/O.
             scope.launch {
@@ -282,6 +355,12 @@ class HardwareConnection(
 
     override fun onBytes(generation: Long, bytes: ByteArray) {
         if (closed.get()) return
+        val rx = FlightBlackBox.record(
+            type = FbbEventType.USB_RX,
+            description = "USB CDC bytes received",
+            cause = lastUsbEvent,
+            metadata = mapOf("generation" to generation, "size" to bytes.size),
+        )
         scope.launch {
             if (
                 closed.get() ||
@@ -289,6 +368,7 @@ class HardwareConnection(
                 generation != this@HardwareConnection.generation
             ) return@launch
             try {
+                lastUsbEvent = rx
                 handleProtocolBytes(bytes)
             } catch (error: CancellationException) {
                 throw error
@@ -304,6 +384,17 @@ class HardwareConnection(
 
     override fun onTransportError(generation: Long, message: String, cause: Throwable?) {
         if (closed.get()) return
+        lastUsbEvent = FlightBlackBox.record(
+            type = FbbEventType.ERROR,
+            description = "USB transport error",
+            cause = lastUsbEvent,
+            metadata = mapOf(
+                "generation" to generation,
+                "message" to message,
+                "cause" to cause?.javaClass?.simpleName,
+            ),
+            persistence = FbbPersistence.CRITICAL,
+        )
         scope.launch {
             if (
                 closed.get() ||
@@ -319,9 +410,28 @@ class HardwareConnection(
     }
 
     private suspend fun startInternal() {
-        if (started) return
+        if (started) {
+            FlightBlackBox.record(
+                type = FbbEventType.DECISION,
+                description = "started=true -> skip duplicate HardwareConnection.startInternal()",
+                cause = lastUsbEvent,
+            )
+            return
+        }
         started = true
+        FlightBlackBox.record(
+            type = FbbEventType.STATE,
+            description = "HardwareConnection.started: false -> true",
+            cause = lastUsbEvent,
+            persistence = FbbPersistence.IMPORTANT,
+        )
         if (!applicationContext.packageManager.hasSystemFeature(PackageManager.FEATURE_USB_HOST)) {
+            lastUsbEvent = FlightBlackBox.record(
+                type = FbbEventType.ERROR,
+                description = "USB host feature unavailable",
+                cause = lastUsbEvent,
+                persistence = FbbPersistence.CRITICAL,
+            )
             mutableConnectionState.value = BoardConnectionState.Failed(
                 BoardLinkError(
                     BoardLinkErrorCode.USB_HOST_UNAVAILABLE,
@@ -333,8 +443,20 @@ class HardwareConnection(
         }
         try {
             registerReceivers()
+            FlightBlackBox.record(
+                type = FbbEventType.SYSTEM,
+                description = "USB receivers registered",
+                cause = lastUsbEvent,
+            )
         } catch (error: RuntimeException) {
             started = false
+            lastUsbEvent = FlightBlackBox.recordThrowable(
+                type = FbbEventType.EXCEPTION,
+                description = "USB receiver registration failed",
+                error = error,
+                cause = lastUsbEvent,
+                persistence = FbbPersistence.CRITICAL,
+            )
             mutableConnectionState.value = BoardConnectionState.Failed(
                 BoardLinkError(
                     BoardLinkErrorCode.RECEIVER_REGISTRATION_FAILED,
@@ -350,9 +472,22 @@ class HardwareConnection(
     private fun stopInternal(reason: BoardDisconnectReason, publishStopped: Boolean) {
         if (!started && !receiversRegistered) {
             if (publishStopped) mutableConnectionState.value = BoardConnectionState.Stopped
+            FlightBlackBox.record(
+                type = FbbEventType.DECISION,
+                description = "started=false && receiversRegistered=false -> stop no-op",
+                cause = lastUsbEvent,
+                metadata = mapOf("reason" to reason, "publishStopped" to publishStopped),
+            )
             return
         }
         started = false
+        FlightBlackBox.record(
+            type = FbbEventType.STATE,
+            description = "HardwareConnection.started: true -> false",
+            cause = lastUsbEvent,
+            metadata = mapOf("reason" to reason, "publishStopped" to publishStopped),
+            persistence = FbbPersistence.IMPORTANT,
+        )
         closeLink(sendSafetyShutdown = true)
         unregisterReceivers()
         selectedDevice = null
@@ -366,10 +501,28 @@ class HardwareConnection(
 
     private fun scanAndConnect() {
         if (!started) return
+        val scan = FlightBlackBox.record(
+            type = FbbEventType.CALL,
+            description = "HardwareConnection.scanAndConnect()",
+            cause = lastUsbEvent,
+        )
         val matches = transport.matchingDevices()
+        val discovery = FlightBlackBox.record(
+            type = FbbEventType.VALUE,
+            description = "USB discovery found ${matches.size} matching Shahbaz board(s)",
+            cause = scan,
+            metadata = mapOf("matchingDeviceIds" to matches.map { it.deviceId }),
+            persistence = FbbPersistence.IMPORTANT,
+        )
         if (matches.isNotEmpty()) cancelReenumerationGrace()
         when {
             matches.isEmpty() -> {
+                lastUsbEvent = FlightBlackBox.record(
+                    type = FbbEventType.DECISION,
+                    description = "matchingDeviceCount=0 -> SEARCHING",
+                    cause = discovery,
+                    persistence = FbbPersistence.IMPORTANT,
+                )
                 if (transport.openedDeviceId() != null || session.attached) {
                     closeLink(sendSafetyShutdown = false)
                 }
@@ -378,6 +531,13 @@ class HardwareConnection(
                 mutableConnectionState.value = BoardConnectionState.Searching
             }
             matches.size > 1 -> {
+                lastUsbEvent = FlightBlackBox.record(
+                    type = FbbEventType.ERROR,
+                    description = "multiple matching Shahbaz USB boards attached",
+                    cause = discovery,
+                    metadata = mapOf("matchingDeviceIds" to matches.map { it.deviceId }),
+                    persistence = FbbPersistence.CRITICAL,
+                )
                 closeLink(sendSafetyShutdown = true)
                 selectedDevice = null
                 selectedDescriptor = null
@@ -407,11 +567,31 @@ class HardwareConnection(
                     transport.openedDeviceId() == device.deviceId &&
                     session.attached
                 ) {
+                    FlightBlackBox.record(
+                        type = FbbEventType.DECISION,
+                        description = "matching board already open and attached -> keep link",
+                        cause = discovery,
+                        metadata = descriptor.fbbMetadata(),
+                    )
                     return
                 }
                 if (!transport.hasPermission(device)) {
+                    lastUsbEvent = FlightBlackBox.record(
+                        type = FbbEventType.DECISION,
+                        description = "USB permission missing -> PermissionRequired",
+                        cause = discovery,
+                        metadata = descriptor.fbbMetadata(),
+                        persistence = FbbPersistence.IMPORTANT,
+                    )
                     mutableConnectionState.value = BoardConnectionState.PermissionRequired(descriptor)
                 } else {
+                    lastUsbEvent = FlightBlackBox.record(
+                        type = FbbEventType.DECISION,
+                        description = "USB permission granted -> open device",
+                        cause = discovery,
+                        metadata = descriptor.fbbMetadata(),
+                        persistence = FbbPersistence.IMPORTANT,
+                    )
                     open(device, descriptor)
                 }
             }
@@ -420,17 +600,43 @@ class HardwareConnection(
 
     private fun requestPermissionInternal() {
         if (!started) return
+        val request = FlightBlackBox.record(
+            type = FbbEventType.CALL,
+            description = "HardwareConnection.requestPermissionInternal()",
+            cause = lastUsbEvent,
+            persistence = FbbPersistence.IMPORTANT,
+        )
         val device = selectedDevice
         val descriptor = selectedDescriptor
         if (device == null || descriptor == null || !transport.isAttached(device.deviceId)) {
+            lastUsbEvent = FlightBlackBox.record(
+                type = FbbEventType.DECISION,
+                description = "selected USB device missing or detached -> rescan",
+                cause = request,
+                persistence = FbbPersistence.IMPORTANT,
+            )
             scanAndConnect()
             return
         }
         if (transport.hasPermission(device)) {
+            lastUsbEvent = FlightBlackBox.record(
+                type = FbbEventType.DECISION,
+                description = "USB permission already granted -> open device",
+                cause = request,
+                metadata = descriptor.fbbMetadata(),
+                persistence = FbbPersistence.IMPORTANT,
+            )
             open(device, descriptor)
             return
         }
         mutableConnectionState.value = BoardConnectionState.RequestingPermission(descriptor)
+        lastUsbEvent = FlightBlackBox.record(
+            type = FbbEventType.SYSTEM,
+            description = "Android USB permission request launched",
+            cause = request,
+            metadata = descriptor.fbbMetadata(),
+            persistence = FbbPersistence.IMPORTANT,
+        )
         Log.i(
             USB_LOG_TAG,
             "permission request deviceId=${device.deviceId} " +
@@ -450,6 +656,14 @@ class HardwareConnection(
             usbManager.requestPermission(device, pendingIntent)
         } catch (error: RuntimeException) {
             Log.e(USB_LOG_TAG, "permission request failed deviceId=${device.deviceId}", error)
+            lastUsbEvent = FlightBlackBox.recordThrowable(
+                type = FbbEventType.EXCEPTION,
+                description = "USB permission request failed",
+                error = error,
+                cause = lastUsbEvent,
+                metadata = descriptor.fbbMetadata(),
+                persistence = FbbPersistence.CRITICAL,
+            )
             mutableConnectionState.value = BoardConnectionState.Failed(
                 BoardLinkError(
                     BoardLinkErrorCode.PERMISSION_DENIED,
@@ -462,6 +676,13 @@ class HardwareConnection(
 
     private fun handlePermissionResult(requestedDeviceId: Int?) {
         if (!started) return
+        val resultEvent = FlightBlackBox.record(
+            type = FbbEventType.SYSTEM,
+            description = "USB permission result reconciliation started",
+            cause = lastUsbEvent,
+            metadata = mapOf("requestedDeviceId" to requestedDeviceId),
+            persistence = FbbPersistence.IMPORTANT,
+        )
         val device = selectedDevice
         val descriptor = selectedDescriptor
         val selectedIsAttached = device?.let { transport.isAttached(it.deviceId) } == true
@@ -473,14 +694,24 @@ class HardwareConnection(
                 "attached=$selectedIsAttached hasPermission=$selectedHasPermission " +
                 "matchingIds=${matchingDeviceIdsForLog()}",
         )
-        when (
-            usbPermissionReconciliation(
-                selectedDeviceId = device?.deviceId,
-                requestedDeviceId = requestedDeviceId,
-                selectedDeviceIsAttached = selectedIsAttached,
-                selectedDeviceHasPermission = selectedHasPermission,
-            )
-        ) {
+        val action = usbPermissionReconciliation(
+            selectedDeviceId = device?.deviceId,
+            requestedDeviceId = requestedDeviceId,
+            selectedDeviceIsAttached = selectedIsAttached,
+            selectedDeviceHasPermission = selectedHasPermission,
+        )
+        lastUsbEvent = FlightBlackBox.record(
+            type = FbbEventType.DECISION,
+            description = "USB permission reconciliation -> $action",
+            cause = resultEvent,
+            metadata = mapOf(
+                "selectedDeviceId" to device?.deviceId,
+                "attached" to selectedIsAttached,
+                "hasPermission" to selectedHasPermission,
+            ),
+            persistence = FbbPersistence.IMPORTANT,
+        )
+        when (action) {
             UsbPermissionReconciliation.RESCAN -> scanAndConnect()
             UsbPermissionReconciliation.OPEN -> {
                 if (device == null || descriptor == null) {
@@ -490,6 +721,12 @@ class HardwareConnection(
                 }
             }
             UsbPermissionReconciliation.DENIED -> {
+                FlightBlackBox.record(
+                    type = FbbEventType.ERROR,
+                    description = "USB permission denied",
+                    cause = lastUsbEvent,
+                    persistence = FbbPersistence.CRITICAL,
+                )
                 mutableConnectionState.value = BoardConnectionState.Failed(
                     BoardLinkError(
                         BoardLinkErrorCode.PERMISSION_DENIED,
@@ -502,7 +739,22 @@ class HardwareConnection(
     }
 
     private fun open(device: UsbDevice, descriptor: BoardUsbDevice) {
-        if (transport.openedDeviceId() == device.deviceId && session.attached) return
+        if (transport.openedDeviceId() == device.deviceId && session.attached) {
+            FlightBlackBox.record(
+                type = FbbEventType.DECISION,
+                description = "open requested for already attached device -> no-op",
+                cause = lastUsbEvent,
+                metadata = descriptor.fbbMetadata(),
+            )
+            return
+        }
+        val open = FlightBlackBox.record(
+            type = FbbEventType.CALL,
+            description = "HardwareConnection.open()",
+            cause = lastUsbEvent,
+            metadata = descriptor.fbbMetadata(),
+            persistence = FbbPersistence.IMPORTANT,
+        )
         Log.i(
             USB_LOG_TAG,
             "open requested deviceId=${device.deviceId} generation=$generation " +
@@ -515,6 +767,13 @@ class HardwareConnection(
         mutableConnectionState.value = BoardConnectionState.Opening(descriptor)
         when (val result = transport.open(device, linkGeneration)) {
             AndroidUsbCdcTransport.OpenResult.Opened -> {
+                lastUsbEvent = FlightBlackBox.record(
+                    type = FbbEventType.STATE,
+                    description = "USB CDC open succeeded -> Synchronizing",
+                    cause = open,
+                    metadata = descriptor.fbbMetadata() + mapOf("generation" to linkGeneration),
+                    persistence = FbbPersistence.IMPORTANT,
+                )
                 Log.i(USB_LOG_TAG, "open succeeded deviceId=${device.deviceId} generation=$linkGeneration")
                 selectedDevice = device
                 selectedDescriptor = descriptor
@@ -527,21 +786,47 @@ class HardwareConnection(
                 startLinkMaintenance(linkGeneration)
             }
             AndroidUsbCdcTransport.OpenResult.PermissionMissing -> {
+                lastUsbEvent = FlightBlackBox.record(
+                    type = FbbEventType.WARNING,
+                    description = "USB open lost permission -> PermissionRequired",
+                    cause = open,
+                    metadata = descriptor.fbbMetadata(),
+                    persistence = FbbPersistence.IMPORTANT,
+                )
                 Log.w(USB_LOG_TAG, "open lost permission deviceId=${device.deviceId}")
                 mutableConnectionState.value = BoardConnectionState.PermissionRequired(descriptor)
             }
-            AndroidUsbCdcTransport.OpenResult.OpenFailed -> failWithoutOpen(
-                BoardLinkErrorCode.DEVICE_OPEN_FAILED,
-                "UsbManager.openDevice returned null",
-            )
-            is AndroidUsbCdcTransport.OpenResult.Incompatible -> failWithoutOpen(
-                BoardLinkErrorCode.INCOMPATIBLE_USB_INTERFACE,
-                result.message,
-            )
-            is AndroidUsbCdcTransport.OpenResult.Failed -> failWithoutOpen(
-                BoardLinkErrorCode.DEVICE_OPEN_FAILED,
-                "USB initialization failed: ${result.cause.message}",
-            )
+            AndroidUsbCdcTransport.OpenResult.OpenFailed -> {
+                FlightBlackBox.record(
+                    type = FbbEventType.ERROR,
+                    description = "UsbManager.openDevice returned null",
+                    cause = open,
+                    metadata = descriptor.fbbMetadata(),
+                    persistence = FbbPersistence.CRITICAL,
+                )
+                failWithoutOpen(BoardLinkErrorCode.DEVICE_OPEN_FAILED, "UsbManager.openDevice returned null")
+            }
+            is AndroidUsbCdcTransport.OpenResult.Incompatible -> {
+                FlightBlackBox.record(
+                    type = FbbEventType.ERROR,
+                    description = "USB CDC interface incompatible",
+                    cause = open,
+                    metadata = descriptor.fbbMetadata() + mapOf("message" to result.message),
+                    persistence = FbbPersistence.CRITICAL,
+                )
+                failWithoutOpen(BoardLinkErrorCode.INCOMPATIBLE_USB_INTERFACE, result.message)
+            }
+            is AndroidUsbCdcTransport.OpenResult.Failed -> {
+                FlightBlackBox.recordThrowable(
+                    type = FbbEventType.EXCEPTION,
+                    description = "USB initialization failed",
+                    error = result.cause,
+                    cause = open,
+                    metadata = descriptor.fbbMetadata(),
+                    persistence = FbbPersistence.CRITICAL,
+                )
+                failWithoutOpen(BoardLinkErrorCode.DEVICE_OPEN_FAILED, "USB initialization failed: ${result.cause.message}")
+            }
         }
     }
 
@@ -551,9 +836,24 @@ class HardwareConnection(
         for (event in events) {
             if (generation != processingGeneration || !session.attached) break
             when (event) {
-                is BoardProtocolSession.Event.Rejected -> recordRejectedFrame(event.exception)
+                is BoardProtocolSession.Event.Rejected -> {
+                    FlightBlackBox.record(
+                        type = FbbEventType.WARNING,
+                        description = "Protocol frame rejected before decode",
+                        cause = lastUsbEvent,
+                        metadata = mapOf("kind" to event.exception.kind),
+                        persistence = FbbPersistence.IMPORTANT,
+                    )
+                    recordRejectedFrame(event.exception)
+                }
                 is BoardProtocolSession.Event.FrameReceived -> {
                     val receivedAtUs = elapsedRealtimeMicros()
+                    val frameEvent = FlightBlackBox.record(
+                        type = FbbEventType.USB_RX,
+                        description = "Protocol frame received",
+                        cause = lastUsbEvent,
+                        metadata = event.frame.fbbMetadata(receivedAtUs),
+                    )
                     when (
                         val result = handleCrcValidFrameSafely {
                             event.frame.requireExpectedInboundPriority()
@@ -575,10 +875,27 @@ class HardwareConnection(
                         }
                     ) {
                         FrameHandlingResult.Accepted -> {
+                            lastUsbEvent = FlightBlackBox.record(
+                                type = FbbEventType.RETURN,
+                                description = "Protocol frame accepted",
+                                cause = frameEvent,
+                                metadata = mapOf("messageType" to event.frame.header.messageType),
+                            )
                             telemetryStore.onFrameAccepted()
                             publishTelemetry()
                         }
                         is FrameHandlingResult.Rejected -> {
+                            lastUsbEvent = FlightBlackBox.record(
+                                type = FbbEventType.WARNING,
+                                description = "Protocol frame rejected",
+                                cause = frameEvent,
+                                metadata = mapOf(
+                                    "messageType" to event.frame.header.messageType,
+                                    "kind" to result.exception.kind,
+                                    "message" to result.exception.message,
+                                ),
+                                persistence = FbbPersistence.IMPORTANT,
+                            )
                             recordRejectedFrame(result.exception)
                             if (event.frame.header.messageType == MessageType.DEVICE_INFO_RESPONSE) {
                                 fail(
@@ -595,9 +912,22 @@ class HardwareConnection(
     }
 
     private fun handleTimeSyncAccepted(token: ULong) {
+        val accepted = FlightBlackBox.record(
+            type = FbbEventType.VALUE,
+            description = "TimeSync accepted",
+            cause = lastUsbEvent,
+            metadata = mapOf("sessionMappingChanged" to (activeToken != null && activeToken != token)),
+            persistence = FbbPersistence.IMPORTANT,
+        )
         timeSyncPending = false
         val priorToken = activeToken
         if (priorToken != null && priorToken != token) {
+            FlightBlackBox.record(
+                type = FbbEventType.ERROR,
+                description = "session token changed without physical USB reconnect",
+                cause = accepted,
+                persistence = FbbPersistence.CRITICAL,
+            )
             fail(
                 BoardLinkErrorCode.SESSION_REJECTED,
                 "The session token changed without a physical USB reconnect",
@@ -612,6 +942,13 @@ class HardwareConnection(
         ) return
         val descriptor = selectedDescriptor ?: return
         mutableConnectionState.value = BoardConnectionState.ValidatingDevice(descriptor)
+        FlightBlackBox.record(
+            type = FbbEventType.STATE,
+            description = "boardConnection -> ValidatingDevice",
+            cause = accepted,
+            metadata = descriptor.fbbMetadata(),
+            persistence = FbbPersistence.IMPORTANT,
+        )
         stageDeadlineMillis = SystemClock.elapsedRealtime() + config.handshakeTimeoutMillis
         if (!send(session.buildDeviceInfo())) return
     }
@@ -630,6 +967,12 @@ class HardwareConnection(
                 heartbeatAcknowledged = true
                 lastHeartbeatAckMillis = (receivedAtUs / 1_000uL).toLong()
                 if (firstAcknowledgement) {
+                    FlightBlackBox.record(
+                        type = FbbEventType.VALUE,
+                        description = "first HeartbeatAck received",
+                        cause = lastUsbEvent,
+                        persistence = FbbPersistence.IMPORTANT,
+                    )
                     if (!send(session.buildDeviceStatus())) return
                     lastDeviceStatusSentMillis = SystemClock.elapsedRealtime()
                 }
@@ -653,6 +996,13 @@ class HardwareConnection(
                 )
                 ack.requireAcknowledges(expectedSequence, ApplicationAction.START_TELEMETRY)
                 telemetryStartAcknowledged = true
+                FlightBlackBox.record(
+                    type = FbbEventType.VALUE,
+                    description = "StartTelemetry acknowledged",
+                    cause = lastUsbEvent,
+                    metadata = mapOf("requestSequence" to expectedSequence),
+                    persistence = FbbPersistence.IMPORTANT,
+                )
                 telemetryStore.awaitingTelemetry(SystemClock.elapsedRealtime())
                 publishTelemetry()
                 advanceValidatedHandshake()
@@ -663,12 +1013,30 @@ class HardwareConnection(
                     "CommandNack decoder rejected its message type",
                 )
                 when (nack.reason) {
-                    0x000A -> fail(
-                        BoardLinkErrorCode.SESSION_REJECTED,
-                        "Board rejected request ${nack.requestSequence} from this USB session",
-                        recoverable = true,
-                    )
+                    0x000A -> {
+                        FlightBlackBox.record(
+                            type = FbbEventType.ERROR,
+                            description = "Board rejected session-bound request",
+                            cause = lastUsbEvent,
+                            metadata = mapOf(
+                                "requestSequence" to nack.requestSequence,
+                                "reason" to "0x${nack.reason.toString(16)}",
+                            ),
+                            persistence = FbbPersistence.CRITICAL,
+                        )
+                        fail(
+                            BoardLinkErrorCode.SESSION_REJECTED,
+                            "Board rejected request ${nack.requestSequence} from this USB session",
+                            recoverable = true,
+                        )
+                    }
                     0x0008 -> {
+                        FlightBlackBox.record(
+                            type = FbbEventType.DECISION,
+                            description = "Board requested TimeSync refresh -> send TimeSync",
+                            cause = lastUsbEvent,
+                            metadata = mapOf("requestSequence" to nack.requestSequence),
+                        )
                         if (!sendTimeSync()) return
                     }
                     else -> telemetryStore.onFrameRejected(
@@ -701,6 +1069,17 @@ class HardwareConnection(
                     (receivedAtUs / 1_000uL).toLong(),
                 )
                 if (sensorError != null) {
+                    FlightBlackBox.record(
+                        type = FbbEventType.WARNING,
+                        description = "SensorSample rejected by telemetry store",
+                        cause = lastUsbEvent,
+                        metadata = mapOf(
+                            "sensorId" to sample.sensorId,
+                            "instanceId" to sample.instanceId,
+                            "message" to sensorError.message,
+                        ),
+                        persistence = FbbPersistence.IMPORTANT,
+                    )
                     throw ProtocolException(
                         ProtocolErrorKind.PAYLOAD_INVALID,
                         "SensorSample rejected: ${sensorError.message}",
@@ -714,6 +1093,12 @@ class HardwareConnection(
                 )
                 telemetryStore.acceptStatus(status, SystemClock.elapsedRealtime())
                 if (status.actuatorArmed) {
+                    FlightBlackBox.record(
+                        type = FbbEventType.ERROR,
+                        description = "Board reported armed actuator state",
+                        cause = lastUsbEvent,
+                        persistence = FbbPersistence.CRITICAL,
+                    )
                     fail(
                         BoardLinkErrorCode.DEVICE_INFO_INVALID,
                         "Board unexpectedly reports an armed actuator state",
@@ -744,11 +1129,30 @@ class HardwareConnection(
         )
         val validationError = info.validationError()
         if (validationError != null) {
+            FlightBlackBox.record(
+                type = FbbEventType.ERROR,
+                description = "DeviceInfo validation failed",
+                cause = lastUsbEvent,
+                metadata = mapOf("validationError" to validationError),
+                persistence = FbbPersistence.CRITICAL,
+            )
             throw ProtocolException(ProtocolErrorKind.PAYLOAD_INVALID, validationError)
         }
         deviceInfo = info
         val descriptor = selectedDescriptor ?: return
         mutableConnectionState.value = BoardConnectionState.AwaitingHeartbeat(descriptor, info)
+        FlightBlackBox.record(
+            type = FbbEventType.VALUE,
+            description = "DeviceInfo accepted",
+            cause = lastUsbEvent,
+            metadata = descriptor.fbbMetadata() + mapOf(
+                "protocol" to info.protocolVersion,
+                "target" to info.target,
+                "flashBytes" to info.detectedFlashBytes,
+                "psramBytes" to info.detectedPsramBytes,
+            ),
+            persistence = FbbPersistence.IMPORTANT,
+        )
         stageDeadlineMillis = SystemClock.elapsedRealtime() + config.handshakeTimeoutMillis
         if (!sendHeartbeat()) return
     }
@@ -764,8 +1168,18 @@ class HardwareConnection(
             )
         ) {
             ValidatedHandshakeAction.WAIT_FOR_HEARTBEAT,
-            ValidatedHandshakeAction.WAIT_FOR_TELEMETRY_ACK -> Unit
+            ValidatedHandshakeAction.WAIT_FOR_TELEMETRY_ACK -> FlightBlackBox.record(
+                type = FbbEventType.DECISION,
+                description = "validatedHandshakeAction -> wait",
+                cause = lastUsbEvent,
+            )
             ValidatedHandshakeAction.START_TELEMETRY -> {
+                val startTelemetry = FlightBlackBox.record(
+                    type = FbbEventType.DECISION,
+                    description = "validatedHandshakeAction -> START_TELEMETRY",
+                    cause = lastUsbEvent,
+                    persistence = FbbPersistence.IMPORTANT,
+                )
                 mutableConnectionState.value = BoardConnectionState.StartingTelemetry(
                     descriptor,
                     info,
@@ -773,6 +1187,7 @@ class HardwareConnection(
                 stageDeadlineMillis = SystemClock.elapsedRealtime() + config.handshakeTimeoutMillis
                 val start = session.buildStartTelemetry()
                 telemetryStartSequence = start.sequence
+                lastUsbEvent = startTelemetry
                 if (!send(start)) return
             }
             ValidatedHandshakeAction.READY -> {
@@ -781,6 +1196,15 @@ class HardwareConnection(
                     descriptor,
                     info,
                     connectedAtMillis,
+                )
+                lastUsbEvent = FlightBlackBox.record(
+                    type = FbbEventType.STATE,
+                    description = "boardConnection -> Ready",
+                    cause = lastUsbEvent,
+                    metadata = descriptor.fbbMetadata() + mapOf(
+                        "connectedAtMs" to connectedAtMillis,
+                    ),
+                    persistence = FbbPersistence.IMPORTANT,
                 )
             }
         }
@@ -824,6 +1248,13 @@ class HardwareConnection(
     }
 
     private fun recordRejectedFrame(error: ProtocolException) {
+        FlightBlackBox.record(
+            type = FbbEventType.WARNING,
+            description = "Protocol v2 frame rejected",
+            cause = lastUsbEvent,
+            metadata = mapOf("kind" to error.kind, "message" to error.message),
+            persistence = FbbPersistence.IMPORTANT,
+        )
         telemetryStore.onFrameRejected(
             error.message ?: "Protocol v2 frame rejected",
             crcOrFraming = error.kind in setOf(
@@ -960,7 +1391,28 @@ class HardwareConnection(
     }
 
     private fun send(command: BoardProtocolSession.EncodedCommand): Boolean {
-        if (transport.write(generation, command.bytes)) return true
+        val tx = FlightBlackBox.record(
+            type = FbbEventType.USB_TX,
+            description = "Protocol command sent",
+            cause = lastUsbEvent,
+            metadata = mapOf(
+                "type" to command.type,
+                "sequence" to command.sequence,
+                "size" to command.bytes.size,
+                "generation" to generation,
+            ),
+        )
+        if (transport.write(generation, command.bytes)) {
+            lastUsbEvent = tx
+            return true
+        }
+        lastUsbEvent = FlightBlackBox.record(
+            type = FbbEventType.ERROR,
+            description = "USB write failed",
+            cause = tx,
+            metadata = mapOf("type" to command.type, "sequence" to command.sequence),
+            persistence = FbbPersistence.CRITICAL,
+        )
         fail(
             BoardLinkErrorCode.USB_WRITE_FAILED,
             "Could not write ${command.type} to the board",
@@ -971,6 +1423,13 @@ class HardwareConnection(
 
     private fun handlePhysicalDetach(source: String) {
         val detachedDeviceId = transport.openedDeviceId()
+        lastUsbEvent = FlightBlackBox.record(
+            type = FbbEventType.SYSTEM,
+            description = "USB physical detach confirmed",
+            cause = lastUsbEvent,
+            metadata = mapOf("source" to source, "openedDeviceId" to detachedDeviceId),
+            persistence = FbbPersistence.IMPORTANT,
+        )
         Log.w(
             USB_LOG_TAG,
             "physical detach confirmed source=$source openedDeviceId=$detachedDeviceId " +
@@ -1047,6 +1506,17 @@ class HardwareConnection(
     }
 
     private fun fail(code: BoardLinkErrorCode, message: String, recoverable: Boolean) {
+        lastUsbEvent = FlightBlackBox.record(
+            type = FbbEventType.ERROR,
+            description = "HardwareConnection failed",
+            cause = lastUsbEvent,
+            metadata = mapOf(
+                "code" to code,
+                "message" to message,
+                "recoverable" to recoverable,
+            ),
+            persistence = FbbPersistence.CRITICAL,
+        )
         closeLink(sendSafetyShutdown = true)
         mutableConnectionState.value = BoardConnectionState.Failed(
             BoardLinkError(code, message, recoverable),
@@ -1054,6 +1524,13 @@ class HardwareConnection(
     }
 
     private fun failWithoutOpen(code: BoardLinkErrorCode, message: String) {
+        lastUsbEvent = FlightBlackBox.record(
+            type = FbbEventType.ERROR,
+            description = "HardwareConnection failed before USB session opened",
+            cause = lastUsbEvent,
+            metadata = mapOf("code" to code, "message" to message),
+            persistence = FbbPersistence.CRITICAL,
+        )
         closeLink(sendSafetyShutdown = false)
         mutableConnectionState.value = BoardConnectionState.Failed(
             BoardLinkError(code, message, recoverable = true),
@@ -1144,6 +1621,21 @@ class HardwareConnection(
         runCatching { applicationContext.unregisterReceiver(usbLifecycleReceiver) }
         receiversRegistered = false
     }
+
+    private fun BoardUsbDevice.fbbMetadata(): Map<String, Any?> = mapOf(
+        "deviceId" to deviceId,
+        "vid" to "0x${vendorId.toString(16)}",
+        "pid" to "0x${productId.toString(16)}",
+    )
+
+    private fun DecodedFrame.fbbMetadata(receivedAtUs: ULong): Map<String, Any?> = mapOf(
+        "messageType" to header.messageType,
+        "priority" to header.priority,
+        "sequence" to header.sequence,
+        "payloadLength" to header.payloadLength,
+        "senderUs" to header.senderMonotonicUs,
+        "receivedHostUs" to receivedAtUs,
+    )
 
     private fun UsbDevice.toPublicDescriptor() = BoardUsbDevice(
         deviceId = deviceId,

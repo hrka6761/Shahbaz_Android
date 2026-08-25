@@ -30,6 +30,7 @@ android {
 }
 
 dependencies {
+    implementation(projects.flightBlackBox)
     api(libs.kotlinx.coroutines.core)
     testImplementation(libs.junit)
 }

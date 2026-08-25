@@ -4,6 +4,10 @@ package ir.hrka.shahbaz.feature.dashboard
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.shahbaz.flightblackbox.FbbEventRef
+import com.shahbaz.flightblackbox.FbbEventType
+import com.shahbaz.flightblackbox.FbbPersistence
+import com.shahbaz.flightblackbox.FlightBlackBox
 import ir.hrka.shahbaz.core.model.FlightPlan
 import ir.hrka.shahbaz.hardwareconnection.BoardConnectionState
 import ir.hrka.shahbaz.hardwareconnection.HardwareConnection
@@ -29,10 +33,19 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
     private var usbPermissionRequestReturnedToHost = false
     private var permissionResultBackgroundStopJob: Job? = null
     private var baselineCaptureGate: TakeoffBaselineCaptureGate? = null
+    private var lastBoardConnectionEvent: FbbEventRef? = null
+    private var lastUsbPermissionRequestEvent: FbbEventRef? = null
 
     init {
+        FlightBlackBox.record(
+            type = FbbEventType.APP,
+            description = "DashboardViewModel initialized",
+            metadata = mapOf("boardConnection" to mutableUiState.value.boardConnection.fbbKind()),
+            persistence = FbbPersistence.IMPORTANT,
+        )
         viewModelScope.launch {
             board.connectionState.collect { connection ->
+                val previous = mutableUiState.value.boardConnection
                 baselineCaptureGate = when (connection) {
                     is BoardConnectionState.Ready -> takeoffBaselineCaptureGate(
                         connection = connection,
@@ -41,6 +54,21 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
                     else -> null
                 }
                 mutableUiState.update { it.copy(boardConnection = connection) }
+                lastBoardConnectionEvent = FlightBlackBox.record(
+                    type = if (connection is BoardConnectionState.Failed) {
+                        FbbEventType.ERROR
+                    } else {
+                        FbbEventType.STATE
+                    },
+                    description = "boardConnection: ${previous.fbbKind()} -> ${connection.fbbKind()}",
+                    cause = lastUsbPermissionRequestEvent,
+                    metadata = connection.fbbMetadata(),
+                    persistence = if (connection is BoardConnectionState.Failed) {
+                        FbbPersistence.CRITICAL
+                    } else {
+                        FbbPersistence.IMPORTANT
+                    },
+                )
                 if (
                     usbPermissionRequestResolved(
                         requestPending = usbPermissionRequestPending,
@@ -48,6 +76,16 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
                         permissionRequiredIsTerminal = usbPermissionRequestReturnedToHost,
                     )
                 ) {
+                    val resolved = FlightBlackBox.record(
+                        type = FbbEventType.DECISION,
+                        description = "USB permission request resolved -> clear pending flags",
+                        cause = lastBoardConnectionEvent,
+                        metadata = mapOf(
+                            "connection" to connection.fbbKind(),
+                            "returnedToHost" to usbPermissionRequestReturnedToHost,
+                        ),
+                        persistence = FbbPersistence.IMPORTANT,
+                    )
                     usbPermissionRequestPending = false
                     usbPermissionRequestReturnedToHost = false
                     if (
@@ -56,6 +94,12 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
                             permissionStopDeferred = boardStopDeferredForPermission,
                         )
                     ) {
+                        FlightBlackBox.record(
+                            type = FbbEventType.DECISION,
+                            description = "host background with deferred USB permission result -> schedule delayed stop",
+                            cause = resolved,
+                            persistence = FbbPersistence.IMPORTANT,
+                        )
                         schedulePermissionResultBackgroundStop()
                     }
                 }
@@ -81,6 +125,12 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
 
     /** Installs a new immutable flight plan and resets only flight-relative derived state. */
     fun setFlightPlan(plan: FlightPlan) {
+        val event = FlightBlackBox.record(
+            type = FbbEventType.CALL,
+            description = "DashboardViewModel.setFlightPlan()",
+            metadata = mapOf("hostForeground" to hostForeground),
+            persistence = FbbPersistence.IMPORTANT,
+        )
         val changed = mutableUiState.value.flightPlan != plan
         mutableUiState.update {
             it.copy(
@@ -89,17 +139,36 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
             )
         }
         if (changed) {
+            FlightBlackBox.record(
+                type = FbbEventType.STATE,
+                description = "flightPlan: null-or-previous -> active",
+                cause = event,
+                persistence = FbbPersistence.IMPORTANT,
+            )
             val current = mutableUiState.value
             baselineCaptureGate = takeoffBaselineCaptureGate(
                 connection = current.boardConnection,
                 telemetry = current.boardTelemetry,
             )
         }
-        if (hostForeground) startSources()
+        if (hostForeground) {
+            val decision = FlightBlackBox.record(
+                type = FbbEventType.DECISION,
+                description = "hostForeground=true -> start board sources",
+                cause = event,
+                persistence = FbbPersistence.IMPORTANT,
+            )
+            startSources(decision)
+        }
     }
 
     /** Clears the plan when returning to setup and releases the external board connection. */
     fun clearFlightPlan() {
+        val clear = FlightBlackBox.record(
+            type = FbbEventType.CALL,
+            description = "DashboardViewModel.clearFlightPlan()",
+            persistence = FbbPersistence.IMPORTANT,
+        )
         cancelPermissionResultBackgroundStop()
         boardStopDeferredForPermission = false
         usbPermissionRequestPending = false
@@ -111,7 +180,13 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
                 isOnline = it.isOnline,
             )
         }
-        stopSources()
+        FlightBlackBox.record(
+            type = FbbEventType.STATE,
+            description = "flightPlan: active-or-null -> null",
+            cause = clear,
+            persistence = FbbPersistence.IMPORTANT,
+        )
+        stopSources(clear)
     }
 
     /** Updates phone GPS/orientation data owned by the existing app-level location pipeline. */
@@ -121,8 +196,18 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
 
     /** Marks the activity visible; sources start only after a valid flight plan exists. */
     fun onHostForeground() {
+        val event = FlightBlackBox.record(
+            type = FbbEventType.CALL,
+            description = "DashboardViewModel.onHostForeground()",
+            persistence = FbbPersistence.IMPORTANT,
+        )
         cancelPermissionResultBackgroundStop()
         hostForeground = true
+        FlightBlackBox.record(
+            type = FbbEventType.STATE,
+            description = "DashboardViewModel.hostForeground: false -> true",
+            cause = event,
+        )
         usbPermissionRequestReturnedToHost = permissionRequestReturnedToHostAfterForeground(
             alreadyReturned = usbPermissionRequestReturnedToHost,
             permissionStopDeferred = boardStopDeferredForPermission,
@@ -130,20 +215,46 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
         )
         boardStopDeferredForPermission = false
         if (mutableUiState.value.flightPlan != null) {
-            startSources()
+            val decision = FlightBlackBox.record(
+                type = FbbEventType.DECISION,
+                description = "flightPlan present -> start board sources",
+                cause = event,
+                persistence = FbbPersistence.IMPORTANT,
+            )
+            startSources(decision)
         }
     }
 
     /** Reconciles USB permission after transient system UI, including the permission dialog. */
     fun onHostResume() {
+        val event = FlightBlackBox.record(
+            type = FbbEventType.CALL,
+            description = "DashboardViewModel.onHostResume()",
+            persistence = FbbPersistence.IMPORTANT,
+        )
         if (hostForeground && mutableUiState.value.flightPlan != null) {
+            FlightBlackBox.record(
+                type = FbbEventType.DECISION,
+                description = "hostForeground=true && flightPlan present -> board.refresh()",
+                cause = event,
+            )
             board.refresh()
         }
     }
 
     /** Releases the external board whenever the host is no longer visible. */
     fun onHostBackground() {
+        val event = FlightBlackBox.record(
+            type = FbbEventType.CALL,
+            description = "DashboardViewModel.onHostBackground()",
+            persistence = FbbPersistence.IMPORTANT,
+        )
         hostForeground = false
+        FlightBlackBox.record(
+            type = FbbEventType.STATE,
+            description = "DashboardViewModel.hostForeground: true -> false",
+            cause = event,
+        )
         val connection = mutableUiState.value.boardConnection
         if (
             usbPermissionRequestResolved(
@@ -152,6 +263,13 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
                 permissionRequiredIsTerminal = usbPermissionRequestReturnedToHost,
             )
         ) {
+            FlightBlackBox.record(
+                type = FbbEventType.DECISION,
+                description = "USB permission result resolved while backgrounding -> defer stop",
+                cause = event,
+                metadata = mapOf("connection" to connection.fbbKind()),
+                persistence = FbbPersistence.IMPORTANT,
+            )
             usbPermissionRequestPending = false
             usbPermissionRequestReturnedToHost = false
             boardStopDeferredForPermission = true
@@ -165,15 +283,29 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
                 boardStopDeferredForPermission,
             )
         ) {
+            FlightBlackBox.record(
+                type = FbbEventType.DECISION,
+                description = "USB permission prompt active -> keep board sources temporarily",
+                cause = event,
+                metadata = mapOf("connection" to connection.fbbKind()),
+                persistence = FbbPersistence.IMPORTANT,
+            )
             boardStopDeferredForPermission = true
             return
         }
         cancelPermissionResultBackgroundStop()
         boardStopDeferredForPermission = false
-        stopSources()
+        stopSources(event)
     }
 
     fun requestUsbPermission() {
+        val request = FlightBlackBox.record(
+            type = FbbEventType.USER,
+            description = "DashboardScreen.GrantUsbPermission clicked",
+            metadata = mapOf("connection" to mutableUiState.value.boardConnection.fbbKind()),
+            persistence = FbbPersistence.IMPORTANT,
+        )
+        lastUsbPermissionRequestEvent = request
         // Set this before crossing dispatchers so an immediate Activity.onStop cannot unregister
         // the result receiver in the short interval before core publishes RequestingPermission.
         cancelPermissionResultBackgroundStop()
@@ -182,20 +314,47 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
         board.requestPermission()
     }
 
-    fun retryBoardConnection() = board.retry()
+    fun retryBoardConnection() {
+        val retry = FlightBlackBox.record(
+            type = FbbEventType.USER,
+            description = "DashboardScreen.RetryBoardConnection clicked",
+            persistence = FbbPersistence.IMPORTANT,
+        )
+        board.retry()
+        FlightBlackBox.record(
+            type = FbbEventType.CALL,
+            description = "HardwareConnection.retry()",
+            cause = retry,
+        )
+    }
 
     fun setQnhHectopascal(value: Double) = board.setQnh(value)
 
     override fun onCleared() {
+        FlightBlackBox.record(
+            type = FbbEventType.LIFECYCLE,
+            description = "DashboardViewModel.onCleared()",
+            persistence = FbbPersistence.IMPORTANT,
+        )
         board.close()
         super.onCleared()
     }
 
-    private fun startSources() {
+    private fun startSources(cause: FbbEventRef?) {
+        FlightBlackBox.record(
+            type = FbbEventType.CALL,
+            description = "HardwareConnection.start()",
+            cause = cause,
+        )
         board.start()
     }
 
-    private fun stopSources() {
+    private fun stopSources(cause: FbbEventRef?) {
+        FlightBlackBox.record(
+            type = FbbEventType.CALL,
+            description = "HardwareConnection.stop()",
+            cause = cause,
+        )
         board.stop()
     }
 
@@ -205,7 +364,12 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
             delay(PERMISSION_RESULT_FOREGROUND_GRACE_MILLIS)
             if (!hostForeground && boardStopDeferredForPermission) {
                 boardStopDeferredForPermission = false
-                stopSources()
+                val timeout = FlightBlackBox.record(
+                    type = FbbEventType.TIMEOUT,
+                    description = "USB permission result foreground grace expired -> stop board sources",
+                    persistence = FbbPersistence.IMPORTANT,
+                )
+                stopSources(timeout)
             }
             permissionResultBackgroundStopJob = null
         }
@@ -261,3 +425,54 @@ internal fun shouldStopBoardForHostBackground(
     permissionStopAlreadyDeferred: Boolean,
 ): Boolean = !permissionStopAlreadyDeferred &&
     !shouldKeepBoardStartedForPermissionResult(connection, requestPending)
+
+private fun BoardConnectionState.fbbKind(): String = when (this) {
+    BoardConnectionState.Stopped -> "Stopped"
+    BoardConnectionState.Searching -> "Searching"
+    is BoardConnectionState.PermissionRequired -> "PermissionRequired"
+    is BoardConnectionState.RequestingPermission -> "RequestingPermission"
+    is BoardConnectionState.Opening -> "Opening"
+    is BoardConnectionState.Synchronizing -> "Synchronizing"
+    is BoardConnectionState.ValidatingDevice -> "ValidatingDevice"
+    is BoardConnectionState.AwaitingHeartbeat -> "AwaitingHeartbeat"
+    is BoardConnectionState.StartingTelemetry -> "StartingTelemetry"
+    is BoardConnectionState.Ready -> "Ready"
+    is BoardConnectionState.Disconnected -> "Disconnected"
+    is BoardConnectionState.Failed -> "Failed"
+}
+
+private fun BoardConnectionState.fbbMetadata(): Map<String, Any?> = when (this) {
+    is BoardConnectionState.PermissionRequired -> device.fbbMetadata()
+    is BoardConnectionState.RequestingPermission -> device.fbbMetadata()
+    is BoardConnectionState.Opening -> device.fbbMetadata()
+    is BoardConnectionState.Synchronizing -> device.fbbMetadata()
+    is BoardConnectionState.ValidatingDevice -> device.fbbMetadata()
+    is BoardConnectionState.AwaitingHeartbeat -> device.fbbMetadata() + mapOf(
+        "target" to deviceInfo.target,
+        "protocol" to deviceInfo.protocolVersion,
+    )
+    is BoardConnectionState.StartingTelemetry -> device.fbbMetadata() + mapOf(
+        "target" to deviceInfo.target,
+        "protocol" to deviceInfo.protocolVersion,
+    )
+    is BoardConnectionState.Ready -> device.fbbMetadata() + mapOf(
+        "target" to deviceInfo.target,
+        "protocol" to deviceInfo.protocolVersion,
+        "connectedAtMs" to connectedAtElapsedRealtimeMillis,
+    )
+    is BoardConnectionState.Disconnected -> mapOf("reason" to reason)
+    is BoardConnectionState.Failed -> mapOf(
+        "code" to error.code,
+        "recoverable" to error.recoverable,
+        "message" to error.message,
+    )
+    BoardConnectionState.Stopped,
+    BoardConnectionState.Searching -> emptyMap()
+}
+
+private fun ir.hrka.shahbaz.hardwareconnection.BoardUsbDevice.fbbMetadata(): Map<String, Any?> =
+    mapOf(
+        "deviceId" to deviceId,
+        "vid" to "0x${vendorId.toString(16)}",
+        "pid" to "0x${productId.toString(16)}",
+    )

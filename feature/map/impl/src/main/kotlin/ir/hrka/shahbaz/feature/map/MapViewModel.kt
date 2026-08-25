@@ -28,6 +28,10 @@ import android.os.SystemClock
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.shahbaz.flightblackbox.FbbEventRef
+import com.shahbaz.flightblackbox.FbbEventType
+import com.shahbaz.flightblackbox.FbbPersistence
+import com.shahbaz.flightblackbox.FlightBlackBox
 import com.google.android.gms.location.CurrentLocationRequest
 import com.google.android.gms.location.FusedLocationProviderClient
 import com.google.android.gms.location.LocationCallback
@@ -152,6 +156,9 @@ class MapViewModel(application: Application) : AndroidViewModel(application) {
     /** Active reverse-geocoding job for the selected destination. */
     private var destinationGeocodeJob: Job? = null
 
+    /** Last prerequisite-check event used as a causal parent for automatic platform callbacks. */
+    private var lastPrerequisiteEvent: FbbEventRef? = null
+
     /** Elapsed-realtime timestamp at which the most recent location was accepted. */
     private var lastLocationElapsedRealtimeMillis = 0L
 
@@ -221,6 +228,17 @@ class MapViewModel(application: Application) : AndroidViewModel(application) {
 
     /** Registers the process-scoped connectivity callback released by [onCleared]. */
     init {
+        val initial = _uiState.value
+        FlightBlackBox.record(
+            type = FbbEventType.APP,
+            description = "MapViewModel initialized",
+            metadata = mapOf(
+                "locationStatus" to initial.locationStatus,
+                "hasPrecisePermission" to initial.hasPrecisePermission,
+                "isOnline" to initial.isOnline,
+            ),
+            persistence = FbbPersistence.IMPORTANT,
+        )
         registerNetworkCallback()
     }
 
@@ -231,8 +249,25 @@ class MapViewModel(application: Application) : AndroidViewModel(application) {
      * updates begin so the UI never presents an outdated point as current.
      */
     fun onForeground() {
-        if (isForeground) return
+        val foreground = FlightBlackBox.record(
+            type = FbbEventType.CALL,
+            description = "MapViewModel.onForeground()",
+            persistence = FbbPersistence.IMPORTANT,
+        )
+        if (isForeground) {
+            FlightBlackBox.record(
+                type = FbbEventType.DECISION,
+                description = "isForeground=true -> skip duplicate foreground start",
+                cause = foreground,
+            )
+            return
+        }
         isForeground = true
+        FlightBlackBox.record(
+            type = FbbEventType.STATE,
+            description = "MapViewModel.isForeground: false -> true",
+            cause = foreground,
+        )
         compassSessionGeneration += 1
         compassSampleGeneration = 0L
         val compassSession = compassSessionGeneration
@@ -240,6 +275,12 @@ class MapViewModel(application: Application) : AndroidViewModel(application) {
         val retainedOriginIsStale = _uiState.value.origin != null &&
             SystemClock.elapsedRealtime() - lastLocationElapsedRealtimeMillis >
             MAX_RETAINED_LOCATION_AGE_MILLIS
+        FlightBlackBox.record(
+            type = FbbEventType.DECISION,
+            description = "retainedOriginIsStale=$retainedOriginIsStale -> " +
+                if (retainedOriginIsStale) "discard retained origin" else "keep retained origin",
+            cause = foreground,
+        )
         if (retainedOriginIsStale) {
             _uiState.update {
                 it.copy(
@@ -279,6 +320,12 @@ class MapViewModel(application: Application) : AndroidViewModel(application) {
 
                 is CompassEvent.Failure -> {
                     compassFreshnessJob?.cancel()
+                    FlightBlackBox.record(
+                        type = FbbEventType.WARNING,
+                        description = "Compass callback failure",
+                        metadata = mapOf("code" to event.failure.code),
+                        persistence = FbbPersistence.IMPORTANT,
+                    )
                     _uiState.update {
                         it.copy(
                             compassReading = if (
@@ -313,6 +360,12 @@ class MapViewModel(application: Application) : AndroidViewModel(application) {
                         sampleGeneration = compassSampleGeneration,
                     )
                 }
+                FlightBlackBox.record(
+                    type = FbbEventType.VALUE,
+                    description = "compass.start() -> $compassStartResult",
+                    cause = foreground,
+                    metadata = mapOf("compassStatus" to status),
+                )
             }
 
             is CompassStartResult.Failed -> {
@@ -327,14 +380,34 @@ class MapViewModel(application: Application) : AndroidViewModel(application) {
                 _uiState.update {
                     it.copy(compassReading = null, compassStatus = status)
                 }
+                FlightBlackBox.record(
+                    type = FbbEventType.WARNING,
+                    description = "compass.start() failed",
+                    cause = foreground,
+                    metadata = mapOf(
+                        "failure" to compassStartResult.failure.code,
+                        "compassStatus" to status,
+                    ),
+                    persistence = FbbPersistence.IMPORTANT,
+                )
             }
         }
-        refreshDeviceState()
+        refreshDeviceState(foreground)
     }
 
     /** Stops foreground-only platform work and clears the transient compass heading. */
     fun onBackground() {
+        val background = FlightBlackBox.record(
+            type = FbbEventType.CALL,
+            description = "MapViewModel.onBackground()",
+            persistence = FbbPersistence.IMPORTANT,
+        )
         isForeground = false
+        FlightBlackBox.record(
+            type = FbbEventType.STATE,
+            description = "MapViewModel.isForeground: true -> false",
+            cause = background,
+        )
         compassSessionGeneration += 1
         compassFreshnessJob?.cancel()
         compassFreshnessJob = null
@@ -352,14 +425,24 @@ class MapViewModel(application: Application) : AndroidViewModel(application) {
 
     /** Re-evaluates feature state after Android returns a location permission result. */
     fun onPermissionResult() {
+        val event = FlightBlackBox.record(
+            type = FbbEventType.CALL,
+            description = "MapViewModel.onPermissionResult()",
+            persistence = FbbPersistence.IMPORTANT,
+        )
         _uiState.update { it.copy(hasPrecisePermission = hasFineLocationPermission()) }
-        refreshDeviceState()
+        refreshDeviceState(event)
     }
 
     /** Restarts location acquisition using the latest permission and provider state. */
     fun retryLocation() {
+        val retry = FlightBlackBox.record(
+            type = FbbEventType.USER,
+            description = "MapScreen.RetryLocation clicked",
+            persistence = FbbPersistence.IMPORTANT,
+        )
         stopLocationUpdates()
-        refreshDeviceState()
+        refreshDeviceState(retry)
     }
 
     /**
@@ -368,27 +451,66 @@ class MapViewModel(application: Application) : AndroidViewModel(application) {
      * @param coordinate Validated destination coordinate selected on the map or entered manually.
      */
     fun setDestination(coordinate: GeoCoordinate) {
+        val selected = FlightBlackBox.record(
+            type = FbbEventType.USER,
+            description = "Map destination selected",
+            metadata = mapOf("online" to _uiState.value.isOnline),
+            persistence = FbbPersistence.IMPORTANT,
+        )
         val fallbackName = appContext.getString(R.string.selected_destination)
         _uiState.update {
             it.selectDestination(PlacePoint(coordinate, fallbackName))
         }
+        FlightBlackBox.record(
+            type = FbbEventType.STATE,
+            description = "destination: null-or-previous -> selected",
+            cause = selected,
+        )
         resolveDestinationName(coordinate)
     }
 
     /** Clears the selected destination and cancels its outstanding reverse-geocoding request. */
     fun clearDestination() {
+        val clear = FlightBlackBox.record(
+            type = FbbEventType.USER,
+            description = "Map destination cleared",
+            persistence = FbbPersistence.IMPORTANT,
+        )
         destinationGeocodeJob?.cancel()
         _uiState.update { it.clearSelectedDestination() }
+        FlightBlackBox.record(
+            type = FbbEventType.STATE,
+            description = "destination: selected -> null",
+            cause = clear,
+        )
     }
 
     /** Advances from route selection to takeoff-altitude entry when a destination exists. */
     fun advanceToTakeoffAltitude() {
+        val before = _uiState.value
+        val decision = FlightBlackBox.record(
+            type = FbbEventType.DECISION,
+            description = "destinationPresent=${before.destination != null} -> " +
+                if (before.destination != null) "TAKEOFF_ALTITUDE" else "stay DESTINATION",
+            persistence = FbbPersistence.IMPORTANT,
+        )
         _uiState.update { state -> state.advanceToTakeoffAltitude() }
+        FlightBlackBox.record(
+            type = FbbEventType.STATE,
+            description = "flightSetupStep: ${before.flightSetupStep} -> ${_uiState.value.flightSetupStep}",
+            cause = decision,
+        )
     }
 
     /** Returns to destination selection without discarding the selected route or altitude draft. */
     fun returnToDestinationSelection() {
+        val before = _uiState.value.flightSetupStep
         _uiState.update { state -> state.returnToDestinationSelection() }
+        FlightBlackBox.record(
+            type = FbbEventType.STATE,
+            description = "flightSetupStep: $before -> ${_uiState.value.flightSetupStep}",
+            persistence = FbbPersistence.IMPORTANT,
+        )
     }
 
     /**
@@ -397,31 +519,88 @@ class MapViewModel(application: Application) : AndroidViewModel(application) {
      * @param input User-entered altitude text expressed in meters.
      */
     fun updateTakeoffAltitude(input: String) {
+        val beforeValid = _uiState.value.takeoffAltitudeMeters != null
         _uiState.update { state -> state.updateTakeoffAltitude(input) }
+        FlightBlackBox.record(
+            type = FbbEventType.VALUE,
+            description = "takeoff altitude draft updated",
+            metadata = mapOf(
+                "inputLength" to input.length,
+                "wasValid" to beforeValid,
+                "isValid" to (_uiState.value.takeoffAltitudeMeters != null),
+            ),
+        )
     }
 
     /** Confirms the current valid altitude while the takeoff-altitude step is active. */
     fun confirmTakeoffAltitude() {
+        val before = _uiState.value
+        val blocker = before.takeoffConfirmationBlocker
+        val decision = FlightBlackBox.record(
+            type = FbbEventType.DECISION,
+            description = "takeoffConfirmationBlocker=$blocker -> " +
+                if (blocker == null) "confirm flight plan" else "reject confirmation",
+            persistence = FbbPersistence.IMPORTANT,
+        )
         _uiState.update { state -> state.confirmTakeoffAltitude() }
+        FlightBlackBox.record(
+            type = FbbEventType.STATE,
+            description = "confirmedFlightPlan: ${before.confirmedFlightPlan != null} -> " +
+                "${_uiState.value.confirmedFlightPlan != null}",
+            cause = decision,
+            persistence = FbbPersistence.IMPORTANT,
+        )
     }
 
     /** Clears setup confirmation after the user returns from the flight dashboard. */
     fun clearConfirmedFlightPlan() {
+        val before = _uiState.value.confirmedFlightPlan != null
         _uiState.update { state -> state.clearConfirmedFlightPlan() }
+        FlightBlackBox.record(
+            type = FbbEventType.STATE,
+            description = "confirmedFlightPlan: $before -> ${_uiState.value.confirmedFlightPlan != null}",
+            persistence = FbbPersistence.IMPORTANT,
+        )
     }
 
     /**
      * Reconciles foreground, permission, precision, and provider state before acquiring location.
      */
-    private fun refreshDeviceState() {
-        if (!isForeground) return
+    private fun refreshDeviceState(cause: FbbEventRef? = null) {
+        val check = FlightBlackBox.record(
+            type = FbbEventType.ENTER,
+            description = "MapViewModel.refreshDeviceState()",
+            cause = cause ?: lastPrerequisiteEvent,
+        )
+        lastPrerequisiteEvent = check
+        if (!isForeground) {
+            FlightBlackBox.record(
+                type = FbbEventType.DECISION,
+                description = "isForeground=false -> skip prerequisite check",
+                cause = check,
+            )
+            return
+        }
 
         val hasPermission = hasLocationPermission()
         val hasFinePermission = hasFineLocationPermission()
+        val permissionValue = FlightBlackBox.record(
+            type = FbbEventType.VALUE,
+            description = "checkLocationPermission() -> " +
+                if (hasPermission) "GRANTED" else "DENIED",
+            cause = check,
+            metadata = mapOf("fineGranted" to hasFinePermission),
+        )
         _uiState.update { it.copy(hasPrecisePermission = hasFinePermission) }
 
         when {
             !hasPermission -> {
+                val decision = FlightBlackBox.record(
+                    type = FbbEventType.DECISION,
+                    description = "locationPermission=DENIED -> LOCATION_PERMISSION_REQUIRED",
+                    cause = permissionValue,
+                    persistence = FbbPersistence.IMPORTANT,
+                )
                 stopLocationUpdates()
                 clearCompassGeomagneticPosition()
                 _uiState.update {
@@ -433,9 +612,21 @@ class MapViewModel(application: Application) : AndroidViewModel(application) {
                         ),
                     )
                 }
+                FlightBlackBox.record(
+                    type = FbbEventType.STATE,
+                    description = "locationStatus -> ${_uiState.value.locationStatus}",
+                    cause = decision,
+                    persistence = FbbPersistence.IMPORTANT,
+                )
             }
 
             !hasFinePermission -> {
+                val decision = FlightBlackBox.record(
+                    type = FbbEventType.DECISION,
+                    description = "fineLocationPermission=DENIED -> PRECISE_PERMISSION_REQUIRED",
+                    cause = permissionValue,
+                    persistence = FbbPersistence.IMPORTANT,
+                )
                 stopLocationUpdates()
                 clearCompassGeomagneticPosition()
                 _uiState.update {
@@ -447,9 +638,26 @@ class MapViewModel(application: Application) : AndroidViewModel(application) {
                         ),
                     )
                 }
+                FlightBlackBox.record(
+                    type = FbbEventType.STATE,
+                    description = "locationStatus -> ${_uiState.value.locationStatus}",
+                    cause = decision,
+                    persistence = FbbPersistence.IMPORTANT,
+                )
             }
 
             !locationManager.isLocationEnabled -> {
+                val locationEnabled = FlightBlackBox.record(
+                    type = FbbEventType.VALUE,
+                    description = "isLocationEnabled() -> false",
+                    cause = permissionValue,
+                )
+                val decision = FlightBlackBox.record(
+                    type = FbbEventType.DECISION,
+                    description = "locationEnabled=false -> LOCATION_DISABLED",
+                    cause = locationEnabled,
+                    persistence = FbbPersistence.IMPORTANT,
+                )
                 stopLocationUpdates()
                 clearCompassGeomagneticPosition()
                 _uiState.update {
@@ -461,9 +669,28 @@ class MapViewModel(application: Application) : AndroidViewModel(application) {
                         ),
                     )
                 }
+                FlightBlackBox.record(
+                    type = FbbEventType.STATE,
+                    description = "locationStatus -> ${_uiState.value.locationStatus}",
+                    cause = decision,
+                    persistence = FbbPersistence.IMPORTANT,
+                )
             }
 
-            else -> startLocationUpdates()
+            else -> {
+                val locationEnabled = FlightBlackBox.record(
+                    type = FbbEventType.VALUE,
+                    description = "isLocationEnabled() -> true",
+                    cause = permissionValue,
+                )
+                val decision = FlightBlackBox.record(
+                    type = FbbEventType.DECISION,
+                    description = "permissionGranted && preciseGranted && locationEnabled -> START_LOCATION_UPDATES",
+                    cause = locationEnabled,
+                    persistence = FbbPersistence.IMPORTANT,
+                )
+                startLocationUpdates(decision)
+            }
         }
     }
 
@@ -473,9 +700,28 @@ class MapViewModel(application: Application) : AndroidViewModel(application) {
      * Registration is skipped when updates are already active or fine permission is absent. A
      * synchronous permission failure is converted into [LocationStatus.PERMISSION_REQUIRED].
      */
-    private fun startLocationUpdates() {
-        if (locationUpdatesStarted) return
-        if (!hasFineLocationPermission()) return
+    private fun startLocationUpdates(cause: FbbEventRef? = null) {
+        val start = FlightBlackBox.record(
+            type = FbbEventType.CALL,
+            description = "MapViewModel.startLocationUpdates()",
+            cause = cause,
+        )
+        if (locationUpdatesStarted) {
+            FlightBlackBox.record(
+                type = FbbEventType.DECISION,
+                description = "locationUpdatesStarted=true -> skip duplicate registration",
+                cause = start,
+            )
+            return
+        }
+        if (!hasFineLocationPermission()) {
+            FlightBlackBox.record(
+                type = FbbEventType.DECISION,
+                description = "fineLocationPermission=false -> skip location registration",
+                cause = start,
+            )
+            return
+        }
 
         if (_uiState.value.origin == null) {
             _uiState.update {
@@ -498,6 +744,11 @@ class MapViewModel(application: Application) : AndroidViewModel(application) {
 
         try {
             locationUpdatesStarted = true
+            FlightBlackBox.record(
+                type = FbbEventType.STATE,
+                description = "locationUpdatesStarted: false -> true",
+                cause = start,
+            )
             fusedLocationClient.requestLocationUpdates(
                 updateRequest,
                 locationCallback,
@@ -510,6 +761,12 @@ class MapViewModel(application: Application) : AndroidViewModel(application) {
             startLocationTimeout()
         } catch (_: SecurityException) {
             locationUpdatesStarted = false
+            FlightBlackBox.record(
+                type = FbbEventType.EXCEPTION,
+                description = "Location update registration lost permission",
+                cause = start,
+                persistence = FbbPersistence.CRITICAL,
+            )
             clearCompassGeomagneticPosition()
             _uiState.update {
                 it.copy(
@@ -593,6 +850,17 @@ class MapViewModel(application: Application) : AndroidViewModel(application) {
         val coordinate = runCatching {
             GeoCoordinate(location.latitude, location.longitude)
         }.getOrNull() ?: return
+        val accepted = FlightBlackBox.record(
+            type = FbbEventType.VALUE,
+            description = "Fused location sample accepted",
+            cause = lastPrerequisiteEvent,
+            metadata = mapOf(
+                "provider" to location.provider,
+                "hasAccuracy" to location.hasAccuracy(),
+                "hasSpeed" to location.hasSpeed(),
+                "ageMs" to (System.currentTimeMillis() - location.time).coerceAtLeast(0L),
+            ),
+        )
 
         updateCompassGeomagneticPosition(location)
 
@@ -620,6 +888,12 @@ class MapViewModel(application: Application) : AndroidViewModel(application) {
                 phoneSpeedStatus = phoneSpeedStatus,
             )
         }
+        FlightBlackBox.record(
+            type = FbbEventType.STATE,
+            description = "locationStatus -> ${_uiState.value.locationStatus}",
+            cause = accepted,
+            persistence = FbbPersistence.IMPORTANT,
+        )
         scheduleLocationStaleCheck()
 
         if (shouldRefreshName) resolveOriginName(coordinate)
@@ -700,10 +974,18 @@ class MapViewModel(application: Application) : AndroidViewModel(application) {
      * @param clearExistingOrigin Whether a previously accepted origin must also be discarded.
      */
     private fun handleLocationFailure(
-        @Suppress("UNUSED_PARAMETER") error: Exception,
+        error: Exception,
         clearExistingOrigin: Boolean,
     ) {
         if (!isForeground) return
+        val failure = FlightBlackBox.recordThrowable(
+            type = FbbEventType.EXCEPTION,
+            description = "Fused location request failed",
+            error = error,
+            cause = lastPrerequisiteEvent,
+            metadata = mapOf("clearExistingOrigin" to clearExistingOrigin),
+            persistence = FbbPersistence.CRITICAL,
+        )
         if (clearExistingOrigin || _uiState.value.origin == null && !locationUpdatesStarted) {
             if (clearExistingOrigin) clearCompassGeomagneticPosition()
             _uiState.update {
@@ -715,6 +997,12 @@ class MapViewModel(application: Application) : AndroidViewModel(application) {
                     ),
                 )
             }
+            FlightBlackBox.record(
+                type = FbbEventType.STATE,
+                description = "locationStatus -> ${_uiState.value.locationStatus}",
+                cause = failure,
+                persistence = FbbPersistence.IMPORTANT,
+            )
         }
     }
 
@@ -740,6 +1028,13 @@ class MapViewModel(application: Application) : AndroidViewModel(application) {
                 staleAfterMillis = LOCATION_STALE_TIMEOUT_MILLIS,
             )
             if (isStale) {
+                val timeout = FlightBlackBox.record(
+                    type = FbbEventType.TIMEOUT,
+                    description = "location sample stale timeout reached",
+                    cause = lastPrerequisiteEvent,
+                    metadata = mapOf("staleAfterMs" to LOCATION_STALE_TIMEOUT_MILLIS),
+                    persistence = FbbPersistence.IMPORTANT,
+                )
                 val status = if (locationManager.isLocationEnabled) {
                     LocationStatus.UNAVAILABLE
                 } else {
@@ -758,6 +1053,12 @@ class MapViewModel(application: Application) : AndroidViewModel(application) {
                         phoneSpeedStatus = PhoneSpeedStatus.Unavailable(speedReason),
                     )
                 }
+                FlightBlackBox.record(
+                    type = FbbEventType.STATE,
+                    description = "locationStatus -> ${_uiState.value.locationStatus}",
+                    cause = timeout,
+                    persistence = FbbPersistence.IMPORTANT,
+                )
             }
         }
     }
@@ -771,6 +1072,12 @@ class MapViewModel(application: Application) : AndroidViewModel(application) {
         currentLocationCancellation?.cancel()
         currentLocationCancellation = null
         if (locationUpdatesStarted) {
+            FlightBlackBox.record(
+                type = FbbEventType.STATE,
+                description = "locationUpdatesStarted: true -> false",
+                cause = lastPrerequisiteEvent,
+                persistence = FbbPersistence.IMPORTANT,
+            )
             fusedLocationClient.removeLocationUpdates(locationCallback)
             locationUpdatesStarted = false
         }
