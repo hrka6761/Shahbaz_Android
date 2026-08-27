@@ -1,11 +1,11 @@
 # Flight Black Box Integration Map
 
 This document records the current Shahbaz Android Flight Black Box integration after the
-module was moved under `core:flight-black-box`.
+module was moved under `core:flight_black_box`.
 
 ## Ownership
 
-- `core:flight-black-box` owns recorder startup, event ordering, durable report writing, crash
+- `core:flight_black_box` owns recorder startup, event ordering, durable report writing, crash
   capture, previous-session recovery, safe report file access, report cleanup primitives, and
   persisted recorder configuration.
 - `feature:settings:impl` owns every user-facing report-management surface: report list,
@@ -47,8 +47,8 @@ the caller explicitly opts into deleting them.
 
 Automated checks run in this phase:
 
-- `.\gradlew.bat :core:flight-black-box:testDebugUnitTest`
-- `.\gradlew.bat :core:flight-black-box:testDebugUnitTest :app:testDebugUnitTest`
+- `.\gradlew.bat :core:flight_black_box:testDebugUnitTest`
+- `.\gradlew.bat :core:flight_black_box:testDebugUnitTest :app:testDebugUnitTest`
 - `.\gradlew.bat :feature:settings:impl:testDebugUnitTest :app:testDebugUnitTest`
 
 The final Settings/app verification was run with `GRADLE_USER_HOME`, `TEMP`, and `TMP` pointed
