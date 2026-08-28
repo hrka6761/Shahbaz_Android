@@ -1,13 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- Dashboard-owned copy, units, status text, and accessibility descriptions. -->
 <resources>
-    <string name="dashboard_title">Flight dashboard</string>
-    <string name="flight_target_format">Target altitude: %1$.1f m above takeoff</string>
-    <string name="flight_plan_missing">Flight plan unavailable</string>
-    <string name="board_ready_status">Board ready</string>
-    <string name="board_ready_with_advisories_status">Board ready · review warnings</string>
-    <string name="board_advisory_issue_mask">Hardware evidence advisory mask: 0x%1$08X</string>
-
     <string name="board_gate_eyebrow">SHAHBAZ INTERFACE BOARD</string>
     <string name="board_gate_blocking_note">Flight instruments stay locked until USB, TimeSync, DeviceInfo, and heartbeat checks succeed.</string>
     <string name="grant_usb_permission">Grant USB permission</string>
@@ -46,34 +39,20 @@
     <string name="axis_x_pitch">X · pitch</string>
     <string name="axis_y_roll">Y · roll</string>
     <string name="axis_z_yaw">Z · yaw / heading</string>
-    <string name="axis_convention">Phone display axes: X = pitch, Y = roll, Z = clockwise yaw/heading.</string>
-    <string name="orientation_sensor_detail">%1$s · accuracy %2$s · %3$s</string>
     <string name="cardinal_angles_title">Angle to cardinal axes</string>
     <string name="cardinal_angle_value">%1$+.0f°
 %2$.0f° away</string>
     <string name="cardinal_angle_accessibility">%1$s: signed deviation %2$+.0f degrees, angular distance %3$.0f degrees</string>
-    <string name="true_north">true north</string>
-    <string name="magnetic_north">magnetic north</string>
     <string name="attitude_description">Attitude. Yaw %1$.0f degrees, pitch %2$+.1f degrees, roll %3$+.1f degrees, direction %4$s, status %5$s.</string>
     <string name="attitude_unavailable_description">Attitude reading unavailable. Status %1$s.</string>
-    <string name="compass_accuracy_unknown">A sample arrived, but Android has not established its accuracy yet.</string>
-    <string name="compass_accuracy_unreliable">Unreliable orientation sample; calibrate the phone before relying on it.</string>
-    <string name="compass_accuracy_low">Low-accuracy orientation sample; phone calibration is recommended.</string>
 
     <string name="instrument_temperature">Temperature</string>
     <string name="instrument_humidity">Humidity</string>
     <string name="instrument_pressure">Pressure</string>
-    <string name="instrument_altitude_msl">Estimated altitude MSL (QNH)</string>
-    <string name="instrument_altitude_takeoff">Altitude above takeoff</string>
-    <string name="instrument_accessibility">%1$s, %2$s. Source %3$s. Status %4$s. %5$s</string>
-
-    <string name="source_sht30">External / USB board · SHT30</string>
-    <string name="source_ms5611">External / USB board · MS5611</string>
-    <string name="source_qnh_altitude">Derived from external / USB board · MS5611 pressure + QNH</string>
-    <string name="source_derived_pressure">Derived from external / USB board · MS5611 baseline</string>
-    <string name="source_phone_gps">Internal / phone GPS</string>
-    <string name="source_phone_orientation">Internal / phone orientation sensors</string>
-    <string name="source_status_format">%1$s · %2$s</string>
+    <string name="instrument_altitude_msl">Altitude above sea level</string>
+    <string name="instrument_altitude_takeoff">Altitude from starting point</string>
+    <string name="instrument_target_altitude">Target altitude</string>
+    <string name="compact_instrument_accessibility">%1$s, %2$s. Status %3$s.</string>
 
     <string name="status_live">Live</string>
     <string name="status_accuracy_warning">Accuracy warning</string>
@@ -86,13 +65,6 @@
     <string name="status_invalid">Invalid data</string>
     <string name="status_error">Error</string>
     <string name="status_inactive">Inactive</string>
-    <string name="sample_current">Current validated sample</string>
-    <string name="sample_stale">Showing the last sample; updates have stopped</string>
-    <string name="failure_retains_last">%1$s · showing the last validated sample</string>
-    <string name="awaiting_first_sample">Awaiting first valid sample</string>
-    <string name="sensor_inactive">Sensor observation is inactive</string>
-    <string name="baseline_waiting">Waiting for a valid takeoff pressure baseline</string>
-
     <string name="no_value">—</string>
     <string name="last_valid_value">Last: %1$s</string>
     <string name="value_celsius">%1$.1f °C</string>
@@ -102,10 +74,6 @@
     <string name="value_meters_signed">%1$+.1f m</string>
     <string name="value_degrees">%1$.0f°</string>
     <string name="value_signed_degrees">%1$+.1f°</string>
-    <string name="pressure_detail">%1$d Pa · sensor temperature %2$.1f °C</string>
-    <string name="qnh_detail">Barometric estimate using current QNH %1$.2f hPa</string>
-    <string name="target_altitude_detail">Flight target %1$.1f m above takeoff</string>
-
     <string name="compass_north">N</string>
     <string name="compass_north_east">NE</string>
     <string name="compass_east">E</string>
@@ -115,17 +83,15 @@
     <string name="compass_west">W</string>
     <string name="compass_north_west">NW</string>
 
-    <string name="phone_position_proxy_warning">Phone position is shown as a temporary proxy; it is not the drone’s position.</string>
-    <string name="phone_position_proxy_stale_warning">The last phone position is stale and is not drone-position telemetry.</string>
-    <string name="phone_position_no_response">Phone GPS is not responding; only the last validated proxy position may be shown.</string>
-    <string name="phone_position_invalid">Phone GPS returned invalid data; only the last validated proxy position may be shown.</string>
-    <string name="phone_position_not_present">This phone has no usable GPS sensor; no current-position marker is shown.</string>
-    <string name="phone_position_waiting">Waiting for phone GPS; no current-position marker is shown.</string>
-    <string name="phone_position_unavailable">Phone GPS is unavailable; no current-position marker is shown.</string>
-    <string name="phone_position_failed">Phone GPS failed; no current-position marker is shown.</string>
-    <string name="phone_position_inactive">Phone GPS is inactive; no current-position marker is shown.</string>
     <string name="flight_plan_missing_map">The route map cannot be shown because the confirmed flight plan is missing.</string>
+    <string name="dashboard_map_description">Flight route map with origin, destination, and direct route.</string>
+    <string name="dashboard_map_loading">Loading map</string>
+    <string name="dashboard_map_offline_title">Map offline</string>
+    <string name="dashboard_map_offline_message">Connect to the internet to load map tiles.</string>
+    <string name="dashboard_map_error_title">Map unavailable</string>
+    <string name="dashboard_map_error_message">The map style could not be loaded. Check the connection and try again.</string>
+    <string name="dashboard_map_retry">Retry</string>
 
-    <string name="start_flight">START\nFLIGHT</string>
+    <string name="start_flight">Start</string>
     <string name="start_flight_unavailable">Start flight is unavailable and will be implemented in a future release</string>
 </resources>

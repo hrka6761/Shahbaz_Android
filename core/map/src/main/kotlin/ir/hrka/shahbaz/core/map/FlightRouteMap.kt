@@ -141,7 +141,6 @@ fun FlightRouteMap(
     val currentOnRetryRequested by rememberUpdatedState(onRetryRequested)
     var retryGeneration by remember { mutableIntStateOf(0) }
     var mapLoaded by remember(styleUri, retryGeneration) { mutableStateOf(false) }
-    var mapLoadFailed by remember(styleUri, retryGeneration) { mutableStateOf(false) }
     var mapLoadTimedOut by remember(styleUri, retryGeneration) { mutableStateOf(false) }
     val fixedRouteKey = remember(state.origin, state.destination) {
         state.origin to state.destination
@@ -154,7 +153,7 @@ fun FlightRouteMap(
     }
     val effectiveLoadState = when {
         !isOnline -> FlightMapLoadState.OFFLINE
-        mapLoadFailed || mapLoadTimedOut -> FlightMapLoadState.ERROR
+        mapLoadTimedOut -> FlightMapLoadState.ERROR
         mapLoaded -> FlightMapLoadState.READY
         else -> FlightMapLoadState.LOADING
     }
@@ -170,11 +169,11 @@ fun FlightRouteMap(
         currentOnLoadStateChanged(effectiveLoadState)
     }
 
-    LaunchedEffect(mapLoaded, mapLoadFailed, isOnline, retryGeneration, styleUri) {
+    LaunchedEffect(mapLoaded, isOnline, retryGeneration, styleUri) {
         mapLoadTimedOut = false
-        if (!mapLoaded && !mapLoadFailed && isOnline) {
+        if (!mapLoaded && isOnline) {
             delay(MAP_LOAD_TIMEOUT_MILLIS)
-            if (!mapLoaded && !mapLoadFailed && isOnline) mapLoadTimedOut = true
+            if (!mapLoaded && isOnline) mapLoadTimedOut = true
         }
     }
 
@@ -233,12 +232,10 @@ fun FlightRouteMap(
                 ),
                 onMapLoadFinished = {
                     mapLoaded = true
-                    mapLoadFailed = false
                     mapLoadTimedOut = false
                 },
                 onMapLoadFailed = {
-                    mapLoaded = false
-                    mapLoadFailed = true
+                    // MapLibre can report tile/glyph failures here; keep the style load alive.
                 },
             ) {
                 FlightRouteOverlays(state)
@@ -507,7 +504,7 @@ private val CURRENT_POSITION_COLOR = Color(0xFF00897B)
 private const val CURRENT_POSITION_DIRECTION_GLYPH = "\u25B2"
 
 /** Online wait before an unfinished map load becomes a recoverable error. */
-private const val MAP_LOAD_TIMEOUT_MILLIS = 15_000L
+private const val MAP_LOAD_TIMEOUT_MILLIS = 45_000L
 
 /** Short animation used only for initial or explicit retry route framing. */
 private const val CAMERA_ANIMATION_MILLIS = 700L

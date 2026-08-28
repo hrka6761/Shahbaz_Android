@@ -29,8 +29,8 @@ dependencies {
     api(projects.compass)
     api(projects.core.hardwareConnection)
 
+    implementation(projects.core.domain)
     implementation(projects.core.flightBlackBox)
-    implementation(projects.core.map)
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.viewmodel.ktx)
     implementation(platform(libs.androidx.compose.bom))
@@ -39,6 +39,10 @@ dependencies {
     implementation(libs.androidx.compose.ui.graphics)
     implementation(libs.androidx.compose.material3)
     implementation(libs.androidx.compose.material.icons.extended)
+    implementation(libs.maplibre.compose) {
+        exclude(group = "org.maplibre.gl", module = "android-sdk")
+    }
+    implementation(libs.maplibre.android.opengl)
 
     testImplementation(libs.junit)
 }

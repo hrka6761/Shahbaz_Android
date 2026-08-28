@@ -176,6 +176,44 @@ class DashboardPresentationDecisionsTest {
     }
 
     @Test
+    fun attachedDashboardMapStyleWinsOverLateLoadFailureOrTimeout() {
+        assertEquals(
+            DashboardMapLoadState.READY,
+            dashboardMapLoadState(
+                isOnline = true,
+                styleAttached = true,
+                mapLoaded = false,
+                mapLoadTimedOut = true,
+                mapLoadFailed = true,
+            ),
+        )
+        assertEquals(
+            DashboardMapLoadState.ERROR,
+            dashboardMapLoadState(
+                isOnline = true,
+                styleAttached = false,
+                mapLoaded = false,
+                mapLoadTimedOut = true,
+                mapLoadFailed = false,
+            ),
+        )
+    }
+
+    @Test
+    fun dashboardMapKeepsOfflineStateDistinctAfterStyleAttachment() {
+        assertEquals(
+            DashboardMapLoadState.OFFLINE,
+            dashboardMapLoadState(
+                isOnline = false,
+                styleAttached = true,
+                mapLoaded = true,
+                mapLoadTimedOut = false,
+                mapLoadFailed = false,
+            ),
+        )
+    }
+
+    @Test
     fun dashboardRemainsBlockedUntilFullReadyState() {
         assertTrue(shouldBlockDashboard(BoardConnectionState.Searching))
         assertTrue(shouldBlockDashboard(BoardConnectionState.PermissionRequired(Device)))

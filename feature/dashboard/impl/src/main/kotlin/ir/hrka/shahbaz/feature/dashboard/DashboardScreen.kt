@@ -1,38 +1,58 @@
 /** Cockpit-style, failure-explicit presentation for a confirmed Shahbaz flight plan. */
 package ir.hrka.shahbaz.feature.dashboard
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.systemBarsPadding
+import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Compress
+import androidx.compose.material.icons.rounded.DeviceThermostat
+import androidx.compose.material.icons.rounded.FlightTakeoff
+import androidx.compose.material.icons.rounded.Height
+import androidx.compose.material.icons.rounded.Terrain
+import androidx.compose.material.icons.rounded.WaterDrop
 import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -42,6 +62,8 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.graphics.drawscope.rotate
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.contentDescription
@@ -51,6 +73,8 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.shahbaz.flightblackbox.FbbEventType
@@ -60,16 +84,45 @@ import ir.hrka.compass.CompassAccuracyLevel
 import ir.hrka.compass.CompassDirection
 import ir.hrka.compass.CompassReading
 import ir.hrka.compass.NorthReference
-import ir.hrka.shahbaz.core.map.FlightRouteMap
-import ir.hrka.shahbaz.core.map.FlightRouteMapState
+import ir.hrka.shahbaz.core.domain.formatDistance
+import ir.hrka.shahbaz.core.domain.sphericalMidpoint
+import ir.hrka.shahbaz.core.domain.wgs84GeodesicDistanceMeters
+import ir.hrka.shahbaz.core.model.GeoCoordinate
 import ir.hrka.shahbaz.feature.dashboard.impl.R
 import ir.hrka.shahbaz.hardwareconnection.BoardConnectionState
 import ir.hrka.shahbaz.hardwareconnection.BoardDisconnectReason
 import ir.hrka.shahbaz.hardwareconnection.SensorErrorCode
 import ir.hrka.shahbaz.hardwareconnection.SensorState
 import ir.hrka.shahbaz.hardwareconnection.SensorUnavailableReason
-import java.util.Locale
 import kotlin.math.min
+import kotlinx.coroutines.delay
+import kotlinx.serialization.json.JsonObject
+import org.maplibre.compose.camera.CameraPosition
+import org.maplibre.compose.camera.rememberCameraState
+import org.maplibre.compose.expressions.dsl.const
+import org.maplibre.compose.expressions.dsl.format
+import org.maplibre.compose.expressions.dsl.span
+import org.maplibre.compose.expressions.value.LineCap
+import org.maplibre.compose.expressions.value.LineJoin
+import org.maplibre.compose.layers.CircleLayer
+import org.maplibre.compose.layers.LineLayer
+import org.maplibre.compose.layers.SymbolLayer
+import org.maplibre.compose.map.GestureOptions
+import org.maplibre.compose.map.MapOptions
+import org.maplibre.compose.map.MaplibreMap
+import org.maplibre.compose.map.OrnamentOptions
+import org.maplibre.compose.map.RenderOptions
+import org.maplibre.compose.sources.GeoJsonData
+import org.maplibre.compose.sources.GeoJsonOptions
+import org.maplibre.compose.sources.rememberGeoJsonSource
+import org.maplibre.compose.style.BaseStyle
+import org.maplibre.compose.style.rememberStyleState
+import org.maplibre.spatialk.geojson.BoundingBox
+import org.maplibre.spatialk.geojson.Feature
+import org.maplibre.spatialk.geojson.FeatureCollection
+import org.maplibre.spatialk.geojson.LineString
+import org.maplibre.spatialk.geojson.Point
+import org.maplibre.spatialk.geojson.Position
 
 /** Exact adaptive pane decision used by the 70/30 dashboard layout. */
 internal enum class DashboardPaneLayout { PORTRAIT, LANDSCAPE }
@@ -234,9 +287,7 @@ fun DashboardScreen(
         )
     }
     Surface(
-        modifier = modifier
-            .fillMaxSize()
-            .systemBarsPadding(),
+        modifier = modifier.fillMaxSize(),
         color = CockpitBackground,
         contentColor = CockpitOnSurface,
     ) {
@@ -286,8 +337,9 @@ fun DashboardScreen(
 
                 StartFlightPlaceholder(
                     modifier = Modifier
-                        .align(Alignment.BottomCenter)
-                        .padding(bottom = 18.dp),
+                        .align(Alignment.BottomEnd)
+                        .windowInsetsPadding(WindowInsets.navigationBars)
+                        .padding(end = 16.dp, bottom = 16.dp),
                 )
             }
         }
@@ -324,7 +376,7 @@ private fun BoardConnectionGate(
                     contentDescription = "$title. $message"
                 },
             color = CockpitSurface,
-            shape = RoundedCornerShape(28.dp),
+            shape = DashboardCardShape,
             shadowElevation = 10.dp,
         ) {
             Column(
@@ -424,24 +476,18 @@ private fun disconnectReasonText(reason: BoardDisconnectReason): String = string
 
 @Composable
 private fun InstrumentPane(state: DashboardUiState, modifier: Modifier = Modifier) {
-    BoxWithConstraints(
-        modifier = modifier.background(CockpitBackground),
+    Column(
+        modifier = modifier
+            .background(CockpitBackground)
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .windowInsetsPadding(WindowInsets.statusBars)
+            .padding(start = 8.dp, top = 8.dp, end = 8.dp, bottom = 112.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        val cardColumns = instrumentColumnCount(maxWidth.value)
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .verticalScroll(rememberScrollState())
-                .padding(start = 14.dp, top = 12.dp, end = 14.dp, bottom = 112.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            DashboardHeader(state)
-            AttitudePanel(state.phoneSensors.orientation)
-            InstrumentGrid(
-                instruments = dashboardInstruments(state),
-                columns = cardColumns,
-            )
-        }
+        AttitudePanel(state.phoneSensors.orientation)
+        InstrumentRow(environmentInstruments(state))
+        InstrumentRow(altitudeInstruments(state))
     }
 }
 
@@ -449,58 +495,6 @@ internal fun instrumentColumnCount(availableWidthDp: Float): Int = when {
     availableWidthDp >= 900f -> 3
     availableWidthDp >= 520f -> 2
     else -> 1
-}
-
-@Composable
-private fun DashboardHeader(state: DashboardUiState) {
-    val plan = state.flightPlan
-    val ready = state.boardConnection as BoardConnectionState.Ready
-    val advisoryIssueMask = ready.deviceInfo.boardValidationIssueMask
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Column(Modifier.weight(1f)) {
-            Text(
-                text = stringResource(R.string.dashboard_title),
-                style = MaterialTheme.typography.headlineSmall,
-                fontWeight = FontWeight.Black,
-            )
-            Text(
-                text = if (plan == null) {
-                    stringResource(R.string.flight_plan_missing)
-                } else {
-                    stringResource(
-                        R.string.flight_target_format,
-                        plan.targetAltitudeAboveOriginMeters,
-                    )
-                },
-                color = CockpitMuted,
-                style = MaterialTheme.typography.bodySmall,
-            )
-            if (advisoryIssueMask != 0L) {
-                Text(
-                    text = stringResource(
-                        R.string.board_advisory_issue_mask,
-                        advisoryIssueMask,
-                    ),
-                    color = WarningAmber,
-                    style = MaterialTheme.typography.labelSmall,
-                )
-            }
-        }
-        StatusPill(
-            text = stringResource(
-                if (advisoryIssueMask == 0L) {
-                    R.string.board_ready_status
-                } else {
-                    R.string.board_ready_with_advisories_status
-                }
-            ),
-            kind = boardReadyStatusKind(state.boardConnection),
-        )
-    }
 }
 
 @Composable
@@ -548,7 +542,7 @@ private fun AttitudePanel(orientation: PhoneReading<CompassReading>) {
             .fillMaxWidth()
             .semantics(mergeDescendants = true) { contentDescription = description },
         color = CockpitSurface,
-        shape = RoundedCornerShape(22.dp),
+        shape = DashboardCardShape,
         tonalElevation = 3.dp,
     ) {
         Column(
@@ -566,16 +560,9 @@ private fun AttitudePanel(orientation: PhoneReading<CompassReading>) {
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold,
                     )
-                    SourceLabel(stringResource(R.string.source_phone_orientation), status)
                 }
                 StatusPill(statusLabel(status), status)
             }
-            Text(
-                text = orientationDetail(orientation),
-                color = statusColor(status),
-                style = MaterialTheme.typography.bodySmall,
-                fontWeight = FontWeight.Medium,
-            )
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(18.dp),
@@ -627,22 +614,6 @@ private fun AttitudePanel(orientation: PhoneReading<CompassReading>) {
                         value = heading?.let { stringResource(R.string.value_degrees, it) }
                             ?: stringResource(R.string.no_value),
                     )
-                    Text(
-                        text = stringResource(
-                            R.string.orientation_sensor_detail,
-                            reading?.sensorSource?.name?.humanize()
-                                ?: stringResource(R.string.no_value),
-                            reading?.accuracy?.level?.name?.humanize()
-                                ?: stringResource(R.string.no_value),
-                            if (northReference == NorthReference.TRUE) {
-                                stringResource(R.string.true_north)
-                            } else {
-                                stringResource(R.string.magnetic_north)
-                            },
-                        ),
-                        color = CockpitMuted,
-                        style = MaterialTheme.typography.labelMedium,
-                    )
                 }
             }
             Text(
@@ -665,25 +636,8 @@ private fun AttitudePanel(orientation: PhoneReading<CompassReading>) {
                     )
                 }
             }
-            Text(
-                text = stringResource(R.string.axis_convention),
-                color = CockpitMuted,
-                style = MaterialTheme.typography.labelSmall,
-            )
         }
     }
-}
-
-@Composable
-private fun orientationDetail(state: PhoneReading<CompassReading>): String = when (state) {
-    is PhoneReading.Available -> when (state.value.accuracy.level) {
-        CompassAccuracyLevel.UNKNOWN -> stringResource(R.string.compass_accuracy_unknown)
-        CompassAccuracyLevel.UNRELIABLE -> stringResource(R.string.compass_accuracy_unreliable)
-        CompassAccuracyLevel.LOW -> stringResource(R.string.compass_accuracy_low)
-        CompassAccuracyLevel.MEDIUM,
-        CompassAccuracyLevel.HIGH -> stringResource(R.string.sample_current)
-    }
-    else -> phoneDetail(state)
 }
 
 @Composable
@@ -696,7 +650,7 @@ private fun CardinalAngleValue(
     Surface(
         modifier = modifier,
         color = CockpitBackground.copy(alpha = .72f),
-        shape = RoundedCornerShape(12.dp),
+        shape = DashboardCardShape,
     ) {
         Column(
             modifier = Modifier.padding(horizontal = 6.dp, vertical = 8.dp),
@@ -794,20 +748,53 @@ private fun AxisValue(label: String, value: String) {
 private data class InstrumentReadout(
     val id: String,
     val title: String,
+    val icon: ImageVector,
     val primaryValue: String,
-    val detail: String,
-    val source: String,
     val status: InstrumentStatusKind,
 )
 
 @Composable
-private fun dashboardInstruments(state: DashboardUiState): List<InstrumentReadout> {
+private fun environmentInstruments(state: DashboardUiState): List<InstrumentReadout> {
     val shtStatus = sensorStatusKind(state.boardTelemetry.sht30)
     val msStatus = sensorStatusKind(state.boardTelemetry.ms5611)
     val shtValue = state.boardTelemetry.sht30.lastShtValue()
     val msValue = state.boardTelemetry.ms5611.lastMsValue()
-    val shtDetail = sensorDetail(state.boardTelemetry.sht30)
-    val msDetail = sensorDetail(state.boardTelemetry.ms5611)
+
+    return listOf(
+        InstrumentReadout(
+            id = "sht30-temperature",
+            title = stringResource(R.string.instrument_temperature),
+            icon = Icons.Rounded.DeviceThermostat,
+            primaryValue = retainedInstrumentValue(shtValue?.let {
+                stringResource(R.string.value_celsius, it.temperatureCelsius)
+            }, shtStatus),
+            status = shtStatus,
+        ),
+        InstrumentReadout(
+            id = "sht30-humidity",
+            title = stringResource(R.string.instrument_humidity),
+            icon = Icons.Rounded.WaterDrop,
+            primaryValue = retainedInstrumentValue(shtValue?.let {
+                stringResource(R.string.value_percent, it.relativeHumidityPercent)
+            }, shtStatus),
+            status = shtStatus,
+        ),
+        InstrumentReadout(
+            id = "ms5611-pressure",
+            title = stringResource(R.string.instrument_pressure),
+            icon = Icons.Rounded.Compress,
+            primaryValue = retainedInstrumentValue(msValue?.let {
+                stringResource(R.string.value_hectopascal, it.pressurePascal / 100.0)
+            }, msStatus),
+            status = msStatus,
+        ),
+    )
+}
+
+@Composable
+private fun altitudeInstruments(state: DashboardUiState): List<InstrumentReadout> {
+    val msStatus = sensorStatusKind(state.boardTelemetry.ms5611)
+    val msValue = state.boardTelemetry.ms5611.lastMsValue()
     val takeoffStatus = when {
         msStatus == InstrumentStatusKind.ERROR -> InstrumentStatusKind.ERROR
         msStatus == InstrumentStatusKind.INVALID -> InstrumentStatusKind.INVALID
@@ -817,83 +804,39 @@ private fun dashboardInstruments(state: DashboardUiState): List<InstrumentReadou
         state.altitudeAboveTakeoffMeters == null -> InstrumentStatusKind.LOADING
         else -> msStatus
     }
-    val takeoffDetails = mutableListOf<String>()
-    state.flightPlan?.let {
-        takeoffDetails += stringResource(
-            R.string.target_altitude_detail,
-            it.targetAltitudeAboveOriginMeters,
-        )
-    }
-    if (state.altitudeAboveTakeoffMeters == null) {
-        takeoffDetails += stringResource(R.string.baseline_waiting)
-    } else {
-        takeoffDetails += msDetail
-    }
+    val targetAltitude = state.flightPlan?.targetAltitudeAboveOriginMeters
 
     return listOf(
         InstrumentReadout(
-            id = "sht30-temperature",
-            title = stringResource(R.string.instrument_temperature),
-            primaryValue = retainedInstrumentValue(shtValue?.let {
-                stringResource(R.string.value_celsius, it.temperatureCelsius)
-            }, shtStatus),
-            detail = shtDetail,
-            source = stringResource(R.string.source_sht30),
-            status = shtStatus,
-        ),
-        InstrumentReadout(
-            id = "sht30-humidity",
-            title = stringResource(R.string.instrument_humidity),
-            primaryValue = retainedInstrumentValue(shtValue?.let {
-                stringResource(R.string.value_percent, it.relativeHumidityPercent)
-            }, shtStatus),
-            detail = shtDetail,
-            source = stringResource(R.string.source_sht30),
-            status = shtStatus,
-        ),
-        InstrumentReadout(
-            id = "ms5611-pressure",
-            title = stringResource(R.string.instrument_pressure),
-            primaryValue = retainedInstrumentValue(msValue?.let {
-                stringResource(R.string.value_hectopascal, it.pressurePascal / 100.0)
-            }, msStatus),
-            detail = msValue?.let {
-                listOf(
-                    stringResource(
-                        R.string.pressure_detail,
-                        it.pressurePascal,
-                        it.temperatureCelsius,
-                    ),
-                    msDetail,
-                ).joinToString(separator = " · ")
-            } ?: msDetail,
-            source = stringResource(R.string.source_ms5611),
-            status = msStatus,
-        ),
-        InstrumentReadout(
             id = "ms5611-altitude-msl",
             title = stringResource(R.string.instrument_altitude_msl),
+            icon = Icons.Rounded.Terrain,
             primaryValue = retainedInstrumentValue(msValue?.let {
                 stringResource(R.string.value_meters, it.altitudeAboveMeanSeaLevelMeters)
             }, msStatus),
-            detail = msValue?.let {
-                listOf(
-                    stringResource(R.string.qnh_detail, it.qnhHectopascal),
-                    msDetail,
-                ).joinToString(separator = " · ")
-            } ?: msDetail,
-            source = stringResource(R.string.source_qnh_altitude),
             status = msStatus,
         ),
         InstrumentReadout(
             id = "derived-altitude-takeoff",
             title = stringResource(R.string.instrument_altitude_takeoff),
+            icon = Icons.Rounded.Height,
             primaryValue = retainedInstrumentValue(state.altitudeAboveTakeoffMeters?.let {
                 stringResource(R.string.value_meters_signed, it)
             }, takeoffStatus),
-            detail = takeoffDetails.joinToString(separator = " · "),
-            source = stringResource(R.string.source_derived_pressure),
             status = takeoffStatus,
+        ),
+        InstrumentReadout(
+            id = "flight-target-altitude",
+            title = stringResource(R.string.instrument_target_altitude),
+            icon = Icons.Rounded.FlightTakeoff,
+            primaryValue = targetAltitude?.let {
+                stringResource(R.string.value_meters, it)
+            } ?: stringResource(R.string.no_value),
+            status = if (targetAltitude == null) {
+                InstrumentStatusKind.UNAVAILABLE
+            } else {
+                InstrumentStatusKind.LIVE
+            },
         ),
     )
 }
@@ -909,19 +852,16 @@ private fun retainedInstrumentValue(
 }
 
 @Composable
-private fun InstrumentGrid(instruments: List<InstrumentReadout>, columns: Int) {
-    instruments.chunked(columns).forEach { rowItems ->
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
-            verticalAlignment = Alignment.Top,
-        ) {
-            rowItems.forEach { instrument ->
-                key(instrument.id) {
-                    InstrumentCard(instrument, Modifier.weight(1f))
-                }
+private fun InstrumentRow(instruments: List<InstrumentReadout>) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.Top,
+    ) {
+        instruments.forEach { instrument ->
+            key(instrument.id) {
+                InstrumentCard(instrument, Modifier.weight(1f))
             }
-            repeat(columns - rowItems.size) { Spacer(Modifier.weight(1f)) }
         }
     }
 }
@@ -929,63 +869,49 @@ private fun InstrumentGrid(instruments: List<InstrumentReadout>, columns: Int) {
 @Composable
 private fun InstrumentCard(readout: InstrumentReadout, modifier: Modifier = Modifier) {
     val description = stringResource(
-        R.string.instrument_accessibility,
+        R.string.compact_instrument_accessibility,
         readout.title,
         readout.primaryValue,
-        readout.source,
         statusLabel(readout.status),
-        readout.detail,
     )
     Surface(
         modifier = modifier
-            .heightIn(min = 132.dp)
+            .heightIn(min = 96.dp)
             .semantics(mergeDescendants = true) { contentDescription = description },
         color = CockpitSurface,
-        shape = RoundedCornerShape(18.dp),
+        shape = DashboardCardShape,
         tonalElevation = 2.dp,
     ) {
         Column(
-            modifier = Modifier.padding(14.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp),
+            modifier = Modifier.padding(10.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Text(
-                    text = readout.title,
-                    color = CockpitMuted,
-                    style = MaterialTheme.typography.labelLarge,
-                    fontWeight = FontWeight.SemiBold,
+                Icon(
+                    imageVector = readout.icon,
+                    contentDescription = null,
+                    tint = statusColor(readout.status),
+                    modifier = Modifier.size(22.dp),
                 )
                 StatusDot(readout.status)
             }
             Text(
                 text = readout.primaryValue,
-                style = MaterialTheme.typography.headlineSmall,
+                style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Black,
                 color = statusColor(readout.status),
-            )
-            Text(
-                text = readout.detail,
-                color = CockpitMuted,
-                style = MaterialTheme.typography.bodySmall,
+                textAlign = TextAlign.Center,
+                lineHeight = 20.sp,
                 maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
             )
-            SourceLabel(readout.source, readout.status)
         }
     }
-}
-
-@Composable
-private fun SourceLabel(source: String, status: InstrumentStatusKind) {
-    Text(
-        text = stringResource(R.string.source_status_format, source, statusLabel(status)),
-        color = CockpitMuted,
-        style = MaterialTheme.typography.labelSmall,
-        fontWeight = FontWeight.Medium,
-    )
 }
 
 @Composable
@@ -1047,50 +973,6 @@ private fun statusLabel(kind: InstrumentStatusKind): String = stringResource(
     }
 )
 
-@Composable
-private fun sensorDetail(state: SensorState<*>): String = when (state) {
-    is SensorState.Available -> stringResource(R.string.sample_current)
-    is SensorState.Stale -> stringResource(R.string.sample_stale)
-    SensorState.AwaitingFirstSample -> stringResource(R.string.awaiting_first_sample)
-    is SensorState.Unavailable -> state.reason.name.humanize()
-    is SensorState.Failed -> {
-        val reason = state.error.message.ifBlank { state.error.code.name.humanize() }
-        if (state.lastSample == null) reason else stringResource(R.string.failure_retains_last, reason)
-    }
-}
-
-@Composable
-private fun phoneDetail(state: PhoneReading<*>): String = when (state) {
-    is PhoneReading.Available -> stringResource(R.string.sample_current)
-    is PhoneReading.Stale -> stringResource(R.string.sample_stale)
-    is PhoneReading.NoResponse -> if (state.lastValue == null) {
-        state.reason
-    } else {
-        stringResource(R.string.failure_retains_last, state.reason)
-    }
-    is PhoneReading.Invalid -> if (state.lastValue == null) {
-        state.reason
-    } else {
-        stringResource(R.string.failure_retains_last, state.reason)
-    }
-    is PhoneReading.NotPresent -> state.reason
-    PhoneReading.AwaitingFirstSample -> stringResource(R.string.awaiting_first_sample)
-    is PhoneReading.Unavailable -> state.reason
-    is PhoneReading.Failed -> state.reason
-    PhoneReading.Inactive -> stringResource(R.string.sensor_inactive)
-}
-
-private fun String.humanize(): String =
-    lowercase(Locale.getDefault()).replace('_', ' ').replaceFirstChar { it.titlecase(Locale.getDefault()) }
-
-private fun <T> PhoneReading<T>.lastPhoneValue(): T? = when (this) {
-    is PhoneReading.Available -> value
-    is PhoneReading.Stale -> lastValue
-    is PhoneReading.NoResponse -> lastValue
-    is PhoneReading.Invalid -> lastValue
-    else -> null
-}
-
 private fun SensorState<ir.hrka.shahbaz.hardwareconnection.Sht30Telemetry>.lastShtValue() = when (this) {
     is SensorState.Available -> sample.value
     is SensorState.Stale -> lastSample?.value
@@ -1121,77 +1003,411 @@ private fun directionLabel(direction: CompassDirection?): String = when (directi
 @Composable
 private fun DashboardMapPane(state: DashboardUiState, modifier: Modifier = Modifier) {
     val plan = state.flightPlan
-    val phonePosition = state.phoneSensors.position.lastPhoneValue()
-    val orientation = state.phoneSensors.orientation
-    val phoneHeading = if (
-        orientation is PhoneReading.Available &&
-        orientationStatusKind(orientation) == InstrumentStatusKind.LIVE
+    Surface(
+        modifier = modifier
+            .padding(top = 8.dp)
+            .fillMaxSize(),
+        color = Color(0xFFE6ECE8),
+        shape = DashboardCardShape,
+        border = BorderStroke(1.dp, CockpitMuted.copy(alpha = .35f)),
     ) {
-        orientation.value.trueAzimuthDegrees ?: orientation.value.magneticAzimuthDegrees
-    } else {
-        null
+        Box(Modifier.fillMaxSize()) {
+            if (plan == null) {
+                MapLocalError(
+                    text = stringResource(R.string.flight_plan_missing_map),
+                    modifier = Modifier.align(Alignment.Center),
+                )
+            } else {
+                DashboardRouteMap(
+                    origin = plan.origin,
+                    destination = plan.destination,
+                    isOnline = state.isOnline,
+                    modifier = Modifier.fillMaxSize(),
+                )
+            }
+        }
     }
-    val positionStatus = phoneStatusKind(state.phoneSensors.position)
-    val warningText = when (state.phoneSensors.position) {
-        is PhoneReading.Available -> stringResource(R.string.phone_position_proxy_warning)
-        is PhoneReading.Stale -> stringResource(R.string.phone_position_proxy_stale_warning)
-        is PhoneReading.NoResponse -> stringResource(R.string.phone_position_no_response)
-        is PhoneReading.Invalid -> stringResource(R.string.phone_position_invalid)
-        is PhoneReading.NotPresent -> stringResource(R.string.phone_position_not_present)
-        PhoneReading.AwaitingFirstSample -> stringResource(R.string.phone_position_waiting)
-        is PhoneReading.Unavailable -> stringResource(R.string.phone_position_unavailable)
-        is PhoneReading.Failed -> stringResource(R.string.phone_position_failed)
-        PhoneReading.Inactive -> stringResource(R.string.phone_position_inactive)
+}
+
+internal enum class DashboardMapLoadState {
+    LOADING,
+    READY,
+    OFFLINE,
+    ERROR,
+}
+
+internal fun dashboardMapLoadState(
+    isOnline: Boolean,
+    styleAttached: Boolean,
+    mapLoaded: Boolean,
+    mapLoadTimedOut: Boolean,
+    mapLoadFailed: Boolean,
+): DashboardMapLoadState = when {
+    !isOnline -> DashboardMapLoadState.OFFLINE
+    styleAttached || mapLoaded -> DashboardMapLoadState.READY
+    mapLoadTimedOut || mapLoadFailed -> DashboardMapLoadState.ERROR
+    else -> DashboardMapLoadState.LOADING
+}
+
+@Composable
+private fun DashboardRouteMap(
+    origin: GeoCoordinate,
+    destination: GeoCoordinate,
+    isOnline: Boolean,
+    modifier: Modifier = Modifier,
+) {
+    var mapInstanceKey by rememberSaveable { mutableIntStateOf(0) }
+
+    key(mapInstanceKey) {
+        DashboardRouteMapInstance(
+            origin = origin,
+            destination = destination,
+            isOnline = isOnline,
+            onRetry = { mapInstanceKey += 1 },
+            modifier = modifier,
+        )
+    }
+}
+
+@Composable
+private fun DashboardRouteMapInstance(
+    origin: GeoCoordinate,
+    destination: GeoCoordinate,
+    isOnline: Boolean,
+    onRetry: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val cameraState = rememberCameraState()
+    val styleState = rememberStyleState()
+    var mapLoaded by remember { mutableStateOf(false) }
+    var mapLoadTimedOut by remember { mutableStateOf(false) }
+    var mapLoadFailed by remember { mutableStateOf(false) }
+    var mapSize by remember { mutableStateOf(IntSize.Zero) }
+    val styleAttached = styleState.sources.isNotEmpty()
+    val mapReady = styleAttached || mapLoaded
+    val mapContentPadding = PaddingValues(
+        start = DASHBOARD_MAP_CAMERA_PADDING,
+        top = DASHBOARD_MAP_CAMERA_PADDING,
+        end = DASHBOARD_MAP_CAMERA_PADDING,
+        bottom = DASHBOARD_MAP_BOTTOM_CONTENT_PADDING,
+    )
+    val loadState = dashboardMapLoadState(
+        isOnline = isOnline,
+        styleAttached = styleAttached,
+        mapLoaded = mapLoaded,
+        mapLoadTimedOut = mapLoadTimedOut,
+        mapLoadFailed = mapLoadFailed,
+    )
+    val mapDescription = stringResource(R.string.dashboard_map_description)
+
+    LaunchedEffect(mapReady, isOnline, mapLoadFailed) {
+        mapLoadTimedOut = false
+        if (!mapReady && isOnline && !mapLoadFailed) {
+            delay(DASHBOARD_MAP_LOAD_TIMEOUT_MILLIS)
+            if (!mapReady && !mapLoadFailed) {
+                mapLoadTimedOut = true
+                FlightBlackBox.record(
+                    type = FbbEventType.WARNING,
+                    description = "Dashboard map style attachment timed out",
+                    metadata = mapOf(
+                        "isOnline" to isOnline,
+                        "timeoutMs" to DASHBOARD_MAP_LOAD_TIMEOUT_MILLIS,
+                    ),
+                )
+            }
+        }
+    }
+
+    LaunchedEffect(styleAttached) {
+        if (styleAttached) {
+            FlightBlackBox.record(
+                type = FbbEventType.UI,
+                description = "Dashboard map base style attached",
+                metadata = mapOf("sourceCount" to styleState.sources.size),
+            )
+        }
+    }
+
+    LaunchedEffect(origin, destination, mapSize) {
+        if (mapSize.width <= 0 || mapSize.height <= 0) return@LaunchedEffect
+
+        val distance = wgs84GeodesicDistanceMeters(origin, destination)
+        if (distance < DASHBOARD_MAP_MIN_BOUNDS_DISTANCE_METERS) {
+            cameraState.position = CameraPosition(
+                target = destination.toPosition(),
+                zoom = DASHBOARD_MAP_CLOSE_ROUTE_ZOOM,
+                padding = mapContentPadding,
+            )
+        } else {
+            cameraState.jumpTo(
+                boundingBox = BoundingBox(
+                    west = minOf(origin.longitude, destination.longitude),
+                    south = minOf(origin.latitude, destination.latitude),
+                    east = maxOf(origin.longitude, destination.longitude),
+                    north = maxOf(origin.latitude, destination.latitude),
+                ),
+                padding = mapContentPadding,
+            )
+        }
     }
 
     Box(
         modifier = modifier
             .background(Color(0xFFE6ECE8))
-            .border(1.dp, CockpitMuted.copy(alpha = .35f)),
+            .onSizeChanged { mapSize = it }
+            .semantics {
+                contentDescription = mapDescription
+            },
     ) {
-        if (plan == null) {
-            MapLocalError(
-                text = stringResource(R.string.flight_plan_missing_map),
-                modifier = Modifier.align(Alignment.Center),
-            )
-        } else {
-            FlightRouteMap(
-                state = FlightRouteMapState(
-                    origin = plan.origin,
-                    destination = plan.destination,
-                    currentPosition = phonePosition,
-                    currentPositionHeadingDegrees = if (phonePosition != null) phoneHeading else null,
+        MaplibreMap(
+            modifier = Modifier.fillMaxSize(),
+            baseStyle = BaseStyle.Uri(DASHBOARD_MAP_STYLE_URL),
+            cameraState = cameraState,
+            styleState = styleState,
+            options = MapOptions(
+                renderOptions = RenderOptions(
+                    renderMode = RenderOptions.RenderMode.TextureView,
+                    foregroundLoadColor = Color(0xFFE6ECE8),
                 ),
-                isOnline = state.isOnline,
-                modifier = Modifier.fillMaxSize(),
+                gestureOptions = GestureOptions(
+                    isRotateEnabled = false,
+                    isScrollEnabled = true,
+                    isTiltEnabled = false,
+                    isZoomEnabled = true,
+                ),
+                ornamentOptions = OrnamentOptions(
+                    padding = PaddingValues(
+                        start = 8.dp,
+                        top = 8.dp,
+                        end = 8.dp,
+                        bottom = DASHBOARD_MAP_ORNAMENT_BOTTOM_PADDING,
+                    ),
+                    isLogoEnabled = true,
+                    logoAlignment = Alignment.BottomStart,
+                    isAttributionEnabled = true,
+                    attributionAlignment = Alignment.BottomEnd,
+                    isCompassEnabled = false,
+                    isScaleBarEnabled = false,
+                ),
+            ),
+            onMapLoadFinished = {
+                mapLoaded = true
+                mapLoadTimedOut = false
+                mapLoadFailed = false
+                FlightBlackBox.record(
+                    type = FbbEventType.UI,
+                    description = "Dashboard map finished loading",
+                )
+            },
+            onMapLoadFailed = { reason ->
+                mapLoaded = false
+                mapLoadFailed = true
+                FlightBlackBox.record(
+                    type = FbbEventType.WARNING,
+                    description = "Dashboard map reported a load failure",
+                    metadata = mapOf("reason" to (reason ?: "unknown")),
+                )
+            },
+        ) {
+            DashboardMapOverlays(
+                origin = origin,
+                destination = destination,
             )
         }
 
-        Surface(
+        DashboardMapStatusPresentation(
+            state = loadState,
+            mapAlreadyLoaded = mapReady,
+            onRetry = onRetry,
+            modifier = Modifier.align(Alignment.Center),
+        )
+    }
+}
+
+@Composable
+private fun DashboardMapOverlays(
+    origin: GeoCoordinate,
+    destination: GeoCoordinate,
+) {
+    val originPosition = origin.toPosition()
+    val destinationPosition = destination.toPosition()
+    val midpoint = runCatching {
+        sphericalMidpoint(origin, destination)
+    }.getOrElse { origin }.toPosition()
+    val distanceLabel = formatDistance(wgs84GeodesicDistanceMeters(origin, destination))
+    val routeSource = rememberGeoJsonSource(
+        data = lineData(originPosition, destinationPosition),
+        options = DashboardDynamicGeoJsonOptions,
+    )
+    val originSource = rememberGeoJsonSource(
+        data = pointData(originPosition),
+        options = DashboardDynamicGeoJsonOptions,
+    )
+    val destinationSource = rememberGeoJsonSource(
+        data = pointData(destinationPosition),
+        options = DashboardDynamicGeoJsonOptions,
+    )
+    val distanceSource = rememberGeoJsonSource(
+        data = pointData(midpoint),
+        options = DashboardDynamicGeoJsonOptions,
+    )
+
+    LineLayer(
+        id = "shahbaz-dashboard-route",
+        source = routeSource,
+        color = const(DashboardRouteColor),
+        width = const(DashboardRouteLineWidth),
+        cap = const(LineCap.Round),
+        join = const(LineJoin.Round),
+    )
+    CircleLayer(
+        id = "shahbaz-dashboard-origin",
+        source = originSource,
+        color = const(Color(0xFF1976D2)),
+        radius = const(9.dp),
+        strokeColor = const(Color.White),
+        strokeWidth = const(4.dp),
+    )
+    CircleLayer(
+        id = "shahbaz-dashboard-destination",
+        source = destinationSource,
+        color = const(Color(0xFFD32F2F)),
+        radius = const(10.dp),
+        strokeColor = const(Color.White),
+        strokeWidth = const(3.dp),
+    )
+    SymbolLayer(
+        id = "shahbaz-dashboard-distance",
+        source = distanceSource,
+        textField = format(span(distanceLabel)),
+        textSize = const(14.sp),
+        textColor = const(DashboardRouteColor),
+        textHaloColor = const(Color.White),
+        textHaloWidth = const(2.dp),
+        textAllowOverlap = const(true),
+        textIgnorePlacement = const(true),
+    )
+}
+
+@Composable
+private fun BoxScope.DashboardMapStatusPresentation(
+    state: DashboardMapLoadState,
+    mapAlreadyLoaded: Boolean,
+    onRetry: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    if (state == DashboardMapLoadState.READY) return
+
+    val compactOfflineNotice = state == DashboardMapLoadState.OFFLINE && mapAlreadyLoaded
+    val title = when (state) {
+        DashboardMapLoadState.LOADING -> stringResource(R.string.dashboard_map_loading)
+        DashboardMapLoadState.OFFLINE -> stringResource(R.string.dashboard_map_offline_title)
+        DashboardMapLoadState.ERROR -> stringResource(R.string.dashboard_map_error_title)
+        DashboardMapLoadState.READY -> return
+    }
+    val message = when (state) {
+        DashboardMapLoadState.OFFLINE -> stringResource(R.string.dashboard_map_offline_message)
+        DashboardMapLoadState.ERROR -> stringResource(R.string.dashboard_map_error_message)
+        DashboardMapLoadState.LOADING,
+        DashboardMapLoadState.READY -> null
+    }
+
+    if (!compactOfflineNotice) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(MaterialTheme.colorScheme.scrim.copy(alpha = 0.24f)),
+            contentAlignment = Alignment.Center,
+        ) {
+            DashboardMapStatusCard(
+                state = state,
+                title = title,
+                message = message,
+                onRetry = onRetry,
+                modifier = modifier,
+            )
+        }
+    } else {
+        DashboardMapStatusCard(
+            state = state,
+            title = title,
+            message = null,
+            onRetry = onRetry,
             modifier = Modifier
                 .align(Alignment.TopCenter)
-                .padding(8.dp)
-                .widthIn(max = 380.dp)
-                .semantics(mergeDescendants = true) {
-                    contentDescription = warningText
-                    liveRegion = LiveRegionMode.Polite
-                },
-            color = CockpitSurface.copy(alpha = .96f),
-            contentColor = CockpitOnSurface,
-            shape = RoundedCornerShape(12.dp),
-            shadowElevation = 3.dp,
+                .padding(8.dp),
+        )
+    }
+}
+
+@Composable
+private fun DashboardMapStatusCard(
+    state: DashboardMapLoadState,
+    title: String,
+    message: String?,
+    onRetry: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Surface(
+        modifier = modifier
+            .padding(12.dp)
+            .widthIn(max = 320.dp)
+            .semantics { liveRegion = LiveRegionMode.Polite },
+        shape = DashboardCardShape,
+        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.96f),
+        contentColor = MaterialTheme.colorScheme.onSurface,
+        shadowElevation = 4.dp,
+    ) {
+        Column(
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            Column(Modifier.padding(horizontal = 10.dp, vertical = 8.dp)) {
+            if (state == DashboardMapLoadState.LOADING) {
+                CircularProgressIndicator()
+            }
+            Text(
+                text = title,
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.Bold,
+                textAlign = TextAlign.Center,
+            )
+            if (message != null) {
                 Text(
-                    text = warningText,
-                    style = MaterialTheme.typography.labelSmall,
-                    fontWeight = FontWeight.SemiBold,
+                    text = message,
+                    style = MaterialTheme.typography.bodySmall,
+                    textAlign = TextAlign.Center,
                 )
-                SourceLabel(stringResource(R.string.source_phone_gps), positionStatus)
+            }
+            if (state == DashboardMapLoadState.OFFLINE || state == DashboardMapLoadState.ERROR) {
+                Button(onClick = onRetry) {
+                    Text(stringResource(R.string.dashboard_map_retry))
+                }
             }
         }
     }
 }
+
+private fun pointData(position: Position?): GeoJsonData {
+    val features: List<Feature<Point, JsonObject?>> = position?.let {
+        listOf(Feature(geometry = Point(it), properties = null))
+    }.orEmpty()
+    return GeoJsonData.Features(FeatureCollection(features))
+}
+
+private fun lineData(start: Position?, end: Position?): GeoJsonData {
+    val features: List<Feature<LineString, JsonObject?>> = if (start != null && end != null) {
+        listOf(Feature(geometry = LineString(start, end), properties = null))
+    } else {
+        emptyList()
+    }
+    return GeoJsonData.Features(FeatureCollection(features))
+}
+
+private fun GeoCoordinate.toPosition(): Position = Position(
+    longitude = longitude,
+    latitude = latitude,
+)
 
 @Composable
 private fun MapLocalError(text: String, modifier: Modifier = Modifier) {
@@ -1199,7 +1415,7 @@ private fun MapLocalError(text: String, modifier: Modifier = Modifier) {
         modifier = modifier.padding(16.dp),
         color = MaterialTheme.colorScheme.errorContainer,
         contentColor = MaterialTheme.colorScheme.onErrorContainer,
-        shape = RoundedCornerShape(16.dp),
+        shape = DashboardCardShape,
     ) {
         Text(
             text = text,
@@ -1213,28 +1429,22 @@ private fun MapLocalError(text: String, modifier: Modifier = Modifier) {
 @Composable
 private fun StartFlightPlaceholder(modifier: Modifier = Modifier) {
     val unavailable = stringResource(R.string.start_flight_unavailable)
-    Button(
+    FloatingActionButton(
         onClick = {},
-        enabled = false,
         modifier = modifier
-            .size(88.dp)
             .semantics {
                 disabled()
                 stateDescription = unavailable
                 contentDescription = unavailable
             },
-        shape = CircleShape,
-        colors = ButtonDefaults.buttonColors(
-            disabledContainerColor = CriticalRed,
-            disabledContentColor = Color.White,
-        ),
-        contentPadding = androidx.compose.foundation.layout.PaddingValues(8.dp),
+        containerColor = CriticalRed,
+        contentColor = Color.White,
     ) {
         Text(
             text = stringResource(R.string.start_flight),
             textAlign = TextAlign.Center,
-            fontSize = 11.sp,
-            lineHeight = 13.sp,
+            fontSize = 14.sp,
+            lineHeight = 16.sp,
             fontWeight = FontWeight.Black,
         )
     }
@@ -1242,6 +1452,19 @@ private fun StartFlightPlaceholder(modifier: Modifier = Modifier) {
 
 private const val INSTRUMENT_WEIGHT = 0.70f
 private const val MAP_WEIGHT = 0.30f
+
+private val DashboardCardShape = RoundedCornerShape(8.dp)
+private val DashboardDynamicGeoJsonOptions = GeoJsonOptions(synchronousUpdate = true)
+private val DashboardRouteColor = Color.Black
+private val DashboardRouteLineWidth = 2.8.dp
+private val DASHBOARD_MAP_CAMERA_PADDING = 32.dp
+private val DASHBOARD_MAP_BOTTOM_CONTENT_PADDING = 96.dp
+private val DASHBOARD_MAP_ORNAMENT_BOTTOM_PADDING = 96.dp
+
+private const val DASHBOARD_MAP_STYLE_URL = "https://tiles.openfreemap.org/styles/liberty"
+private const val DASHBOARD_MAP_LOAD_TIMEOUT_MILLIS = 15_000L
+private const val DASHBOARD_MAP_CLOSE_ROUTE_ZOOM = 18.0
+private const val DASHBOARD_MAP_MIN_BOUNDS_DISTANCE_METERS = 2.0
 
 private val CockpitBackground = Color(0xFF0D151C)
 private val CockpitSurface = Color(0xFF17232D)
