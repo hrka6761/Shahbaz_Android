@@ -11,14 +11,17 @@ The complete map feature implementation. It owns the single Shahbaz user journey
   detection, plus typed provider-supplied GPS speed availability.
 - Supply accepted location fixes to `:compass` for true-north correction, falling back to magnetic north when no valid position is available.
 - Hold immutable map UI state in `MapViewModel` and expose it as `StateFlow`.
-- Render OpenFreeMap/OpenStreetMap content with MapLibre Compose.
+- Render OpenFreeMap/OpenStreetMap content with MapLibre Compose using Android's compatibility
+  `TextureView` renderer so returning from another map-bearing destination creates a valid surface.
 - Accept a destination by map long-press or manual decimal-degree input.
 - Guide the user from destination review to a positive takeoff-altitude value in meters, with Previous navigation for destination correction and a fail-closed Next action when the live origin is lost.
 - Preserve the altitude draft across Previous navigation and snapshot the live origin, destination,
   and valid altitude into an immutable `FlightPlan` with the second Next action.
 - Invalidate the confirmed plan when its route or altitude changes, while allowing live origin
   updates to continue independently from the fixed confirmed origin.
-- Draw origin and destination markers, route geometry, WGS-84 distance, recenter controls, loading/error gates, and compass UI.
+- Draw origin and destination markers, route geometry, WGS-84 distance, recenter controls,
+  loading/error gates, and the shared magnetic compass UI, while tracing map composition, style
+  attachment, completion, failure, and timeout events in the flight black box.
 - Keep feature strings and accessibility descriptions with the feature.
 
 The host app remains responsible for requesting Android permission and opening system settings in response to callbacks.
@@ -53,6 +56,7 @@ Consumer-facing Kotlin declarations use package `ir.hrka.shahbaz.feature.map`. T
 graph LR
   map[":feature:map:impl"]
   compass[":compass"]
+  designsystem[":core:designsystem"]
   model[":core:model"]
   domain[":core:domain"]
   app[":app"]
@@ -60,11 +64,12 @@ graph LR
   app -.->|implementation| map
   map -->|api| compass
   map -->|api| model
+  map -.->|implementation| designsystem
   map -.->|implementation| domain
   domain -->|api| model
 ```
 
-`GeoCoordinate` and `FlightPlan` are exposed because they appear in screen callbacks or state. Compass readings, sources, and typed failures are exposed through `MapUiState`, so the standalone compass library is also an `api` dependency. Geodesy and coordinate formatting remain internal through `:core:domain`. The feature does not depend on `:app` or `:core:designsystem`; it reads `MaterialTheme` supplied by its host.
+`GeoCoordinate` and `FlightPlan` are exposed because they appear in screen callbacks or state. Compass readings, sources, and typed failures are exposed through `MapUiState`, so the standalone compass library is also an `api` dependency. Geodesy and coordinate formatting remain internal through `:core:domain`. The reusable animated dial comes from `:core:designsystem`; the feature does not depend on `:app`.
 
 ## Using this module
 
@@ -87,7 +92,7 @@ See `:app`'s `MainActivity` for the canonical integration.
 
 ## Resource ownership
 
-This module owns its internet, network-state, and location permissions; its optional GPS declaration; and all map/compass presentation copy in `src/main/res/values/strings.xml`. Add new map labels, localized direction abbreviations, error messages, content descriptions, and dialog text here. The transitive `:compass` library owns optional sensor declarations and orientation logic, but deliberately owns no UI or localized strings. This feature does not own launcher assets, application metadata, backup rules, or the platform theme. Map tiles and style data are loaded from the configured public map service rather than bundled as resources.
+This module owns its internet, network-state, and location permissions; its optional GPS declaration; and map/compass accessibility copy in `src/main/res/values/strings.xml`. The transitive `:compass` library owns optional sensor declarations and orientation logic, while `:core:designsystem` owns the reusable Canvas dial. This feature does not own launcher assets, application metadata, backup rules, or the platform theme. Map tiles and style data are loaded from the configured public map service rather than bundled as resources.
 
 ## Test and build
 

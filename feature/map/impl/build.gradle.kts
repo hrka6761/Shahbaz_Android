@@ -27,6 +27,7 @@ android {
 dependencies {
     api(projects.compass)
     api(projects.core.model)
+    implementation(projects.core.designsystem)
     implementation(projects.core.flightBlackBox)
     implementation(projects.core.domain)
 

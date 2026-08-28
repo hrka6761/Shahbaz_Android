@@ -15,7 +15,6 @@
  */
 package ir.hrka.shahbaz.feature.map
 
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
@@ -77,11 +76,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.rotate
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.StrokeCap
-import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
@@ -103,9 +98,11 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
-import ir.hrka.compass.CompassDirection
+import com.shahbaz.flightblackbox.FbbEventType
+import com.shahbaz.flightblackbox.FbbPersistence
+import com.shahbaz.flightblackbox.FlightBlackBox
 import ir.hrka.compass.CompassReading
-import ir.hrka.compass.NorthReference
+import ir.hrka.shahbaz.core.designsystem.compass.CompassView
 import ir.hrka.shahbaz.core.domain.formatCoordinate
 import ir.hrka.shahbaz.core.domain.formatDistance
 import ir.hrka.shahbaz.core.domain.sphericalMidpoint
@@ -130,10 +127,12 @@ import org.maplibre.compose.map.GestureOptions
 import org.maplibre.compose.map.MapOptions
 import org.maplibre.compose.map.MaplibreMap
 import org.maplibre.compose.map.OrnamentOptions
+import org.maplibre.compose.map.RenderOptions
 import org.maplibre.compose.sources.GeoJsonData
 import org.maplibre.compose.sources.GeoJsonOptions
 import org.maplibre.compose.sources.rememberGeoJsonSource
 import org.maplibre.compose.style.BaseStyle
+import org.maplibre.compose.style.rememberStyleState
 import org.maplibre.compose.util.ClickResult
 import org.maplibre.spatialk.geojson.BoundingBox
 import org.maplibre.spatialk.geojson.Feature
@@ -145,17 +144,11 @@ import org.maplibre.spatialk.geojson.Position
 /** Color shared by the direct route stroke and its on-map distance label. */
 private val RouteColor = Color.Black
 
+/** Neutral color shown while the native map renderer is creating its first frame. */
+private val MapFallbackColor = Color(0xFFE6ECE8)
+
 /** Width of the MapLibre line layer that joins the origin and destination. */
 private val RouteLineWidth = 2.8.dp
-
-/** Neutral color used for the compass dial, center, heading, and unavailable state. */
-private val CompassNeutralColor = Color(0xFF6B7280)
-
-/** Red color used for the north-facing half of the compass needle and north deviation. */
-private val CompassNorthColor = Color(0xFFD32F2F)
-
-/** Blue color used for the south-facing half of the compass needle and south deviation. */
-private val CompassSouthColor = Color(0xFF1565C0)
 
 /**
  * Source options that apply origin, destination, route, and distance-label changes to MapLibre
@@ -215,6 +208,7 @@ fun MapScreen(
     var mapLoadTimedOut by remember { mutableStateOf(false) }
     var mapLoadFailed by remember { mutableStateOf(false) }
     var mapInstanceKey by rememberSaveable { mutableIntStateOf(0) }
+    val styleState = key(mapInstanceKey) { rememberStyleState() }
     var topPanelHeightPx by remember { mutableIntStateOf(0) }
     var initialCameraPositioned by rememberSaveable { mutableStateOf(false) }
     var lastFramedDestination by rememberSaveable { mutableStateOf<String?>(null) }
@@ -224,6 +218,8 @@ fun MapScreen(
     val destinationCoordinate = state.destination?.coordinate
     val originPosition = originCoordinate?.toPosition()
     val destinationPosition = destinationCoordinate?.toPosition()
+    val styleAttached = styleState.sources.isNotEmpty()
+    val mapReady = styleAttached || mapLoaded
     val density = LocalDensity.current
     val topPanelHeight = with(density) { topPanelHeightPx.toDp() }
     val mapTopPadding = if (topPanelHeightPx == 0) 196.dp else topPanelHeight + 12.dp
@@ -248,17 +244,53 @@ fun MapScreen(
         }
     }
 
-    LaunchedEffect(mapLoaded, state.isOnline, mapLoadFailed, mapInstanceKey) {
-        mapLoadTimedOut = false
-        if (!mapLoaded && state.isOnline && !mapLoadFailed) {
-            delay(MAP_LOAD_TIMEOUT_MILLIS)
-            if (!mapLoaded && !mapLoadFailed) mapLoadTimedOut = true
+    LaunchedEffect(mapInstanceKey) {
+        FlightBlackBox.record(
+            type = FbbEventType.UI,
+            description = "MapScreen map instance composed",
+            metadata = mapOf(
+                "instanceKey" to mapInstanceKey,
+                "renderMode" to RenderOptions.RenderMode.TextureView.name,
+            ),
+        )
+    }
+
+    LaunchedEffect(styleAttached, mapInstanceKey) {
+        if (styleAttached) {
+            FlightBlackBox.record(
+                type = FbbEventType.UI,
+                description = "MapScreen map base style attached",
+                metadata = mapOf(
+                    "instanceKey" to mapInstanceKey,
+                    "sourceCount" to styleState.sources.size,
+                ),
+            )
         }
     }
 
-    LaunchedEffect(mapLoaded, originPosition, destinationPosition, initialCameraPositioned) {
+    LaunchedEffect(mapReady, state.isOnline, mapLoadFailed, mapInstanceKey) {
+        mapLoadTimedOut = false
+        if (!mapReady && state.isOnline && !mapLoadFailed) {
+            delay(MAP_LOAD_TIMEOUT_MILLIS)
+            if (!mapReady && !mapLoadFailed) {
+                mapLoadTimedOut = true
+                FlightBlackBox.record(
+                    type = FbbEventType.WARNING,
+                    description = "MapScreen map style attachment timed out",
+                    metadata = mapOf(
+                        "instanceKey" to mapInstanceKey,
+                        "isOnline" to state.isOnline,
+                        "timeoutMs" to MAP_LOAD_TIMEOUT_MILLIS,
+                    ),
+                    persistence = FbbPersistence.IMPORTANT,
+                )
+            }
+        }
+    }
+
+    LaunchedEffect(mapReady, originPosition, destinationPosition, initialCameraPositioned) {
         if (
-            mapLoaded &&
+            mapReady &&
             originPosition != null &&
             destinationPosition == null &&
             !initialCameraPositioned
@@ -275,10 +307,10 @@ fun MapScreen(
         }
     }
 
-    LaunchedEffect(mapLoaded, originPosition, destinationPosition) {
+    LaunchedEffect(mapReady, originPosition, destinationPosition) {
         val destinationKey = destinationCoordinate?.let(::formatCoordinate)
         if (
-            mapLoaded &&
+            mapReady &&
             originPosition != null &&
             destinationPosition != null &&
             destinationKey != lastFramedDestination
@@ -332,14 +364,19 @@ fun MapScreen(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color(0xFFE6ECE8))
+            .background(MapFallbackColor)
     ) {
         key(mapInstanceKey) {
             MaplibreMap(
                 modifier = Modifier.fillMaxSize(),
                 baseStyle = BaseStyle.Uri(OPEN_FREE_MAP_STYLE_URL),
                 cameraState = cameraState,
+                styleState = styleState,
                 options = MapOptions(
+                    renderOptions = RenderOptions(
+                        renderMode = RenderOptions.RenderMode.TextureView,
+                        foregroundLoadColor = MapFallbackColor,
+                    ),
                     gestureOptions = GestureOptions(
                         isRotateEnabled = false,
                         isScrollEnabled = true,
@@ -363,10 +400,25 @@ fun MapScreen(
                     mapLoaded = true
                     mapLoadTimedOut = false
                     mapLoadFailed = false
+                    FlightBlackBox.record(
+                        type = FbbEventType.UI,
+                        description = "MapScreen map finished loading",
+                        metadata = mapOf("instanceKey" to mapInstanceKey),
+                    )
                 },
-                onMapLoadFailed = {
+                onMapLoadFailed = { reason ->
                     mapLoaded = false
                     mapLoadFailed = true
+                    FlightBlackBox.record(
+                        type = FbbEventType.WARNING,
+                        description = "MapScreen map reported a load failure",
+                        metadata = mapOf(
+                            "instanceKey" to mapInstanceKey,
+                            "isOnline" to state.isOnline,
+                            "reason" to (reason ?: "unknown"),
+                        ),
+                        persistence = FbbPersistence.IMPORTANT,
+                    )
                 },
                 onMapLongClick = { position, _ ->
                     if (
@@ -393,12 +445,12 @@ fun MapScreen(
         LocationGate(
             status = state.locationStatus,
             waitingForMap = state.locationStatus == LocationStatus.READY &&
-                !mapLoaded &&
+                !mapReady &&
                 state.isOnline &&
                 !mapLoadTimedOut &&
                 !mapLoadFailed,
             mapUnavailable = state.locationStatus == LocationStatus.READY &&
-                !mapLoaded &&
+                !mapReady &&
                 (!state.isOnline || mapLoadTimedOut || mapLoadFailed),
             topContentPadding = topPanelHeight,
             onRequestPermission = onRequestPermission,
@@ -411,8 +463,8 @@ fun MapScreen(
 
         TopLocationPanel(
             state = state,
-            mapReady = mapLoaded,
-            mapLoadFailed = mapLoadTimedOut || mapLoadFailed,
+            mapReady = mapReady,
+            mapLoadFailed = !mapReady && (mapLoadTimedOut || mapLoadFailed),
             onDestinationSelected = onDestinationSelected,
             onClearDestination = onClearDestination,
             onAdvanceToTakeoffAltitude = onAdvanceToTakeoffAltitude,
@@ -428,7 +480,7 @@ fun MapScreen(
                 .widthIn(max = 600.dp),
         )
 
-        if (state.locationStatus == LocationStatus.READY && originPosition != null && mapLoaded) {
+        if (state.locationStatus == LocationStatus.READY && originPosition != null && mapReady) {
             MapControls(
                 compassReading = state.compassReading,
                 onRecenter = {
@@ -580,7 +632,7 @@ private fun lineData(start: Position?, end: Position?): GeoJsonData {
  * failure notices remain visible in either step.
  *
  * @param state Current screen state used to populate route and flight-setup content.
- * @param mapReady Whether MapLibre has successfully finished loading its current style.
+ * @param mapReady Whether MapLibre has attached or finished loading a usable current style.
  * @param mapLoadFailed Whether map loading timed out or reported a style/load failure.
  * @param onDestinationSelected Called with the validated manual destination in latitude/longitude
  * order.
@@ -1255,12 +1307,28 @@ private fun MapControls(
     modifier: Modifier = Modifier,
 ) {
     val recenterDescription = stringResource(R.string.recenter)
+    val heading = compassReading?.magneticAzimuthDegrees
+    val compassDescription = if (heading == null) {
+        stringResource(R.string.compass_unavailable)
+    } else {
+        stringResource(R.string.compass_heading_accessibility, heading)
+    }
     Row(
         modifier = modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.Bottom,
     ) {
-        CompassBadge(compassReading)
+        Surface(
+            shape = RoundedCornerShape(8.dp),
+            color = Color.Black,
+            shadowElevation = 6.dp,
+        ) {
+            CompassView(
+                heading = heading,
+                contentDescription = compassDescription,
+                modifier = Modifier.size(46.dp),
+            )
+        }
         FloatingActionButton(
             onClick = onRecenter,
             containerColor = MaterialTheme.colorScheme.surface,
@@ -1270,196 +1338,6 @@ private fun MapControls(
             },
         ) {
             Icon(Icons.Rounded.MyLocation, contentDescription = null)
-        }
-    }
-}
-
-/**
- * Summarizes the device heading with a traditional dial and textual direction information.
- *
- * For an available heading, the badge shows the nearest eight-point cardinal abbreviation,
- * rounded heading degrees, and the shortest angular deviations from north and south. True north
- * is preferred when the reading contains it; otherwise every displayed value consistently uses
- * magnetic north. A `null` value produces the explicit compass-unavailable state instead of
- * implying a zero-degree heading.
- *
- * @param compassReading Complete logical reading, or `null` when the sensor is unavailable or
- * inactive.
- */
-@Composable
-private fun CompassBadge(compassReading: CompassReading?) {
-    val northReference = if (compassReading?.trueAzimuthDegrees != null) {
-        NorthReference.TRUE
-    } else {
-        NorthReference.MAGNETIC
-    }
-    val headingDegrees = compassReading?.azimuth(northReference)
-    val direction = compassReading?.nearestDirection(northReference)
-    val northDeviation = compassReading
-        ?.deviationFrom(CompassDirection.NORTH, northReference)
-        ?.absoluteDegrees
-    val southDeviation = compassReading
-        ?.deviationFrom(CompassDirection.SOUTH, northReference)
-        ?.absoluteDegrees
-
-    Surface(
-        shape = RoundedCornerShape(20.dp),
-        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.9f),
-        shadowElevation = 5.dp,
-    ) {
-        Column(
-            modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(4.dp),
-        ) {
-            CompassRose(headingDegrees)
-            Text(
-                text = if (headingDegrees == null || direction == null) {
-                    stringResource(R.string.compass_unavailable)
-                } else {
-                    stringResource(
-                        R.string.heading_format,
-                        direction.localizedAbbreviation(),
-                        headingDegrees,
-                    )
-                },
-                color = CompassNeutralColor,
-                style = MaterialTheme.typography.labelLarge,
-                fontWeight = FontWeight.SemiBold,
-            )
-            if (northDeviation != null && southDeviation != null) {
-                Column(
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(2.dp),
-                ) {
-                    Text(
-                        text = stringResource(
-                            R.string.north_deviation_format,
-                            northDeviation,
-                        ),
-                        color = CompassNorthColor,
-                        style = MaterialTheme.typography.labelSmall,
-                        fontWeight = FontWeight.Bold,
-                    )
-                    Text(
-                        text = stringResource(
-                            R.string.south_deviation_format,
-                            southDeviation,
-                        ),
-                        color = CompassSouthColor,
-                        style = MaterialTheme.typography.labelSmall,
-                        fontWeight = FontWeight.Bold,
-                    )
-                }
-            }
-        }
-    }
-}
-
-/**
- * Resolves localized presentation text for one semantic direction from the compass module.
- *
- * @receiver semantic cardinal or intercardinal direction without embedded UI text.
- * @return localized short direction label owned by the map feature.
- */
-@Composable
-private fun CompassDirection.localizedAbbreviation(): String = stringResource(
-    when (this) {
-        CompassDirection.NORTH -> R.string.compass_direction_north
-        CompassDirection.NORTH_EAST -> R.string.compass_direction_north_east
-        CompassDirection.EAST -> R.string.compass_direction_east
-        CompassDirection.SOUTH_EAST -> R.string.compass_direction_south_east
-        CompassDirection.SOUTH -> R.string.compass_direction_south
-        CompassDirection.SOUTH_WEST -> R.string.compass_direction_south_west
-        CompassDirection.WEST -> R.string.compass_direction_west
-        CompassDirection.NORTH_WEST -> R.string.compass_direction_north_west
-    }
-)
-
-/**
- * Draws the visual compass dial and its red-north/blue-south needle.
- *
- * The device stays conceptually fixed while the needle is rotated by the negative heading: for
- * example, when the device faces east (90 degrees), north appears to the left. [CompassBadge]
- * supplies a true-north heading when available and otherwise supplies magnetic north, keeping the
- * dial consistent with all textual values. With no heading, the dial uses the neutral zero-degree
- * orientation; [CompassBadge] supplies the unavailable text that prevents this fallback from
- * being interpreted as a real reading.
- *
- * @param headingDegrees Device azimuth in degrees clockwise from the selected north reference, or
- * `null` when unavailable.
- */
-@Composable
-private fun CompassRose(headingDegrees: Float?) {
-    val dialColor = CompassNeutralColor
-    val rotation = -(headingDegrees ?: 0f)
-
-    Box(
-        modifier = Modifier.size(68.dp),
-        contentAlignment = Alignment.Center,
-    ) {
-        Canvas(Modifier.fillMaxSize()) {
-            val outlineWidth = 1.dp.toPx()
-            val tickLength = 5.dp.toPx()
-            val tickWidth = 1.5.dp.toPx()
-
-            drawCircle(color = dialColor.copy(alpha = 0.08f))
-            drawCircle(
-                color = dialColor.copy(alpha = 0.35f),
-                style = Stroke(width = outlineWidth),
-            )
-            drawLine(
-                color = dialColor.copy(alpha = 0.45f),
-                start = Offset(center.x, 0f),
-                end = Offset(center.x, tickLength),
-                strokeWidth = tickWidth,
-            )
-            drawLine(
-                color = dialColor.copy(alpha = 0.45f),
-                start = Offset(center.x, size.height - tickLength),
-                end = Offset(center.x, size.height),
-                strokeWidth = tickWidth,
-            )
-            drawLine(
-                color = dialColor.copy(alpha = 0.25f),
-                start = Offset(0f, center.y),
-                end = Offset(tickLength, center.y),
-                strokeWidth = tickWidth,
-            )
-            drawLine(
-                color = dialColor.copy(alpha = 0.25f),
-                start = Offset(size.width - tickLength, center.y),
-                end = Offset(size.width, center.y),
-                strokeWidth = tickWidth,
-            )
-        }
-
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(5.dp)
-                .rotate(rotation),
-        ) {
-            Canvas(Modifier.fillMaxSize()) {
-                val needleInset = 7.dp.toPx()
-                val needleWidth = 4.dp.toPx()
-
-                drawLine(
-                    color = CompassNorthColor,
-                    start = center,
-                    end = Offset(center.x, needleInset),
-                    strokeWidth = needleWidth,
-                    cap = StrokeCap.Round,
-                )
-                drawLine(
-                    color = CompassSouthColor,
-                    start = center,
-                    end = Offset(center.x, size.height - needleInset),
-                    strokeWidth = needleWidth,
-                    cap = StrokeCap.Round,
-                )
-                drawCircle(color = dialColor, radius = 3.dp.toPx())
-            }
         }
     }
 }

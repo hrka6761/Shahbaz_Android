@@ -52,15 +52,5 @@
     <string name="map_unavailable_message">The map service could not be reached. Check your internet connection and try again.</string>
     <string name="recenter">Recenter on current location</string>
     <string name="compass_unavailable">Compass unavailable</string>
-    <string name="compass_direction_north">N</string>
-    <string name="compass_direction_north_east">NE</string>
-    <string name="compass_direction_east">E</string>
-    <string name="compass_direction_south_east">SE</string>
-    <string name="compass_direction_south">S</string>
-    <string name="compass_direction_south_west">SW</string>
-    <string name="compass_direction_west">W</string>
-    <string name="compass_direction_north_west">NW</string>
-    <string name="heading_format">%1$s &#183; %2$.0f&#176;</string>
-    <string name="north_deviation_format">North: %1$.0f&#176;</string>
-    <string name="south_deviation_format">South: %1$.0f&#176;</string>
+    <string name="compass_heading_accessibility">Magnetic compass heading %1$.0f degrees</string>
 </resources>
