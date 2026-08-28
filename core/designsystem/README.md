@@ -7,6 +7,7 @@ The shared Compose visual foundation for Shahbaz. It owns the application theme 
 - Define light and dark Material 3 color schemes.
 - Define the Shahbaz typography baseline.
 - Provide the `ShahbazTheme` composition wrapper.
+- Provide responsive Canvas compass and aircraft-attitude instruments.
 - Optionally select Android dynamic color when a caller enables it.
 - Keep product-wide visual tokens out of individual feature implementations.
 
@@ -17,12 +18,16 @@ The shared Compose visual foundation for Shahbaz. It owns the application theme 
 | `src/main/kotlin/ir/hrka/shahbaz/core/designsystem/Color.kt` | Shared color tokens. |
 | `src/main/kotlin/ir/hrka/shahbaz/core/designsystem/Type.kt` | Material typography definition. |
 | `src/main/kotlin/ir/hrka/shahbaz/core/designsystem/Theme.kt` | Light/dark schemes and `ShahbazTheme`. |
+| `src/main/kotlin/ir/hrka/shahbaz/core/designsystem/compass/CompassView.kt` | Animated magnetic compass presentation. |
+| `src/main/kotlin/ir/hrka/shahbaz/core/designsystem/attitude/AttitudeIndicatorView.kt` | Animated pitch-and-roll attitude presentation. |
 
 The Android namespace and Kotlin package are `ir.hrka.shahbaz.core.designsystem`.
 
 ## Public entry points
 
 - `ShahbazTheme(darkTheme, dynamicColor, content)` supplies the product `MaterialTheme`.
+- `CompassView(heading, modifier, contentDescription)` draws a scalable compass dial.
+- `AttitudeIndicatorView(pitchDegrees, rollDegrees, modifier, contentDescription)` draws a scalable aircraft attitude indicator.
 - `Typography` is the shared Material typography set.
 - `Forest80`, `Sky80`, `Amber80`, `Forest40`, `Sky40`, and `Amber40` are the current public color tokens.
 
@@ -66,4 +71,4 @@ All current design tokens are Kotlin declarations; this module owns no XML resou
 .\gradlew.bat :core:designsystem:testDebugUnitTest :core:designsystem:lintDebug :core:designsystem:assembleDebug
 ```
 
-There are currently no module-local visual tests. Theme changes should be inspected in both system light and dark modes through `:app`; add Compose screenshot tests here if the component surface grows.
+Module-local JVM tests cover compass and attitude-angle normalization and shortest-path animation rules. Theme and instrument changes should still be inspected through `:app` on physical hardware because local tests cannot validate sensor direction or Canvas rendering.

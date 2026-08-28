@@ -28,4 +28,10 @@ dependencies {
     api(platform(libs.androidx.compose.bom))
     api(libs.androidx.compose.material3)
     api(libs.androidx.compose.ui.graphics)
+
+    implementation(libs.androidx.compose.animation.core)
+    implementation(libs.androidx.compose.foundation)
+    implementation(libs.androidx.compose.ui)
+
+    testImplementation(libs.junit)
 }
