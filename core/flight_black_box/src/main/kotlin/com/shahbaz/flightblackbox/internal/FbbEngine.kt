@@ -9,6 +9,7 @@ import com.shahbaz.flightblackbox.FbbEventType
 import com.shahbaz.flightblackbox.FbbHealth
 import com.shahbaz.flightblackbox.FbbPersistence
 import com.shahbaz.flightblackbox.FbbReportStatus
+import com.shahbaz.flightblackbox.withRequiredDiagnosticsMode
 import java.io.Closeable
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.LinkedBlockingQueue
@@ -355,6 +356,7 @@ internal class FbbEngine private constructor(
             clock: FbbClock,
             installCrashHandler: Boolean,
         ): FbbEngine {
+            val fixedConfig = config.withRequiredDiagnosticsMode()
             recoverPreviousActiveSession(storage, clock)
             val metadata = storage.createSession(clock)
             val session = FbbSession(
@@ -363,13 +365,13 @@ internal class FbbEngine private constructor(
                 startedAtElapsedNanos = clock.elapsedRealtimeNanos(),
                 reportFileName = metadata.reportFileName,
             )
-            val formatter = FbbFormatter(session, appInfo, config)
+            val formatter = FbbFormatter(session, appInfo, fixedConfig)
             val writer = FbbReportFileWriter(storage.reportFile(metadata))
             writer.append(formatter.header(), flush = true, force = true)
             val engine = FbbEngine(
                 storage = storage,
                 session = session,
-                config = config,
+                config = fixedConfig,
                 clock = clock,
                 formatter = formatter,
                 fileWriter = writer,

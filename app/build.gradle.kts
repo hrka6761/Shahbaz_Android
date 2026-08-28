@@ -44,6 +44,8 @@ dependencies {
     implementation(projects.feature.map.impl)
     implementation(projects.feature.dashboard.impl)
     implementation(projects.feature.settings.impl)
+    implementation(projects.feature.reports.impl)
+    implementation(projects.feature.reportDetails.impl)
 
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.compose)

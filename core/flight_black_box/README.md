@@ -36,8 +36,11 @@ Persistence classes:
 Durability modes:
 
 - `STANDARD`: continuous append with periodic force.
-- `RELIABLE`: default; important events flush and critical events force immediately.
-- `STRICT`: every event waits for durable persistence. Use only for focused diagnostics.
+- `RELIABLE`: important events flush and critical events force immediately.
+- `STRICT`: default and required; every event waits for durable persistence.
+
+Trace level is fixed to `DEEP` for Shahbaz builds so generated reports carry the richest available
+diagnostic timeline.
 
 The recorder tracks latest produced, written, and durably persisted sequence numbers in health
 counters and sidecar metadata.
@@ -120,7 +123,7 @@ FlightBlackBox.recordThrowable(description = "decodeDeviceInfo failed", error = 
 FlightBlackBox.reports(context).getReportDescriptors()
 ```
 
-Settings or another UI-owning module can list descriptors, access a report file, and delete only
+Reports or another UI-owning module can list descriptors, access a report file, and delete only
 non-active reports through `FlightBlackBoxReports`. Report-management UI remains outside this module.
 
 ## Instrumentation
@@ -139,8 +142,8 @@ Format: SEN/1
 Session ID: 5c76273e-3042-47c1-a530-a7f3c92150ba
 Started: 2026-08-25 11:21:34.381 +03:30
 Status: ACTIVE
-Trace Level: DETAILED
-Durability Mode: RELIABLE
+Trace Level: DEEP
+Durability Mode: STRICT
 --------------------------------------------------
 TIMELINE
 [+00:00.000] E000001 TRIGGER | Shahbaz process started | thread=main #END

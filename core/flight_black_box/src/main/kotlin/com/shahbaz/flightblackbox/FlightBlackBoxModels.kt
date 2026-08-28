@@ -84,8 +84,8 @@ data class FbbAppInfo(
 
 /** Configuration for one process-owned recorder session. */
 data class FbbConfig(
-    val traceLevel: FbbTraceLevel = FbbTraceLevel.DETAILED,
-    val durabilityMode: FbbDurabilityMode = FbbDurabilityMode.RELIABLE,
+    val traceLevel: FbbTraceLevel = FbbTraceLevel.DEEP,
+    val durabilityMode: FbbDurabilityMode = FbbDurabilityMode.STRICT,
     val queueCapacity: Int = 4_096,
     val queueBackpressureWarningThresholdMillis: Long = 50L,
     val normalFlushIntervalMillis: Long = 250L,
@@ -103,6 +103,9 @@ data class FbbConfig(
         require(maxDetailLength in 1_024..512_000)
     }
 }
+
+internal fun FbbConfig.withRequiredDiagnosticsMode(): FbbConfig =
+    copy(traceLevel = FbbTraceLevel.DEEP, durabilityMode = FbbDurabilityMode.STRICT)
 
 /** Complete public event shape accepted by the recorder. */
 data class FbbEvent(
@@ -131,7 +134,7 @@ data class FbbHealth(
     val lastFailure: String?,
 )
 
-/** Metadata used by Settings or another UI-owning module to manage reports safely. */
+/** Metadata used by Reports or another UI-owning module to manage reports safely. */
 data class FbbReportDescriptor(
     val sessionId: String,
     val fileName: String,
@@ -142,7 +145,7 @@ data class FbbReportDescriptor(
     val sizeBytes: Long,
 )
 
-/** Parsed report facts used by Settings without loading the full report into memory. */
+/** Parsed report facts used by Reports without loading the full report into memory. */
 data class FbbReportDetails(
     val descriptor: FbbReportDescriptor,
     val endedAtEpochMillis: Long?,
@@ -153,7 +156,7 @@ data class FbbReportDetails(
     val crashCount: Int,
 )
 
-/** Aggregate report-storage facts for cleanup and quota UI. */
+/** Aggregate report-storage facts for summary UI. */
 data class FbbReportStorageStats(
     val reportCount: Int,
     val activeReportCount: Int,
@@ -180,7 +183,7 @@ data class FbbReportSearchMatch(
 @Target(AnnotationTarget.CLASS, AnnotationTarget.FUNCTION, AnnotationTarget.CONSTRUCTOR)
 @Retention(AnnotationRetention.BINARY)
 annotation class FbbTrace(
-    val level: FbbTraceLevel = FbbTraceLevel.DETAILED,
+    val level: FbbTraceLevel = FbbTraceLevel.DEEP,
     val name: String = "",
 )
 

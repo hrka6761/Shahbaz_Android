@@ -45,6 +45,8 @@ import ir.hrka.shahbaz.feature.map.LocationStatus
 import ir.hrka.shahbaz.feature.map.MapScreen
 import ir.hrka.shahbaz.feature.map.MapUiState
 import ir.hrka.shahbaz.feature.map.MapViewModel
+import ir.hrka.shahbaz.feature.reportdetails.ReportDetailsScreen
+import ir.hrka.shahbaz.feature.reports.ReportsScreen
 import ir.hrka.shahbaz.feature.settings.SettingsScreen
 
 /** Thin application-shell activity that renders the map feature and owns system navigation. */
@@ -109,6 +111,7 @@ class MainActivity : ComponentActivity() {
         setContent {
             ShahbazTheme {
                 var appRoute by rememberSaveable { mutableStateOf(AppRoute.FLIGHT.name) }
+                var reportDetailsSessionId by rememberSaveable { mutableStateOf<String?>(null) }
                 val mapState by mapViewModel.uiState.collectAsStateWithLifecycle()
                 val dashboardState by dashboardViewModel.uiState.collectAsStateWithLifecycle()
                 val flightPlan = mapState.confirmedFlightPlan
@@ -139,6 +142,72 @@ class MainActivity : ComponentActivity() {
                     FlightBlackBox.record(
                         type = FbbEventType.NAV,
                         description = "SettingsScreen -> Flight shell",
+                        cause = request,
+                    )
+                }
+
+                fun openReports() {
+                    val request = FlightBlackBox.record(
+                        type = FbbEventType.USER,
+                        description = "SettingsScreen.ManageReports clicked",
+                        parent = activityCreateEvent,
+                        persistence = FbbPersistence.IMPORTANT,
+                    )
+                    appRoute = AppRoute.REPORTS.name
+                    FlightBlackBox.record(
+                        type = FbbEventType.NAV,
+                        description = "SettingsScreen -> ReportsScreen",
+                        cause = request,
+                    )
+                }
+
+                fun closeReports() {
+                    val request = FlightBlackBox.record(
+                        type = FbbEventType.USER,
+                        description = "ReportsScreen back requested",
+                        parent = activityCreateEvent,
+                        persistence = FbbPersistence.IMPORTANT,
+                    )
+                    reportDetailsSessionId = null
+                    appRoute = AppRoute.SETTINGS.name
+                    FlightBlackBox.record(
+                        type = FbbEventType.NAV,
+                        description = "ReportsScreen -> SettingsScreen",
+                        cause = request,
+                    )
+                }
+
+                fun openReportDetails(sessionId: String) {
+                    val request = FlightBlackBox.record(
+                        type = FbbEventType.USER,
+                        description = "ReportsScreen report item opened",
+                        parent = activityCreateEvent,
+                        metadata = mapOf("sessionId" to sessionId),
+                        persistence = FbbPersistence.IMPORTANT,
+                    )
+                    reportDetailsSessionId = sessionId
+                    appRoute = AppRoute.REPORT_DETAILS.name
+                    FlightBlackBox.record(
+                        type = FbbEventType.NAV,
+                        description = "ReportsScreen -> ReportDetailsScreen",
+                        cause = request,
+                    )
+                }
+
+                fun closeReportDetails() {
+                    val sessionId = reportDetailsSessionId
+                    val request = FlightBlackBox.record(
+                        type = FbbEventType.USER,
+                        description = "ReportDetailsScreen back requested",
+                        parent = activityCreateEvent,
+                        metadata = mapOf("sessionId" to sessionId),
+                        persistence = FbbPersistence.IMPORTANT,
+                    )
+                    reportDetailsSessionId = null
+                    appRoute = AppRoute.REPORTS.name
+                    FlightBlackBox.record(
+                        type = FbbEventType.NAV,
+                        description = "ReportDetailsScreen -> ReportsScreen",
                         cause = request,
                     )
                 }
@@ -187,7 +256,20 @@ class MainActivity : ComponentActivity() {
 
                 Box(Modifier.fillMaxSize()) {
                     if (appRoute == AppRoute.SETTINGS.name) {
-                        SettingsScreen(onBack = ::closeSettings)
+                        SettingsScreen(
+                            onBack = ::closeSettings,
+                            onOpenReports = ::openReports,
+                        )
+                    } else if (appRoute == AppRoute.REPORTS.name) {
+                        ReportsScreen(
+                            onBack = ::closeReports,
+                            onOpenReportDetails = ::openReportDetails,
+                        )
+                    } else if (appRoute == AppRoute.REPORT_DETAILS.name && reportDetailsSessionId != null) {
+                        ReportDetailsScreen(
+                            sessionId = requireNotNull(reportDetailsSessionId),
+                            onBack = ::closeReportDetails,
+                        )
                     } else {
                         if (flightPlan == null) {
                             MapScreen(
@@ -203,21 +285,21 @@ class MainActivity : ComponentActivity() {
                                 onOpenLocationSettings = ::openLocationSettings,
                                 onRetryLocation = mapViewModel::retryLocation,
                             )
+                            FloatingActionButton(
+                                onClick = ::openSettings,
+                                modifier = Modifier
+                                    .align(Alignment.BottomEnd)
+                                    .systemBarsPadding()
+                                    .padding(end = 16.dp, bottom = 88.dp),
+                            ) {
+                                Icon(Icons.Rounded.Settings, contentDescription = "Open settings")
+                            }
                         } else {
                             DashboardScreen(
                                 state = dashboardState,
                                 onRequestUsbPermission = dashboardViewModel::requestUsbPermission,
                                 onRetryBoardConnection = dashboardViewModel::retryBoardConnection,
                             )
-                        }
-                        FloatingActionButton(
-                            onClick = ::openSettings,
-                            modifier = Modifier
-                                .align(Alignment.TopEnd)
-                                .systemBarsPadding()
-                                .padding(16.dp),
-                        ) {
-                            Icon(Icons.Rounded.Settings, contentDescription = "Open settings")
                         }
                     }
                 }
@@ -407,6 +489,8 @@ class MainActivity : ComponentActivity() {
 private enum class AppRoute {
     FLIGHT,
     SETTINGS,
+    REPORTS,
+    REPORT_DETAILS,
 }
 
 /** Maps the existing phone-only sensor pipeline into dashboard state with explicit provenance. */

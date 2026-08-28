@@ -38,7 +38,7 @@ object FlightBlackBox {
             engine = FbbEngine.start(
                 storage = storage,
                 appInfo = appInfo,
-                config = config,
+                config = config.withRequiredDiagnosticsMode(),
                 clock = AndroidFbbClock,
                 installCrashHandler = true,
             )
@@ -148,11 +148,11 @@ object FlightBlackBox {
         lastFailure = null,
     )
 
-    /** Safe report access for UI-owning modules such as Settings. */
+    /** Safe report access for UI-owning modules such as Reports. */
     fun reports(context: Context): FlightBlackBoxReports =
         FlightBlackBoxReports(FbbStorage.fromFilesDir(context.filesDir), engine?.activeSessionId)
 
-    /** Persisted recorder configuration used by Settings and read during process startup. */
+    /** Persisted recorder configuration read during process startup. */
     fun configuration(context: Context): FlightBlackBoxConfiguration =
         FlightBlackBoxConfiguration(context.applicationContext)
 

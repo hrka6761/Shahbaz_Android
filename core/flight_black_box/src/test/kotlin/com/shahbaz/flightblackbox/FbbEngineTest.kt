@@ -34,6 +34,32 @@ class FbbEngineTest {
     }
 
     @Test
+    fun recorderAlwaysUsesDeepTraceAndStrictDurability() {
+        val storage = newStorage()
+        val engine = startEngine(
+            storage = storage,
+            config = FbbConfig(
+                traceLevel = FbbTraceLevel.BASIC,
+                durabilityMode = FbbDurabilityMode.STANDARD,
+            ),
+        )
+
+        val descriptor = storage.listDescriptors(engine.activeSessionId).single()
+        val header = descriptor.file.readText()
+        assertTrue(header.contains("Trace Level: DEEP"))
+        assertTrue(header.contains("Durability Mode: STRICT"))
+
+        engine.record(FbbEvent(type = FbbEventType.APP, description = "normal event"))
+
+        val health = engine.health()
+        assertEquals(2L, health.latestProducedSequence)
+        assertEquals(2L, health.latestWrittenSequence)
+        assertEquals(2L, health.latestDurableSequence)
+
+        engine.close()
+    }
+
+    @Test
     fun eventSequencingAndCausalRelationshipsAreWritten() {
         val storage = newStorage()
         val engine = startEngine(storage)
@@ -187,7 +213,7 @@ class FbbEngineTest {
     }
 
     @Test
-    fun repositorySupportsSettingsReportManagementWithoutReadingWholeFiles() {
+    fun repositorySupportsReportsManagementWithoutReadingWholeFiles() {
         val storage = newStorage()
         val engine = startEngine(storage)
         engine.record(

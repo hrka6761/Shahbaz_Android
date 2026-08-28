@@ -2,7 +2,7 @@ package com.shahbaz.flightblackbox
 
 import android.content.Context
 
-/** Persistent access to recorder configuration chosen by Settings. */
+/** Persistent access to recorder configuration, with diagnostics fixed to deep and strict modes. */
 class FlightBlackBoxConfiguration internal constructor(context: Context) {
     private val preferences = context.getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE)
 
@@ -31,7 +31,7 @@ class FlightBlackBoxConfiguration internal constructor(context: Context) {
                 ),
                 maxDetailLength = preferences.getInt(KEY_MAX_DETAIL_LENGTH, defaults.maxDetailLength),
                 includeThreadName = preferences.getBoolean(KEY_INCLUDE_THREAD_NAME, defaults.includeThreadName),
-            )
+            ).withRequiredDiagnosticsMode()
         }.getOrElse {
             preferences.edit().clear().apply()
             defaults
@@ -39,21 +39,22 @@ class FlightBlackBoxConfiguration internal constructor(context: Context) {
     }
 
     fun save(config: FbbConfig): FbbConfig {
+        val fixedConfig = config.withRequiredDiagnosticsMode()
         preferences.edit()
-            .putString(KEY_TRACE_LEVEL, config.traceLevel.name)
-            .putString(KEY_DURABILITY_MODE, config.durabilityMode.name)
-            .putInt(KEY_QUEUE_CAPACITY, config.queueCapacity)
+            .putString(KEY_TRACE_LEVEL, fixedConfig.traceLevel.name)
+            .putString(KEY_DURABILITY_MODE, fixedConfig.durabilityMode.name)
+            .putInt(KEY_QUEUE_CAPACITY, fixedConfig.queueCapacity)
             .putLong(
                 KEY_QUEUE_BACKPRESSURE_WARNING_THRESHOLD_MILLIS,
-                config.queueBackpressureWarningThresholdMillis,
+                fixedConfig.queueBackpressureWarningThresholdMillis,
             )
-            .putLong(KEY_NORMAL_FLUSH_INTERVAL_MILLIS, config.normalFlushIntervalMillis)
-            .putLong(KEY_FORCE_INTERVAL_MILLIS, config.forceIntervalMillis)
-            .putInt(KEY_MAX_INLINE_VALUE_LENGTH, config.maxInlineValueLength)
-            .putInt(KEY_MAX_DETAIL_LENGTH, config.maxDetailLength)
-            .putBoolean(KEY_INCLUDE_THREAD_NAME, config.includeThreadName)
+            .putLong(KEY_NORMAL_FLUSH_INTERVAL_MILLIS, fixedConfig.normalFlushIntervalMillis)
+            .putLong(KEY_FORCE_INTERVAL_MILLIS, fixedConfig.forceIntervalMillis)
+            .putInt(KEY_MAX_INLINE_VALUE_LENGTH, fixedConfig.maxInlineValueLength)
+            .putInt(KEY_MAX_DETAIL_LENGTH, fixedConfig.maxDetailLength)
+            .putBoolean(KEY_INCLUDE_THREAD_NAME, fixedConfig.includeThreadName)
             .apply()
-        return config
+        return fixedConfig
     }
 
     fun update(transform: FbbConfig.() -> FbbConfig): FbbConfig =
