@@ -12,7 +12,9 @@ features, applies the shared design system, and owns application-level resources
 - Create `DashboardViewModel`, bridge explicitly typed phone position/orientation state, and render
   `DashboardScreen` after setup confirmation.
 - Own top-level Back behavior between dashboard and setup while preserving the route draft.
-- Forward foreground and background lifecycle events so location and compass work stops when the app is not visible.
+- Give each map-bearing destination its own lifecycle and destroy the outgoing lifecycle before
+  navigation so MapLibre releases its native renderer before the next map is created.
+- Scope location and compass lifecycle work to the visible flight route so it stops in Settings, Reports, and whenever the app is not visible.
 - Apply `ShahbazTheme` around the app content.
 - Package the final APK. USB discovery, USB-device permission, Protocol v2, and board telemetry are
   owned entirely by `:core:hardware_connection`; `:app` never opens a USB device directly.
@@ -22,6 +24,7 @@ features, applies the shared design system, and owns application-level resources
 | Path | Ownership |
 | --- | --- |
 | `src/main/kotlin/ir/hrka/shahbaz/MainActivity.kt` | Launcher activity and top-level Compose wiring in package `ir.hrka.shahbaz`. |
+| `src/main/kotlin/ir/hrka/shahbaz/NavigationLifecycleOwner.kt` | Navigation-scoped lifecycle teardown for native map views. |
 | `src/main/AndroidManifest.xml` | Application metadata and launcher intent. Feature permissions merge in from their owning module. |
 | `src/main/res/mipmap-*` and `drawable/` | Launcher icon assets. |
 | `src/main/res/values/` | Application name and platform launch theme. |

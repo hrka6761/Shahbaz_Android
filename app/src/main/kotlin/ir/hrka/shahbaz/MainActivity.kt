@@ -20,6 +20,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -28,6 +29,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.LifecycleStartEffect
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.shahbaz.flightblackbox.FbbEventRef
 import com.shahbaz.flightblackbox.FbbEventType
@@ -116,13 +119,50 @@ class MainActivity : ComponentActivity() {
                 val dashboardState by dashboardViewModel.uiState.collectAsStateWithLifecycle()
                 val flightPlan = mapState.confirmedFlightPlan
 
-                fun openSettings() {
+                if (appRoute == AppRoute.FLIGHT.name) {
+                    LifecycleStartEffect(mapViewModel) {
+                        val foreground = FlightBlackBox.record(
+                            type = FbbEventType.CALL,
+                            description = "Flight screen started -> MapViewModel.onForeground()",
+                            parent = activityCreateEvent,
+                        )
+                        mapViewModel.onForeground()
+                        FlightBlackBox.record(
+                            type = FbbEventType.RETURN,
+                            description = "MapViewModel.onForeground() completed",
+                            cause = foreground,
+                        )
+
+                        onStopOrDispose {
+                            val background = FlightBlackBox.record(
+                                type = FbbEventType.CALL,
+                                description = "Flight screen stopped -> MapViewModel.onBackground()",
+                                parent = activityCreateEvent,
+                            )
+                            mapViewModel.onBackground()
+                            FlightBlackBox.record(
+                                type = FbbEventType.RETURN,
+                                description = "MapViewModel.onBackground() completed",
+                                cause = background,
+                            )
+                        }
+                    }
+                }
+
+                fun openSettings(mapLifecycleOwner: NavigationLifecycleOwner) {
                     val request = FlightBlackBox.record(
                         type = FbbEventType.USER,
                         description = "App shell Settings button clicked",
                         parent = activityCreateEvent,
                         persistence = FbbPersistence.IMPORTANT,
                     )
+                    FlightBlackBox.record(
+                        type = FbbEventType.LIFECYCLE,
+                        description = "MapScreen lifecycle destroyed before SettingsScreen",
+                        cause = request,
+                        persistence = FbbPersistence.IMPORTANT,
+                    )
+                    mapLifecycleOwner.destroy()
                     appRoute = AppRoute.SETTINGS.name
                     FlightBlackBox.record(
                         type = FbbEventType.NAV,
@@ -238,22 +278,6 @@ class MainActivity : ComponentActivity() {
                     closeSettings()
                 }
 
-                BackHandler(enabled = appRoute == AppRoute.FLIGHT.name && flightPlan != null) {
-                    val back = FlightBlackBox.record(
-                        type = FbbEventType.USER,
-                        description = "System back pressed on DashboardScreen",
-                        parent = activityCreateEvent,
-                        persistence = FbbPersistence.IMPORTANT,
-                    )
-                    dashboardViewModel.clearFlightPlan()
-                    mapViewModel.clearConfirmedFlightPlan()
-                    FlightBlackBox.record(
-                        type = FbbEventType.NAV,
-                        description = "DashboardScreen -> MapScreen",
-                        cause = back,
-                    )
-                }
-
                 Box(Modifier.fillMaxSize()) {
                     if (appRoute == AppRoute.SETTINGS.name) {
                         SettingsScreen(
@@ -272,21 +296,38 @@ class MainActivity : ComponentActivity() {
                         )
                     } else {
                         if (flightPlan == null) {
-                            MapScreen(
-                                state = mapState,
-                                onDestinationSelected = mapViewModel::setDestination,
-                                onClearDestination = mapViewModel::clearDestination,
-                                onAdvanceToTakeoffAltitude = mapViewModel::advanceToTakeoffAltitude,
-                                onReturnToDestinationSelection = mapViewModel::returnToDestinationSelection,
-                                onTakeoffAltitudeChanged = mapViewModel::updateTakeoffAltitude,
-                                onConfirmTakeoffAltitude = mapViewModel::confirmTakeoffAltitude,
-                                onRequestPermission = ::requestLocationPermission,
-                                onOpenAppSettings = ::openAppSettings,
-                                onOpenLocationSettings = ::openLocationSettings,
-                                onRetryLocation = mapViewModel::retryLocation,
-                            )
+                            val mapLifecycleOwner = rememberNavigationLifecycleOwner()
+                            CompositionLocalProvider(
+                                LocalLifecycleOwner provides mapLifecycleOwner,
+                            ) {
+                                MapScreen(
+                                    state = mapState,
+                                    onDestinationSelected = mapViewModel::setDestination,
+                                    onClearDestination = mapViewModel::clearDestination,
+                                    onAdvanceToTakeoffAltitude = mapViewModel::advanceToTakeoffAltitude,
+                                    onReturnToDestinationSelection =
+                                        mapViewModel::returnToDestinationSelection,
+                                    onTakeoffAltitudeChanged = mapViewModel::updateTakeoffAltitude,
+                                    onConfirmTakeoffAltitude = {
+                                        mapViewModel.confirmTakeoffAltitude()
+                                        if (mapViewModel.uiState.value.confirmedFlightPlan != null) {
+                                            FlightBlackBox.record(
+                                                type = FbbEventType.LIFECYCLE,
+                                                description = "MapScreen lifecycle destroyed before DashboardScreen",
+                                                parent = activityCreateEvent,
+                                                persistence = FbbPersistence.IMPORTANT,
+                                            )
+                                            mapLifecycleOwner.destroy()
+                                        }
+                                    },
+                                    onRequestPermission = ::requestLocationPermission,
+                                    onOpenAppSettings = ::openAppSettings,
+                                    onOpenLocationSettings = ::openLocationSettings,
+                                    onRetryLocation = mapViewModel::retryLocation,
+                                )
+                            }
                             FloatingActionButton(
-                                onClick = ::openSettings,
+                                onClick = { openSettings(mapLifecycleOwner) },
                                 modifier = Modifier
                                     .align(Alignment.BottomEnd)
                                     .systemBarsPadding()
@@ -295,11 +336,38 @@ class MainActivity : ComponentActivity() {
                                 Icon(Icons.Rounded.Settings, contentDescription = "Open settings")
                             }
                         } else {
-                            DashboardScreen(
-                                state = dashboardState,
-                                onRequestUsbPermission = dashboardViewModel::requestUsbPermission,
-                                onRetryBoardConnection = dashboardViewModel::retryBoardConnection,
-                            )
+                            val dashboardLifecycleOwner = rememberNavigationLifecycleOwner()
+                            BackHandler {
+                                val back = FlightBlackBox.record(
+                                    type = FbbEventType.USER,
+                                    description = "System back pressed on DashboardScreen",
+                                    parent = activityCreateEvent,
+                                    persistence = FbbPersistence.IMPORTANT,
+                                )
+                                FlightBlackBox.record(
+                                    type = FbbEventType.LIFECYCLE,
+                                    description = "DashboardScreen lifecycle destroyed before MapScreen",
+                                    cause = back,
+                                    persistence = FbbPersistence.IMPORTANT,
+                                )
+                                dashboardLifecycleOwner.destroy()
+                                dashboardViewModel.clearFlightPlan()
+                                mapViewModel.clearConfirmedFlightPlan()
+                                FlightBlackBox.record(
+                                    type = FbbEventType.NAV,
+                                    description = "DashboardScreen -> MapScreen",
+                                    cause = back,
+                                )
+                            }
+                            CompositionLocalProvider(
+                                LocalLifecycleOwner provides dashboardLifecycleOwner,
+                            ) {
+                                DashboardScreen(
+                                    state = dashboardState,
+                                    onRequestUsbPermission = dashboardViewModel::requestUsbPermission,
+                                    onRetryBoardConnection = dashboardViewModel::retryBoardConnection,
+                                )
+                            }
                         }
                     }
                 }
@@ -312,7 +380,7 @@ class MainActivity : ComponentActivity() {
         )
     }
 
-    /** Notifies the map feature that foreground-only work may start. */
+    /** Notifies dashboard hardware work that the host may start. */
     override fun onStart() {
         val start = FlightBlackBox.record(
             type = FbbEventType.CALL,
@@ -327,22 +395,11 @@ class MainActivity : ComponentActivity() {
             description = "hostStarted: false -> true",
             cause = start,
         )
-        val foreground = FlightBlackBox.record(
-            type = FbbEventType.CALL,
-            description = "MapViewModel.onForeground()",
-            cause = start,
-        )
-        mapViewModel.onForeground()
-        val foregroundReturn = FlightBlackBox.record(
-            type = FbbEventType.RETURN,
-            description = "MapViewModel.onForeground() completed",
-            cause = foreground,
-        )
         if (mapViewModel.uiState.value.confirmedFlightPlan != null) {
             val decision = FlightBlackBox.record(
                 type = FbbEventType.DECISION,
                 description = "confirmedFlightPlan present -> dashboard host foreground",
-                cause = foregroundReturn,
+                cause = start,
             )
             val dashboardForeground = FlightBlackBox.record(
                 type = FbbEventType.CALL,
@@ -410,17 +467,6 @@ class MainActivity : ComponentActivity() {
             type = FbbEventType.RETURN,
             description = "DashboardViewModel.onHostBackground() completed",
             cause = dashboardBackground,
-        )
-        val mapBackground = FlightBlackBox.record(
-            type = FbbEventType.CALL,
-            description = "MapViewModel.onBackground()",
-            cause = stop,
-        )
-        mapViewModel.onBackground()
-        FlightBlackBox.record(
-            type = FbbEventType.RETURN,
-            description = "MapViewModel.onBackground() completed",
-            cause = mapBackground,
         )
         super.onStop()
     }
