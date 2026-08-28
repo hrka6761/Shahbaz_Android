@@ -33,18 +33,17 @@
     <string name="disconnect_app_stopped">dashboard left the foreground</string>
     <string name="disconnect_transport_closed">USB transport closed unexpectedly</string>
 
-    <string name="attitude_heading_title">Attitude &amp; heading</string>
-    <string name="compass_heading">Compass heading</string>
-    <string name="compass_heading_value">%1$.0f° · %2$s</string>
-    <string name="axis_x_pitch">X · pitch</string>
-    <string name="axis_y_roll">Y · roll</string>
-    <string name="axis_z_yaw">Z · yaw / heading</string>
-    <string name="cardinal_angles_title">Angle to cardinal axes</string>
-    <string name="cardinal_angle_value">%1$+.0f°
-%2$.0f° away</string>
-    <string name="cardinal_angle_accessibility">%1$s: signed deviation %2$+.0f degrees, angular distance %3$.0f degrees</string>
-    <string name="attitude_description">Attitude. Yaw %1$.0f degrees, pitch %2$+.1f degrees, roll %3$+.1f degrees, direction %4$s, status %5$s.</string>
+    <string name="compass_accessibility">Magnetic compass heading %1$.0f degrees. Status %2$s.</string>
+    <string name="compass_unavailable_accessibility">Compass unavailable. Status %1$s.</string>
+    <string name="attitude_indicator_accessibility">Attitude indicator. Pitch %1$+.1f degrees, roll %2$+.1f degrees. Status %3$s.</string>
     <string name="attitude_unavailable_description">Attitude reading unavailable. Status %1$s.</string>
+    <string name="orientation_compass_heading">Compass heading</string>
+    <string name="orientation_pitch">Pitch</string>
+    <string name="orientation_roll">Roll</string>
+    <string name="orientation_yaw">Yaw</string>
+    <string name="value_orientation_degrees">%1$.1f&#176;</string>
+    <string name="value_orientation_signed_degrees">%1$+.1f&#176;</string>
+    <string name="orientation_readout_accessibility">%1$s, %2$s. Status %3$s.</string>
 
     <string name="instrument_temperature">Temperature</string>
     <string name="instrument_humidity">Humidity</string>
@@ -72,17 +71,6 @@
     <string name="value_hectopascal">%1$.2f hPa</string>
     <string name="value_meters">%1$.1f m</string>
     <string name="value_meters_signed">%1$+.1f m</string>
-    <string name="value_degrees">%1$.0f°</string>
-    <string name="value_signed_degrees">%1$+.1f°</string>
-    <string name="compass_north">N</string>
-    <string name="compass_north_east">NE</string>
-    <string name="compass_east">E</string>
-    <string name="compass_south_east">SE</string>
-    <string name="compass_south">S</string>
-    <string name="compass_south_west">SW</string>
-    <string name="compass_west">W</string>
-    <string name="compass_north_west">NW</string>
-
     <string name="flight_plan_missing_map">The route map cannot be shown because the confirmed flight plan is missing.</string>
     <string name="dashboard_map_description">Flight route map with origin, destination, and direct route.</string>
     <string name="dashboard_map_loading">Loading map</string>

@@ -19,10 +19,14 @@ USB reconnect. Selecting a different flight plan clears and re-arms it.
 
 Every value exposes its source and a distinct live, loading, stale, no-response, unavailable,
 invalid, or error status. SHT30 temperature/humidity and MS5611 pressure/altitudes are explicitly
-labelled external USB-board data. Compass heading, angular distance to N/E/S/W, and X/Y/Z phone
-orientation are explicitly labelled internal phone data. Low, unknown, or unreliable compass
-accuracy is visibly degraded instead of appearing healthy. The map warns that phone GPS is only a
-temporary phone-position proxy and must not be interpreted as board/drone telemetry.
+labelled external USB-board data. Internal phone orientation is presented as equal compass and
+attitude-indicator cards. Their status-colored borders and accessibility descriptions distinguish
+live, degraded, stale, and unavailable readings. A compact row beneath the cards reports compass
+heading, pitch, roll, and yaw from the same retained orientation sample. The compass card uses the
+reusable Canvas presentation from `:core:designsystem`.
+The matching attitude card uses the shared aircraft-style Canvas indicator: its fixed roll scale and
+aircraft symbol sit above a clipped sky, ground, horizon, and pitch ladder animated from the same
+display-corrected phone orientation reading.
 
 Instrument cards are rendered from stable keyed `InstrumentReadout` entries so later readings can
 be added without restructuring the cockpit. Postponed speed, acceleration, and obstacle features

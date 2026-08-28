@@ -2,9 +2,7 @@
 package ir.hrka.shahbaz.feature.dashboard
 
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
@@ -18,6 +16,7 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
@@ -30,10 +29,14 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded._360
 import androidx.compose.material.icons.rounded.Compress
 import androidx.compose.material.icons.rounded.DeviceThermostat
+import androidx.compose.material.icons.rounded.Explore
 import androidx.compose.material.icons.rounded.FlightTakeoff
 import androidx.compose.material.icons.rounded.Height
+import androidx.compose.material.icons.rounded.ScreenRotation
+import androidx.compose.material.icons.rounded.SwapVert
 import androidx.compose.material.icons.rounded.Terrain
 import androidx.compose.material.icons.rounded.WaterDrop
 import androidx.compose.material3.Button
@@ -55,13 +58,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Path
-import androidx.compose.ui.graphics.StrokeCap
-import androidx.compose.ui.graphics.drawscope.clipPath
-import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.res.stringResource
@@ -81,9 +78,9 @@ import com.shahbaz.flightblackbox.FbbEventType
 import com.shahbaz.flightblackbox.FbbPersistence
 import com.shahbaz.flightblackbox.FlightBlackBox
 import ir.hrka.compass.CompassAccuracyLevel
-import ir.hrka.compass.CompassDirection
 import ir.hrka.compass.CompassReading
-import ir.hrka.compass.NorthReference
+import ir.hrka.shahbaz.core.designsystem.attitude.AttitudeIndicatorView
+import ir.hrka.shahbaz.core.designsystem.compass.CompassView
 import ir.hrka.shahbaz.core.domain.formatDistance
 import ir.hrka.shahbaz.core.domain.sphericalMidpoint
 import ir.hrka.shahbaz.core.domain.wgs84GeodesicDistanceMeters
@@ -94,7 +91,6 @@ import ir.hrka.shahbaz.hardwareconnection.BoardDisconnectReason
 import ir.hrka.shahbaz.hardwareconnection.SensorErrorCode
 import ir.hrka.shahbaz.hardwareconnection.SensorState
 import ir.hrka.shahbaz.hardwareconnection.SensorUnavailableReason
-import kotlin.math.min
 import kotlinx.coroutines.delay
 import kotlinx.serialization.json.JsonObject
 import org.maplibre.compose.camera.CameraPosition
@@ -507,241 +503,188 @@ private fun AttitudePanel(orientation: PhoneReading<CompassReading>) {
         else -> null
     }
     val status = orientationStatusKind(orientation)
-    val northReference = if (reading?.trueAzimuthDegrees != null) {
-        NorthReference.TRUE
+    val heading = reading?.magneticAzimuthDegrees
+    val compassDescription = if (heading == null) {
+        stringResource(R.string.compass_unavailable_accessibility, statusLabel(status))
     } else {
-        NorthReference.MAGNETIC
+        stringResource(R.string.compass_accessibility, heading, statusLabel(status))
     }
-    val heading = reading?.azimuth(northReference)
-    val direction = reading?.nearestDirection(northReference)
-    val cardinalDeviations = reading?.let { cardinalAngles(it, northReference) }.orEmpty()
-    val cardinalDescriptions = mutableListOf<String>()
-    for (angle in cardinalDeviations) {
-        cardinalDescriptions += stringResource(
-            R.string.cardinal_angle_accessibility,
-            directionLabel(angle.direction),
-            angle.signedDegrees,
-            angle.absoluteDegrees,
-        )
-    }
-    val description = if (reading == null) {
+    val attitudeDescription = if (reading == null) {
         stringResource(R.string.attitude_unavailable_description, statusLabel(status))
     } else {
         stringResource(
-            R.string.attitude_description,
-            heading ?: reading.magneticAzimuthDegrees,
+            R.string.attitude_indicator_accessibility,
             reading.pitchDegrees,
             reading.rollDegrees,
-            directionLabel(direction),
             statusLabel(status),
-        ) + " " + cardinalDescriptions.joinToString(separator = ". ")
+        )
     }
 
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Surface(
+                modifier = Modifier
+                    .weight(1f)
+                    .aspectRatio(1f),
+                color = Color.Black,
+                shape = DashboardCardShape,
+                border = BorderStroke(1.dp, statusColor(status)),
+                shadowElevation = 3.dp,
+            ) {
+                CompassView(
+                    heading = heading,
+                    contentDescription = compassDescription,
+                    modifier = Modifier.fillMaxSize(),
+                )
+            }
+            Surface(
+                modifier = Modifier
+                    .weight(1f)
+                    .aspectRatio(1f),
+                color = Color.Black,
+                shape = DashboardCardShape,
+                border = BorderStroke(1.dp, statusColor(status)),
+                shadowElevation = 3.dp,
+            ) {
+                AttitudeIndicatorView(
+                    pitchDegrees = reading?.pitchDegrees,
+                    rollDegrees = reading?.rollDegrees,
+                    contentDescription = attitudeDescription,
+                    modifier = Modifier.fillMaxSize(),
+                )
+            }
+        }
+        OrientationReadoutRow(reading = reading, status = status)
+    }
+}
+
+private data class OrientationReadout(
+    val label: String,
+    val value: String,
+    val icon: ImageVector,
+)
+
+/** Android magnetic azimuth is also the display-corrected yaw around the screen-normal axis. */
+@Composable
+private fun OrientationReadoutRow(
+    reading: CompassReading?,
+    status: InstrumentStatusKind,
+) {
+    val unavailableValue = stringResource(R.string.no_value)
+    val azimuth = reading?.magneticAzimuthDegrees
+    val readouts = listOf(
+        OrientationReadout(
+            label = stringResource(R.string.orientation_compass_heading),
+            value = azimuth?.let { stringResource(R.string.value_orientation_degrees, it) }
+                ?: unavailableValue,
+            icon = Icons.Rounded.Explore,
+        ),
+        OrientationReadout(
+            label = stringResource(R.string.orientation_pitch),
+            value = reading?.let {
+                stringResource(R.string.value_orientation_signed_degrees, it.pitchDegrees)
+            } ?: unavailableValue,
+            icon = Icons.Rounded.SwapVert,
+        ),
+        OrientationReadout(
+            label = stringResource(R.string.orientation_roll),
+            value = reading?.let {
+                stringResource(R.string.value_orientation_signed_degrees, it.rollDegrees)
+            } ?: unavailableValue,
+            icon = Icons.Rounded.ScreenRotation,
+        ),
+        OrientationReadout(
+            label = stringResource(R.string.orientation_yaw),
+            value = azimuth?.let { stringResource(R.string.value_orientation_degrees, it) }
+                ?: unavailableValue,
+            icon = Icons.AutoMirrored.Rounded._360,
+        ),
+    )
+
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.Top,
+    ) {
+        readouts.forEach { readout ->
+            OrientationReadoutCard(
+                readout = readout,
+                status = status,
+                modifier = Modifier.weight(1f),
+            )
+        }
+    }
+}
+
+@Composable
+private fun OrientationReadoutCard(
+    readout: OrientationReadout,
+    status: InstrumentStatusKind,
+    modifier: Modifier = Modifier,
+) {
+    val description = stringResource(
+        R.string.orientation_readout_accessibility,
+        readout.label,
+        readout.value,
+        statusLabel(status),
+    )
     Surface(
-        modifier = Modifier
-            .fillMaxWidth()
+        modifier = modifier
+            .height(76.dp)
             .semantics(mergeDescendants = true) { contentDescription = description },
         color = CockpitSurface,
         shape = DashboardCardShape,
-        tonalElevation = 3.dp,
+        tonalElevation = 2.dp,
     ) {
         Column(
-            modifier = Modifier.padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Column {
-                    Text(
-                        text = stringResource(R.string.attitude_heading_title),
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
-                    )
-                }
-                StatusPill(statusLabel(status), status)
-            }
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(18.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                AttitudeIndicator(
-                    pitchDegrees = reading?.pitchDegrees ?: 0f,
-                    rollDegrees = reading?.rollDegrees ?: 0f,
-                    hasReading = reading != null,
-                    modifier = Modifier.weight(1f),
-                )
-                Column(
-                    modifier = Modifier.weight(1f),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    Text(
-                        text = stringResource(R.string.compass_heading),
-                        color = CockpitMuted,
-                        style = MaterialTheme.typography.labelMedium,
-                    )
-                    Text(
-                        text = if (heading == null) {
-                            stringResource(R.string.no_value)
-                        } else {
-                            stringResource(
-                                R.string.compass_heading_value,
-                                heading,
-                                directionLabel(direction),
-                            )
-                        },
-                        style = MaterialTheme.typography.headlineSmall,
-                        fontWeight = FontWeight.Black,
-                        color = statusColor(status),
-                    )
-                    AxisValue(
-                        label = stringResource(R.string.axis_x_pitch),
-                        value = reading?.let {
-                            stringResource(R.string.value_signed_degrees, it.pitchDegrees)
-                        } ?: stringResource(R.string.no_value),
-                    )
-                    AxisValue(
-                        label = stringResource(R.string.axis_y_roll),
-                        value = reading?.let {
-                            stringResource(R.string.value_signed_degrees, it.rollDegrees)
-                        } ?: stringResource(R.string.no_value),
-                    )
-                    AxisValue(
-                        label = stringResource(R.string.axis_z_yaw),
-                        value = heading?.let { stringResource(R.string.value_degrees, it) }
-                            ?: stringResource(R.string.no_value),
-                    )
-                }
-            }
-            Text(
-                text = stringResource(R.string.cardinal_angles_title),
-                color = CockpitMuted,
-                style = MaterialTheme.typography.labelLarge,
-                fontWeight = FontWeight.SemiBold,
-            )
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                CardinalDirections.forEach { cardinal ->
-                    val angle = cardinalDeviations.firstOrNull { it.direction == cardinal }
-                    CardinalAngleValue(
-                        label = directionLabel(cardinal),
-                        signedDegrees = angle?.signedDegrees,
-                        absoluteDegrees = angle?.absoluteDegrees,
-                        modifier = Modifier.weight(1f),
-                    )
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun CardinalAngleValue(
-    label: String,
-    signedDegrees: Float?,
-    absoluteDegrees: Float?,
-    modifier: Modifier = Modifier,
-) {
-    Surface(
-        modifier = modifier,
-        color = CockpitBackground.copy(alpha = .72f),
-        shape = DashboardCardShape,
-    ) {
-        Column(
-            modifier = Modifier.padding(horizontal = 6.dp, vertical = 8.dp),
+            modifier = Modifier.padding(horizontal = 4.dp, vertical = 6.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(4.dp),
         ) {
-            Text(label, color = CockpitMuted, fontWeight = FontWeight.Bold)
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(32.dp),
+                horizontalArrangement = Arrangement.spacedBy(
+                    space = 3.dp,
+                    alignment = Alignment.CenterHorizontally,
+                ),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Icon(
+                    imageVector = readout.icon,
+                    contentDescription = null,
+                    tint = statusColor(status),
+                    modifier = Modifier.size(16.dp),
+                )
+                Text(
+                    text = readout.label,
+                    color = CockpitMuted,
+                    fontSize = 10.sp,
+                    lineHeight = 11.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    textAlign = TextAlign.Center,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
             Text(
-                text = if (signedDegrees == null || absoluteDegrees == null) {
-                    stringResource(R.string.no_value)
-                } else {
-                    stringResource(
-                        R.string.cardinal_angle_value,
-                        signedDegrees,
-                        absoluteDegrees,
-                    )
-                },
+                text = readout.value,
+                color = statusColor(status),
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.Black,
                 textAlign = TextAlign.Center,
-                style = MaterialTheme.typography.labelMedium,
-                fontWeight = FontWeight.Bold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
             )
         }
-    }
-}
-
-@Composable
-private fun AttitudeIndicator(
-    pitchDegrees: Float,
-    rollDegrees: Float,
-    hasReading: Boolean,
-    modifier: Modifier = Modifier,
-) {
-    Box(
-        modifier = modifier
-            .widthIn(max = 220.dp)
-            .aspectRatio(1f),
-        contentAlignment = Alignment.Center,
-    ) {
-        Canvas(
-            Modifier
-                .fillMaxSize()
-                .clip(CircleShape)
-                .border(3.dp, CockpitMuted, CircleShape),
-        ) {
-            val radius = min(size.width, size.height) / 2f
-            val horizonOffset = (pitchDegrees.coerceIn(-45f, 45f) / 45f) * radius * .7f
-            val circle = Path().apply {
-                addOval(androidx.compose.ui.geometry.Rect(center - Offset(radius, radius), center + Offset(radius, radius)))
-            }
-            clipPath(circle) {
-                drawRect(color = if (hasReading) SkyBlue else UnknownGrey)
-                rotate(degrees = -rollDegrees, pivot = center) {
-                    drawRect(
-                        color = if (hasReading) GroundBrown else UnknownGreyDark,
-                        topLeft = Offset(-size.width, center.y + horizonOffset),
-                        size = androidx.compose.ui.geometry.Size(size.width * 3f, size.height * 2f),
-                    )
-                    drawLine(
-                        color = Color.White,
-                        start = Offset(-size.width, center.y + horizonOffset),
-                        end = Offset(size.width * 2f, center.y + horizonOffset),
-                        strokeWidth = 3.dp.toPx(),
-                    )
-                }
-                drawLine(
-                    color = Color.White,
-                    start = Offset(center.x - radius * .38f, center.y),
-                    end = Offset(center.x - radius * .08f, center.y),
-                    strokeWidth = 4.dp.toPx(),
-                    cap = StrokeCap.Round,
-                )
-                drawLine(
-                    color = Color.White,
-                    start = Offset(center.x + radius * .08f, center.y),
-                    end = Offset(center.x + radius * .38f, center.y),
-                    strokeWidth = 4.dp.toPx(),
-                    cap = StrokeCap.Round,
-                )
-                drawCircle(Color.White, radius = 3.dp.toPx())
-            }
-        }
-    }
-}
-
-@Composable
-private fun AxisValue(label: String, value: String) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween,
-    ) {
-        Text(label, color = CockpitMuted, style = MaterialTheme.typography.labelMedium)
-        Text(value, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyMedium)
     }
 }
 
@@ -985,19 +928,6 @@ private fun SensorState<ir.hrka.shahbaz.hardwareconnection.Ms5611Telemetry>.last
     is SensorState.Stale -> lastSample?.value
     is SensorState.Failed -> lastSample?.value
     else -> null
-}
-
-@Composable
-private fun directionLabel(direction: CompassDirection?): String = when (direction) {
-    CompassDirection.NORTH -> stringResource(R.string.compass_north)
-    CompassDirection.NORTH_EAST -> stringResource(R.string.compass_north_east)
-    CompassDirection.EAST -> stringResource(R.string.compass_east)
-    CompassDirection.SOUTH_EAST -> stringResource(R.string.compass_south_east)
-    CompassDirection.SOUTH -> stringResource(R.string.compass_south)
-    CompassDirection.SOUTH_WEST -> stringResource(R.string.compass_south_west)
-    CompassDirection.WEST -> stringResource(R.string.compass_west)
-    CompassDirection.NORTH_WEST -> stringResource(R.string.compass_north_west)
-    null -> stringResource(R.string.no_value)
 }
 
 @Composable
