@@ -1,4 +1,4 @@
-# `:compass`
+# `:core:compass`
 
 `:compass` is a reusable, UI-free Android library for observing the device's display-corrected
 orientation. It owns Android sensor discovery and registration, magnetic-heading calculation,
@@ -35,7 +35,7 @@ The module deliberately does not provide:
 ## Structure
 
 ```text
-compass/
+core/compass/
 |-- build.gradle.kts
 |-- README.md
 |-- .gitignore
@@ -65,12 +65,12 @@ Android sensor implementation and pure calculation rules and is not a consumer A
 
 ### In this Gradle build
 
-The module is included as `:compass` in `settings.gradle.kts`. A Kotlin DSL consumer can depend on
+The module is included as `:core:compass` in `settings.gradle.kts`. A Kotlin DSL consumer can depend on
 it through the type-safe project accessor:
 
 ```kotlin
 dependencies {
-    implementation(projects.compass)
+    implementation(projects.core.compass)
 }
 ```
 
@@ -78,11 +78,11 @@ Without type-safe project accessors, use:
 
 ```kotlin
 dependencies {
-    implementation(project(":compass"))
+    implementation(project(":core:compass"))
 }
 ```
 
-When copying the module source into another build, include `":compass"` in that build's settings.
+When copying the module source into another build, include `":core:compass"` in that build's settings.
 The supplied build script uses the version-catalog aliases `libs.plugins.android.library` and
 `libs.junit`; either define equivalent aliases in the destination catalog or replace them with the
 destination build's Android library plugin and JUnit dependency declarations.
@@ -92,7 +92,7 @@ destination build's Android library plugin and JUnit dependency declarations.
 Publish the release AAR, POM, and sources artifact under `ir.hrka:compass:0.1.0`:
 
 ```powershell
-.\gradlew.bat :compass:publishReleasePublicationToMavenLocal
+.\gradlew.bat :core:compass:publishReleasePublicationToMavenLocal
 ```
 
 Add Maven Local to the consumer build's dependency repositories:
@@ -120,10 +120,10 @@ dependencies {
 Build the release artifact:
 
 ```powershell
-.\gradlew.bat :compass:assembleRelease
+.\gradlew.bat :core:compass:assembleRelease
 ```
 
-Copy `compass/build/outputs/aar/compass-release.aar` into the consumer's `libs` directory and add:
+Copy `core/compass/build/outputs/aar/compass-release.aar` into the consumer's `libs` directory and add:
 
 ```kotlin
 dependencies {
@@ -432,22 +432,22 @@ Run these commands from the repository root:
 
 ```powershell
 # Compile the public and internal implementation.
-.\gradlew.bat :compass:compileDebugKotlin
+.\gradlew.bat :core:compass:compileDebugKotlin
 
 # Run model, direction, deviation, filtering, sampling, accuracy, and display-axis unit tests.
-.\gradlew.bat :compass:testDebugUnitTest
+.\gradlew.bat :core:compass:testDebugUnitTest
 
 # Check the library manifest and Android-specific static analysis rules.
-.\gradlew.bat :compass:lintDebug
+.\gradlew.bat :core:compass:lintDebug
 
 # Produce compass/build/outputs/aar/compass-release.aar.
-.\gradlew.bat :compass:assembleRelease
+.\gradlew.bat :core:compass:assembleRelease
 
 # Generate the release publication POM without publishing it.
-.\gradlew.bat :compass:generatePomFileForReleasePublication
+.\gradlew.bat :core:compass:generatePomFileForReleasePublication
 
 # Publish ir.hrka:compass:0.1.0 to the current user's Maven Local repository.
-.\gradlew.bat :compass:publishReleasePublicationToMavenLocal
+.\gradlew.bat :core:compass:publishReleasePublicationToMavenLocal
 ```
 
 The tests are local JVM tests for deterministic public-model and calculation behavior. Sensor

@@ -29,7 +29,7 @@ rootProject.name = "Shahbaz"
 enableFeaturePreview("TYPESAFE_PROJECT_ACCESSORS")
 
 include(":app")
-include(":compass")
+include(":core:compass")
 include(":core:model")
 include(":core:domain")
 include(":core:designsystem")

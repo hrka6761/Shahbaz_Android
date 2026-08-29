@@ -26,7 +26,7 @@ android {
 
 dependencies {
     api(projects.core.model)
-    api(projects.compass)
+    api(projects.core.compass)
     api(projects.core.hardwareConnection)
 
     implementation(projects.core.designsystem)
