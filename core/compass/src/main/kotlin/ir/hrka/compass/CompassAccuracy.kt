@@ -13,8 +13,17 @@ import ir.hrka.compass.internal.calibrationStatusForAccuracy
  * [calibrationStatus] does not match the guidance inferred from [level].
  */
 data class CompassAccuracy(
+    /**
+     * Exposes the level value.
+     */
     val level: CompassAccuracyLevel,
+    /**
+     * Exposes the estimatedErrorDegrees value.
+     */
     val estimatedErrorDegrees: Float?,
+    /**
+     * Exposes the calibrationStatus value.
+     */
     val calibrationStatus: CalibrationStatus,
 ) {
     /** Rejects invalid error estimates and guidance that contradicts the accuracy level. */

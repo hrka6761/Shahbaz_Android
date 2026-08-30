@@ -26,13 +26,37 @@ import kotlin.math.abs
  * the documented normalized reading contract.
  */
 data class CompassReading(
+    /**
+     * Exposes the magneticAzimuthDegrees value.
+     */
     val magneticAzimuthDegrees: Float,
+    /**
+     * Exposes the trueAzimuthDegrees value.
+     */
     val trueAzimuthDegrees: Float?,
+    /**
+     * Exposes the declinationDegrees value.
+     */
     val declinationDegrees: Float?,
+    /**
+     * Exposes the pitchDegrees value.
+     */
     val pitchDegrees: Float,
+    /**
+     * Exposes the rollDegrees value.
+     */
     val rollDegrees: Float,
+    /**
+     * Exposes the accuracy value.
+     */
     val accuracy: CompassAccuracy,
+    /**
+     * Exposes the sensorSource value.
+     */
     val sensorSource: CompassSensorSource,
+    /**
+     * Exposes the timestampNanos value.
+     */
     val timestampNanos: Long,
 ) {
     /** Validates the documented finite and normalized public-reading contract. */
@@ -175,7 +199,13 @@ enum class NorthReference {
  * or inconsistent with the other value.
  */
 data class DirectionDeviation(
+    /**
+     * Exposes the signedDegrees value.
+     */
     val signedDegrees: Float,
+    /**
+     * Exposes the absoluteDegrees value.
+     */
     val absoluteDegrees: Float,
 ) {
     /** Validates the public signed and absolute range contract. */

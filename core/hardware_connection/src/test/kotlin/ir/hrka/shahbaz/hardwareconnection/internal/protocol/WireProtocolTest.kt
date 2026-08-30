@@ -6,7 +6,13 @@ import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
+/**
+ * Documents the WireProtocolTest type and the role it plays in this module.
+ */
 class WireProtocolTest {
+    /**
+     * Runs the crcAndCobsMatchCanonicalVectors operation.
+     */
     @Test
     fun crcAndCobsMatchCanonicalVectors() {
         assertEquals(0xE3069283u, Crc32c.calculate("123456789".encodeToByteArray()).toUInt())
@@ -19,6 +25,9 @@ class WireProtocolTest {
         cases.forEach { assertArrayEquals(it, Cobs.decode(Cobs.encode(it))) }
     }
 
+    /**
+     * Runs the sharedGoldenPingFrameDecodesExactly operation.
+     */
     @Test
     fun sharedGoldenPingFrameDecodesExactly() {
         val expected = hex(
@@ -32,6 +41,9 @@ class WireProtocolTest {
         assertArrayEquals(hex("aa 00 55 01 02 03 04 05"), decoded.payload)
     }
 
+    /**
+     * Runs the guardedPolicyEncodesActuatorCommandsWithSessionToken operation.
+     */
     @Test
     fun guardedPolicyEncodesActuatorCommandsWithSessionToken() {
         val token = 0x0102030405060708uL
@@ -63,6 +75,9 @@ class WireProtocolTest {
         assertEquals(token, readU64(arm.payload, 0))
     }
 
+    /**
+     * Runs the guardedPolicyRejectsOutboundOnlyFramesThatTheHostMustNotSend operation.
+     */
     @Test
     fun guardedPolicyRejectsOutboundOnlyFramesThatTheHostMustNotSend() {
         val error = assertThrows(ProtocolException::class.java) {
@@ -76,6 +91,9 @@ class WireProtocolTest {
         assertEquals(ProtocolErrorKind.POLICY_REJECTED, error.kind)
     }
 
+    /**
+     * Runs the motorCommandPreservesFlightControllerGenerationTimestamp operation.
+     */
     @Test
     fun motorCommandPreservesFlightControllerGenerationTimestamp() {
         var now = 1_000uL
@@ -107,6 +125,9 @@ class WireProtocolTest {
         assertEquals(1_250uL, decoded.header.senderMonotonicUs)
     }
 
+    /**
+     * Runs the reconnectClearsTokenAndBufferedBytes operation.
+     */
     @Test
     fun reconnectClearsTokenAndBufferedBytes() {
         var now = 1_000uL
@@ -137,6 +158,9 @@ class WireProtocolTest {
         assertEquals(0x1122uL, session.sessionToken)
     }
 
+    /**
+     * Runs the timeSyncRejectsWrongEchoAndZeroToken operation.
+     */
     @Test
     fun timeSyncRejectsWrongEchoAndZeroToken() {
         var now = 5_000uL
@@ -156,6 +180,9 @@ class WireProtocolTest {
         assertEquals(null, session.sessionToken)
     }
 
+    /**
+     * Runs the delayedResponseToAnEarlierBoundedRetryCanEstablishTheSession operation.
+     */
     @Test
     fun delayedResponseToAnEarlierBoundedRetryCanEstablishTheSession() {
         var now = 1_000uL
@@ -186,6 +213,9 @@ class WireProtocolTest {
         )
     }
 
+    /**
+     * Runs the accumulatorResynchronizesAfterOversizeInput operation.
+     */
     @Test
     fun accumulatorResynchronizesAfterOversizeInput() {
         val accumulator = FrameAccumulator()
@@ -196,6 +226,9 @@ class WireProtocolTest {
         assertTrue(events.last() is StreamEvent.Frame)
     }
 
+    /**
+     * Runs the crcValidPayloadFailuresAreReturnedAsRejections operation.
+     */
     @Test
     fun crcValidPayloadFailuresAreReturnedAsRejections() {
         val protocolFailure = handleCrcValidFrameSafely {
@@ -226,6 +259,9 @@ class WireProtocolTest {
         assertTrue(malformedResult is FrameHandlingResult.Rejected)
     }
 
+    /**
+     * Runs the heartbeatAckAndStartTelemetryAckAreStrictlyDecoded operation.
+     */
     @Test
     fun heartbeatAckAndStartTelemetryAckAreStrictlyDecoded() {
         DecodedFrame(
@@ -262,6 +298,9 @@ class WireProtocolTest {
         assertThrows(ProtocolException::class.java) { unknownAction.decodeCommandAck() }
     }
 
+    /**
+     * Runs the inboundMessagePolicyRejectsPreSessionAndOutboundOnlyFrames operation.
+     */
     @Test
     fun inboundMessagePolicyRejectsPreSessionAndOutboundOnlyFrames() {
         assertThrows(ProtocolException::class.java) {
@@ -308,6 +347,9 @@ class WireProtocolTest {
         }
     }
 
+    /**
+     * Runs the inboundPriorityMustMatchProductionSenderPolicy operation.
+     */
     @Test
     fun inboundPriorityMustMatchProductionSenderPolicy() {
         DecodedFrame(
@@ -332,6 +374,9 @@ class WireProtocolTest {
         }
     }
 
+    /**
+     * Runs the telemetryTimestampsRequireCurrentTimeSyncAndFreshWindow operation.
+     */
     @Test
     fun telemetryTimestampsRequireCurrentTimeSyncAndFreshWindow() {
         var now = 10_000uL
@@ -410,6 +455,9 @@ class WireProtocolTest {
         }
     }
 
+    /**
+     * Runs the inboundFrameSequenceRejectsReplayAndOutOfOrderWithoutCommittingRejections operation.
+     */
     @Test
     fun inboundFrameSequenceRejectsReplayAndOutOfOrderWithoutCommittingRejections() {
         var now = 10_000uL
@@ -446,6 +494,9 @@ class WireProtocolTest {
         session.requireFreshInboundSequence(21u, MessagePriority.HIGH)
     }
 
+    /**
+     * Runs the inboundFrameSequenceSupportsU32WrapAndInvalidTimeSyncDoesNotCommit operation.
+     */
     @Test
     fun inboundFrameSequenceSupportsU32WrapAndInvalidTimeSyncDoesNotCommit() {
         var now = 20_000uL
@@ -483,6 +534,9 @@ class WireProtocolTest {
         session.requireFreshInboundSequence(1u, MessagePriority.HIGH)
     }
 
+    /**
+     * Runs the batchedNormalFrameIsProcessedBeforeFollowingTimeSyncChangesMapping operation.
+     */
     @Test
     fun batchedNormalFrameIsProcessedBeforeFollowingTimeSyncChangesMapping() {
         var now = 10_000uL
@@ -547,6 +601,9 @@ class WireProtocolTest {
         }
     }
 
+    /**
+     * Runs the lateTelemetryOvertakenByPeriodicTimeSyncUsesBackwardFreshnessMapping operation.
+     */
     @Test
     fun lateTelemetryOvertakenByPeriodicTimeSyncUsesBackwardFreshnessMapping() {
         var now = 10_000uL
@@ -591,6 +648,9 @@ class WireProtocolTest {
         session.commitInboundSequence(2u, MessagePriority.NORMAL)
     }
 
+    /**
+     * Runs the priorityQueueAllowsCommandAckSequenceTwoAfterCriticalHeartbeatSequenceThree operation.
+     */
     @Test
     fun priorityQueueAllowsCommandAckSequenceTwoAfterCriticalHeartbeatSequenceThree() {
         val session = BoardProtocolSession { 1uL }
@@ -615,6 +675,9 @@ class WireProtocolTest {
         }
     }
 
+    /**
+     * Runs the boundedPriorityReorderHandlesWrapButRejectsSamePriorityAndTooOldFrames operation.
+     */
     @Test
     fun boundedPriorityReorderHandlesWrapButRejectsSamePriorityAndTooOldFrames() {
         val wrapSession = BoardProtocolSession { 1uL }
@@ -646,6 +709,9 @@ class WireProtocolTest {
         }
     }
 
+    /**
+     * Runs the deviceFrame operation.
+     */
     private fun deviceFrame(
         type: MessageType,
         sequence: UInt,
@@ -668,12 +734,21 @@ class WireProtocolTest {
         return Cobs.encode(body + crc) + byteArrayOf(0)
     }
 
+    /**
+     * Runs the u64 operation.
+     */
     private fun u64(value: ULong): ByteArray =
         ByteArray(8).also { writeU64(it, 0, value) }
 
+    /**
+     * Runs the u32 operation.
+     */
     private fun u32(value: UInt): ByteArray =
         ByteArray(4).also { writeU32(it, 0, value) }
 
+    /**
+     * Runs the hex operation.
+     */
     private fun hex(value: String): ByteArray = value.trim()
         .split(Regex("\\s+"))
         .filter(String::isNotEmpty)

@@ -11,9 +11,15 @@ internal const val FATAL_BOARD_VALIDATION_ISSUE_MASK: Long = 0x400F
 /** Known unverified-evidence/advisory bits that remain visible in [BoardDeviceInfo]. */
 internal const val ADVISORY_BOARD_VALIDATION_ISSUE_MASK: Long = 0xBFF0
 
+/**
+ * Exposes the KNOWN_BOARD_VALIDATION_ISSUE_MASK value.
+ */
 private const val KNOWN_BOARD_VALIDATION_ISSUE_MASK: Long =
     FATAL_BOARD_VALIDATION_ISSUE_MASK or ADVISORY_BOARD_VALIDATION_ISSUE_MASK
 
+/**
+ * Runs the BoardDeviceInfo operation.
+ */
 internal fun BoardDeviceInfo.validationError(): String? {
     val fatalIssues = boardValidationIssueMask and FATAL_BOARD_VALIDATION_ISSUE_MASK
     val unknownIssues = boardValidationIssueMask and KNOWN_BOARD_VALIDATION_ISSUE_MASK.inv()

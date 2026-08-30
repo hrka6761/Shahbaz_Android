@@ -17,24 +17,66 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
+/**
+ * Documents the ReportDetailsUiState type and the role it plays in this module.
+ */
 data class ReportDetailsUiState(
+    /**
+     * Exposes the sessionId value.
+     */
     val sessionId: String? = null,
+    /**
+     * Exposes the report value.
+     */
     val report: FbbReportDetails? = null,
+    /**
+     * Exposes the loadedReportText value.
+     */
     val loadedReportText: String = "",
+    /**
+     * Exposes the nextReportOffsetBytes value.
+     */
     val nextReportOffsetBytes: Long? = null,
+    /**
+     * Exposes the searchQuery value.
+     */
     val searchQuery: String = "",
+    /**
+     * Exposes the searchMatches value.
+     */
     val searchMatches: List<FbbReportSearchMatch> = emptyList(),
+    /**
+     * Exposes the busy value.
+     */
     val busy: Boolean = false,
+    /**
+     * Exposes the message value.
+     */
     val message: String? = null,
 )
 
+/**
+ * Documents the ReportDetailsViewModel type and the role it plays in this module.
+ */
 class ReportDetailsViewModel(application: Application) : AndroidViewModel(application) {
+    /**
+     * Exposes the appContext value.
+     */
     private val appContext: Application
         get() = getApplication()
 
+    /**
+     * Exposes the _uiState value.
+     */
     private val _uiState = MutableStateFlow(ReportDetailsUiState())
+    /**
+     * Exposes the uiState value.
+     */
     val uiState: StateFlow<ReportDetailsUiState> = _uiState
 
+    /**
+     * Runs the loadReportDetails operation.
+     */
     fun loadReportDetails(sessionId: String) {
         viewModelScope.launch {
             val previousSessionId = _uiState.value.sessionId
@@ -56,6 +98,9 @@ class ReportDetailsViewModel(application: Application) : AndroidViewModel(applic
         }
     }
 
+    /**
+     * Runs the openReport operation.
+     */
     fun openReport(sessionId: String) {
         viewModelScope.launch {
             val chunk = withContext(Dispatchers.IO) {
@@ -77,6 +122,9 @@ class ReportDetailsViewModel(application: Application) : AndroidViewModel(applic
         }
     }
 
+    /**
+     * Runs the loadMoreReportText operation.
+     */
     fun loadMoreReportText() {
         val state = _uiState.value
         val sessionId = state.sessionId ?: return
@@ -97,6 +145,9 @@ class ReportDetailsViewModel(application: Application) : AndroidViewModel(applic
         }
     }
 
+    /**
+     * Runs the searchReport operation.
+     */
     fun searchReport(query: String) {
         val sessionId = _uiState.value.sessionId ?: return
         _uiState.update { it.copy(searchQuery = query) }
@@ -108,6 +159,9 @@ class ReportDetailsViewModel(application: Application) : AndroidViewModel(applic
         }
     }
 
+    /**
+     * Runs the deleteReport operation.
+     */
     fun deleteReport(sessionId: String) {
         viewModelScope.launch {
             val deleted = withContext(Dispatchers.IO) {
@@ -130,17 +184,29 @@ class ReportDetailsViewModel(application: Application) : AndroidViewModel(applic
         }
     }
 
+    /**
+     * Runs the reportFile operation.
+     */
     fun reportFile(sessionId: String): File? =
         FlightBlackBox.reports(appContext).getReportFile(sessionId)
 
+    /**
+     * Runs the showMessage operation.
+     */
     fun showMessage(message: String) {
         _uiState.update { it.copy(message = message) }
     }
 
+    /**
+     * Runs the clearMessage operation.
+     */
     fun clearMessage() {
         _uiState.update { it.copy(message = null) }
     }
 }
 
+/**
+ * Exposes the FbbReportDetails value.
+ */
 val FbbReportDetails.isActiveReport: Boolean
     get() = descriptor.active || descriptor.status == FbbReportStatus.ACTIVE

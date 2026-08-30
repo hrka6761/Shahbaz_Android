@@ -11,6 +11,9 @@ import java.util.Locale
 
 /** Process-owned facade for Shahbaz Flight Black Box diagnostics. */
 object FlightBlackBox {
+    /**
+     * Stores the mutable engine value.
+     */
     @Volatile
     private var engine: FbbEngine? = null
 
@@ -167,21 +170,42 @@ object FlightBlackBox {
 
 /** Minimal report repository. User-facing orchestration belongs in feature/settings. */
 class FlightBlackBoxReports internal constructor(
+    /**
+     * Exposes the storage value.
+     */
     private val storage: FbbStorage,
+    /**
+     * Exposes the activeSessionId value.
+     */
     private val activeSessionId: String?,
 ) {
+    /**
+     * Runs the getReportDescriptors operation.
+     */
     fun getReportDescriptors(): List<FbbReportDescriptor> =
         storage.listDescriptors(activeSessionId)
 
+    /**
+     * Runs the getAllReportDetails operation.
+     */
     fun getAllReportDetails(): List<FbbReportDetails> =
         getReportDescriptors().map { descriptor -> descriptor.toDetails() }
 
+    /**
+     * Runs the getReportDetails operation.
+     */
     fun getReportDetails(sessionId: String): FbbReportDetails? =
         getReportDescriptors().firstOrNull { it.sessionId == sessionId }?.toDetails()
 
+    /**
+     * Runs the getReportFile operation.
+     */
     fun getReportFile(sessionId: String): File? =
         getReportDescriptors().firstOrNull { it.sessionId == sessionId }?.file
 
+    /**
+     * Runs the storageStats operation.
+     */
     fun storageStats(): FbbReportStorageStats {
         val descriptors = getReportDescriptors()
         return FbbReportStorageStats(
@@ -191,6 +215,9 @@ class FlightBlackBoxReports internal constructor(
         )
     }
 
+    /**
+     * Runs the readReportChunk operation.
+     */
     fun readReportChunk(
         sessionId: String,
         offsetBytes: Long = 0L,
@@ -228,6 +255,9 @@ class FlightBlackBoxReports internal constructor(
         )
     }
 
+    /**
+     * Runs the searchReport operation.
+     */
     fun searchReport(
         sessionId: String,
         query: String,
@@ -256,6 +286,9 @@ class FlightBlackBoxReports internal constructor(
         return matches
     }
 
+    /**
+     * Runs the deleteReport operation.
+     */
     fun deleteReport(sessionId: String): Boolean {
         val descriptor = getReportDescriptors().firstOrNull { it.sessionId == sessionId }
             ?: return false
@@ -263,9 +296,15 @@ class FlightBlackBoxReports internal constructor(
         return storage.deleteReport(sessionId)
     }
 
+    /**
+     * Runs the deleteReports operation.
+     */
     fun deleteReports(sessionIds: Collection<String>): Int =
         sessionIds.distinct().count(::deleteReport)
 
+    /**
+     * Runs the deleteAllReports operation.
+     */
     fun deleteAllReports(): Int =
         deleteReports(
             getReportDescriptors()
@@ -273,6 +312,9 @@ class FlightBlackBoxReports internal constructor(
                 .map { it.sessionId }
         )
 
+    /**
+     * Runs the deleteReportsOlderThan operation.
+     */
     fun deleteReportsOlderThan(
         olderThanMillis: Long,
         includeCrashOrErrorReports: Boolean = false,
@@ -288,6 +330,9 @@ class FlightBlackBoxReports internal constructor(
         return deleteReports(candidates)
     }
 
+    /**
+     * Runs the cleanupToMaxStorageBytes operation.
+     */
     fun cleanupToMaxStorageBytes(
         maxBytes: Long,
         includeCrashOrErrorReports: Boolean = false,
@@ -310,6 +355,9 @@ class FlightBlackBoxReports internal constructor(
         return deleted
     }
 
+    /**
+     * Runs the FbbReportDescriptor operation.
+     */
     private fun FbbReportDescriptor.toDetails(): FbbReportDetails {
         var eventCount = 0
         var warningCount = 0
@@ -351,12 +399,18 @@ class FlightBlackBoxReports internal constructor(
         )
     }
 
+    /**
+     * Runs the FbbReportDetails operation.
+     */
     private fun FbbReportDetails.isCrashOrErrorReport(): Boolean =
         crashCount > 0 ||
             errorCount > 0 ||
             descriptor.status == FbbReportStatus.CRASHED ||
             descriptor.status == FbbReportStatus.ABNORMAL_TERMINATION
 
+    /**
+     * Runs the MatchResult operation.
+     */
     private fun MatchResult.relativeMillis(): Long {
         val hours = groupValues[1].toLong()
         val minutes = groupValues[2].toLong()
@@ -365,6 +419,9 @@ class FlightBlackBoxReports internal constructor(
         return (((hours * 60L) + minutes) * 60L + seconds) * 1_000L + millis
     }
 
+    /**
+     * Runs the String operation.
+     */
     private fun String.toBoundedExcerpt(query: String): String {
         val trimmed = trim()
         if (trimmed.length <= SEARCH_EXCERPT_CHARS) return trimmed
@@ -388,6 +445,9 @@ class FlightBlackBoxReports internal constructor(
     }
 }
 
+/**
+ * Runs the Context operation.
+ */
 private fun Context.defaultAppInfo(): FbbAppInfo {
     val packageInfo = packageManager.getPackageInfo(packageName, 0)
     return FbbAppInfo(

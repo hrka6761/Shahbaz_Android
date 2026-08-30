@@ -22,7 +22,13 @@ import kotlinx.coroutines.flow.asStateFlow
  * @property snapshot Latest merged phone-sensor values after applying this event.
  */
 data class AndroidPhoneSensorFrame(
+    /**
+     * Exposes the timestampNanos value.
+     */
     val timestampNanos: Long,
+    /**
+     * Exposes the snapshot value.
+     */
     val snapshot: PhoneSensorSnapshot,
 )
 
@@ -33,6 +39,9 @@ data class AndroidPhoneSensorFrame(
  * top, Z out of the screen) into aircraft body FRD axes (X forward, Y right, Z down).
  */
 data class AndroidPhoneSensorMounting(
+    /**
+     * Exposes the bodyFromDeviceRotation value.
+     */
     val bodyFromDeviceRotation: Quaterniond,
 ) {
     init {
@@ -65,17 +74,38 @@ data class AndroidPhoneSensorMounting(
  */
 class AndroidPhoneSensorSource(
     context: Context,
+    /**
+     * Exposes the samplingPeriodUs value.
+     */
     private val samplingPeriodUs: Int = SensorManager.SENSOR_DELAY_GAME,
+    /**
+     * Exposes the mounting value.
+     */
     private val mounting: AndroidPhoneSensorMounting =
         AndroidPhoneSensorMounting.SCREEN_UP_TOP_FORWARD,
 ) : Closeable {
+    /**
+     * Exposes the sensorManager value.
+     */
     private val sensorManager =
         context.applicationContext.getSystemService(Context.SENSOR_SERVICE) as SensorManager
+    /**
+     * Exposes the mutableFrame value.
+     */
     private val mutableFrame = MutableStateFlow(
         AndroidPhoneSensorFrame(0L, PhoneSensorSnapshot()),
     )
+    /**
+     * Stores the mutable latest value.
+     */
     private var latest = PhoneSensorSnapshot()
+    /**
+     * Stores the mutable started value.
+     */
     private var started = false
+    /**
+     * Stores the mutable lastEvent value.
+     */
     private var lastEvent: FbbEventRef? = null
 
     /** Latest merged phone-sensor frame. The initial value has timestamp `0` and empty sensors. */

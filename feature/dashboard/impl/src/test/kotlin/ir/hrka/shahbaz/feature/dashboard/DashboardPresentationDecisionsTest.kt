@@ -23,7 +23,13 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
+/**
+ * Documents the DashboardPresentationDecisionsTest type and the role it plays in this module.
+ */
 class DashboardPresentationDecisionsTest {
+    /**
+     * Runs the repeatedForegroundCallbacksPreservePermissionRequestReturn operation.
+     */
     @Test
     fun repeatedForegroundCallbacksPreservePermissionRequestReturn() {
         val firstForeground = permissionRequestReturnedToHostAfterForeground(
@@ -41,6 +47,9 @@ class DashboardPresentationDecisionsTest {
         assertTrue(repeatedForeground)
     }
 
+    /**
+     * Runs the deferredPermissionRequestReturningToPermissionRequiredIsTerminal operation.
+     */
     @Test
     fun deferredPermissionRequestReturningToPermissionRequiredIsTerminal() {
         val requestPending = true
@@ -74,6 +83,9 @@ class DashboardPresentationDecisionsTest {
         )
     }
 
+    /**
+     * Runs the usbPermissionRequestKeepsReceiverAliveAcrossSystemPromptLifecycle operation.
+     */
     @Test
     fun usbPermissionRequestKeepsReceiverAliveAcrossSystemPromptLifecycle() {
         assertTrue(
@@ -156,6 +168,9 @@ class DashboardPresentationDecisionsTest {
         )
     }
 
+    /**
+     * Runs the paneLayoutUsesLandscapeOnlyWhenWidthExceedsHeight operation.
+     */
     @Test
     fun paneLayoutUsesLandscapeOnlyWhenWidthExceedsHeight() {
         assertEquals(DashboardPaneLayout.LANDSCAPE, dashboardPaneLayout(900f, 500f))
@@ -163,11 +178,17 @@ class DashboardPresentationDecisionsTest {
         assertEquals(DashboardPaneLayout.PORTRAIT, dashboardPaneLayout(600f, 600f))
     }
 
+    /**
+     * Runs the paneLayoutRejectsInvalidDimensions operation.
+     */
     @Test(expected = IllegalArgumentException::class)
     fun paneLayoutRejectsInvalidDimensions() {
         dashboardPaneLayout(-1f, 600f)
     }
 
+    /**
+     * Runs the instrumentColumnCountAdaptsWithoutChangingPaneRatio operation.
+     */
     @Test
     fun instrumentColumnCountAdaptsWithoutChangingPaneRatio() {
         assertEquals(1, instrumentColumnCount(519f))
@@ -175,6 +196,9 @@ class DashboardPresentationDecisionsTest {
         assertEquals(3, instrumentColumnCount(900f))
     }
 
+    /**
+     * Runs the attachedDashboardMapStyleWinsOverLateLoadFailureOrTimeout operation.
+     */
     @Test
     fun attachedDashboardMapStyleWinsOverLateLoadFailureOrTimeout() {
         assertEquals(
@@ -199,6 +223,9 @@ class DashboardPresentationDecisionsTest {
         )
     }
 
+    /**
+     * Runs the dashboardMapKeepsOfflineStateDistinctAfterStyleAttachment operation.
+     */
     @Test
     fun dashboardMapKeepsOfflineStateDistinctAfterStyleAttachment() {
         assertEquals(
@@ -213,6 +240,9 @@ class DashboardPresentationDecisionsTest {
         )
     }
 
+    /**
+     * Runs the dashboardRemainsBlockedUntilFullReadyState operation.
+     */
     @Test
     fun dashboardRemainsBlockedUntilFullReadyState() {
         assertTrue(shouldBlockDashboard(BoardConnectionState.Searching))
@@ -234,6 +264,9 @@ class DashboardPresentationDecisionsTest {
         )
     }
 
+    /**
+     * Runs the dashboardBlockReasonMatchesConnectionStateForReports operation.
+     */
     @Test
     fun dashboardBlockReasonMatchesConnectionStateForReports() {
         assertEquals("Searching", dashboardBlockReason(BoardConnectionState.Searching))
@@ -246,6 +279,9 @@ class DashboardPresentationDecisionsTest {
         )
     }
 
+    /**
+     * Runs the readyBoardEvidenceWarningsAreDegradedButDoNotBlockTheDashboard operation.
+     */
     @Test
     fun readyBoardEvidenceWarningsAreDegradedButDoNotBlockTheDashboard() {
         val clean = BoardConnectionState.Ready(Device, DeviceInfo, 10L)
@@ -260,6 +296,9 @@ class DashboardPresentationDecisionsTest {
         assertFalse(shouldBlockDashboard(advisory))
     }
 
+    /**
+     * Runs the gateOffersOnlyTheRecoveryActionAppropriateToState operation.
+     */
     @Test
     fun gateOffersOnlyTheRecoveryActionAppropriateToState() {
         assertEquals(
@@ -292,6 +331,9 @@ class DashboardPresentationDecisionsTest {
         )
     }
 
+    /**
+     * Runs the everyExternalSensorStateHasAnExplicitPresentation operation.
+     */
     @Test
     fun everyExternalSensorStateHasAnExplicitPresentation() {
         assertEquals(InstrumentStatusKind.LIVE, sensorStatusKind(SensorState.Available(Sample)))
@@ -335,6 +377,9 @@ class DashboardPresentationDecisionsTest {
         }
     }
 
+    /**
+     * Runs the everyPhoneSensorStateHasAnExplicitPresentation operation.
+     */
     @Test
     fun everyPhoneSensorStateHasAnExplicitPresentation() {
         assertEquals(InstrumentStatusKind.INACTIVE, phoneStatusKind(PhoneReading.Inactive))
@@ -363,6 +408,9 @@ class DashboardPresentationDecisionsTest {
         assertEquals(InstrumentStatusKind.ERROR, phoneStatusKind(PhoneReading.Failed("failed")))
     }
 
+    /**
+     * Runs the compassAccuracyNeverPresentsUnknownLowOrUnreliableAsHealthy operation.
+     */
     @Test
     fun compassAccuracyNeverPresentsUnknownLowOrUnreliableAsHealthy() {
         assertEquals(
@@ -423,6 +471,9 @@ class DashboardPresentationDecisionsTest {
             ),
         )
 
+        /**
+         * Runs the reading operation.
+         */
         fun reading(level: CompassAccuracyLevel) = CompassReading(
             magneticAzimuthDegrees = 30f,
             trueAzimuthDegrees = null,

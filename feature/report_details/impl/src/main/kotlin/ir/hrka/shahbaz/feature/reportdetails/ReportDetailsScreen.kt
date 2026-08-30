@@ -71,6 +71,9 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
+/**
+ * Runs the ReportDetailsScreen operation.
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ReportDetailsScreen(
@@ -184,6 +187,9 @@ fun ReportDetailsScreen(
     }
 }
 
+/**
+ * Runs the ReportDetails operation.
+ */
 @Composable
 private fun ReportDetails(
     state: ReportDetailsUiState,
@@ -263,6 +269,9 @@ private fun ReportDetails(
     }
 }
 
+/**
+ * Runs the ReportViewer operation.
+ */
 @Composable
 private fun ReportViewer(
     state: ReportDetailsUiState,
@@ -334,6 +343,9 @@ private fun ReportViewer(
     }
 }
 
+/**
+ * Runs the ReportHeader operation.
+ */
 @Composable
 private fun ReportHeader(report: FbbReportDetails) {
     Card(
@@ -354,6 +366,9 @@ private fun ReportHeader(report: FbbReportDetails) {
     }
 }
 
+/**
+ * Runs the DetailLine operation.
+ */
 @Composable
 private fun DetailLine(label: String, value: String) {
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
@@ -362,6 +377,9 @@ private fun DetailLine(label: String, value: String) {
     }
 }
 
+/**
+ * Runs the MissingReport operation.
+ */
 @Composable
 private fun MissingReport(contentPadding: PaddingValues) {
     Box(
@@ -374,6 +392,9 @@ private fun MissingReport(contentPadding: PaddingValues) {
     }
 }
 
+/**
+ * Runs the ReportStatusIcon operation.
+ */
 @Composable
 private fun ReportStatusIcon(status: FbbReportStatus) {
     val icon = when (status) {
@@ -393,11 +414,17 @@ private fun ReportStatusIcon(status: FbbReportStatus) {
     Icon(icon, contentDescription = null, tint = tint)
 }
 
+/**
+ * Runs the reportDetailsTitle operation.
+ */
 private fun reportDetailsTitle(route: String): String = when (route) {
     ReportDetailsRoute.VIEWER.name -> "Report Viewer"
     else -> "Report Details"
 }
 
+/**
+ * Runs the shareReport operation.
+ */
 private fun shareReport(context: Context, file: File) {
     val uri = FileProvider.getUriForFile(
         context,
@@ -412,6 +439,9 @@ private fun shareReport(context: Context, file: File) {
     context.startActivity(Intent.createChooser(intent, "Share flight black box report"))
 }
 
+/**
+ * Runs the exportReport operation.
+ */
 private fun exportReport(context: Context, source: File, destination: Uri) {
     val output = context.contentResolver.openOutputStream(destination)
         ?: error("Could not open destination")
@@ -422,9 +452,15 @@ private fun exportReport(context: Context, source: File, destination: Uri) {
     }
 }
 
+/**
+ * Runs the formatTimestamp operation.
+ */
 private fun formatTimestamp(epochMillis: Long): String =
     SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault()).format(Date(epochMillis))
 
+/**
+ * Runs the formatDuration operation.
+ */
 private fun formatDuration(durationMillis: Long): String {
     val totalSeconds = durationMillis / 1_000L
     val hours = totalSeconds / 3_600L
@@ -437,6 +473,9 @@ private fun formatDuration(durationMillis: Long): String {
     }
 }
 
+/**
+ * Runs the formatBytes operation.
+ */
 private fun formatBytes(bytes: Long): String {
     if (bytes < 1_024L) return "$bytes B"
     val units = listOf("KB", "MB", "GB")
@@ -449,6 +488,9 @@ private fun formatBytes(bytes: Long): String {
     return String.format(Locale.US, "%.1f %s", value, units[index])
 }
 
+/**
+ * Documents the ReportDetailsRoute type and the role it plays in this module.
+ */
 private enum class ReportDetailsRoute {
     DETAILS,
     VIEWER,

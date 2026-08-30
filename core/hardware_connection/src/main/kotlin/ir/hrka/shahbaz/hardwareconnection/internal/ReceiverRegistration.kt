@@ -1,6 +1,9 @@
 /** Transactional registration helper used to avoid partially installed USB receivers. */
 package ir.hrka.shahbaz.hardwareconnection.internal
 
+/**
+ * Runs the registerReceiversAtomically operation.
+ */
 internal inline fun registerReceiversAtomically(
     registerPermissionReceiver: () -> Unit,
     registerUsbLifecycleReceiver: () -> Unit,

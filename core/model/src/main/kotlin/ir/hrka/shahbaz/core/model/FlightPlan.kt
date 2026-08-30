@@ -15,8 +15,17 @@ package ir.hrka.shahbaz.core.model
  * greater than zero.
  */
 data class FlightPlan(
+    /**
+     * Exposes the origin value.
+     */
     val origin: GeoCoordinate,
+    /**
+     * Exposes the destination value.
+     */
     val destination: GeoCoordinate,
+    /**
+     * Exposes the targetAltitudeAboveOriginMeters value.
+     */
     val targetAltitudeAboveOriginMeters: Double,
 ) {
     /** Enforces a finite, positive altitude at the shared-model boundary. */

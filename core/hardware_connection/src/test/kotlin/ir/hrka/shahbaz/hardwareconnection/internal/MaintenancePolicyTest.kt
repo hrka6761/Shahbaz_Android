@@ -8,7 +8,13 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
+/**
+ * Documents the MaintenancePolicyTest type and the role it plays in this module.
+ */
 class MaintenancePolicyTest {
+    /**
+     * Runs the heartbeatAndStatusMaintenanceStartsOnlyAfterDeviceInfoValidation operation.
+     */
     @Test
     fun heartbeatAndStatusMaintenanceStartsOnlyAfterDeviceInfoValidation() {
         assertFalse(allowsPostValidationMaintenance(BoardConnectionState.Synchronizing(device)))
@@ -22,7 +28,13 @@ class MaintenancePolicyTest {
         assertTrue(allowsPostValidationMaintenance(BoardConnectionState.Ready(device, info, 10L)))
     }
 
+    /**
+     * Exposes the device value.
+     */
     private val device = BoardUsbDevice(1, "usb", 0x303A, 0x4001)
+    /**
+     * Exposes the info value.
+     */
     private val info = BoardDeviceInfo(
         protocolVersion = 2,
         target = BoardTarget.ESP32_S3,

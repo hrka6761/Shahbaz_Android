@@ -16,24 +16,69 @@ import java.util.TimeZone
 import java.util.UUID
 import java.util.regex.Pattern
 
+/**
+ * Documents the FbbSessionMetadata type and the role it plays in this module.
+ */
 internal data class FbbSessionMetadata(
+    /**
+     * Exposes the sessionId value.
+     */
     val sessionId: String,
+    /**
+     * Exposes the reportFileName value.
+     */
     val reportFileName: String,
+    /**
+     * Exposes the startedAtEpochMillis value.
+     */
     val startedAtEpochMillis: Long,
+    /**
+     * Exposes the status value.
+     */
     val status: FbbReportStatus,
+    /**
+     * Exposes the latestProducedSequence value.
+     */
     val latestProducedSequence: Long,
+    /**
+     * Exposes the latestWrittenSequence value.
+     */
     val latestWrittenSequence: Long,
+    /**
+     * Exposes the latestDurableSequence value.
+     */
     val latestDurableSequence: Long,
 )
 
+/**
+ * Documents the FbbRecoveryInspection type and the role it plays in this module.
+ */
 internal data class FbbRecoveryInspection(
+    /**
+     * Exposes the latestSequence value.
+     */
     val latestSequence: Long,
+    /**
+     * Exposes the truncatedIncompleteTail value.
+     */
     val truncatedIncompleteTail: Boolean,
 )
 
+/**
+ * Documents the FbbStorage type and the role it plays in this module.
+ */
 internal class FbbStorage private constructor(private val rootDir: File) {
+    /**
+     * Exposes the reportsDir value.
+     */
     private val reportsDir = File(rootDir, "reports")
+    /**
+     * Exposes the metadataDir value.
+     */
     private val metadataDir = File(rootDir, "metadata")
+    /**
+     * Exposes the activeMetadataFile value.
+     */
     private val activeMetadataFile = File(metadataDir, "active_session.properties")
 
     init {
@@ -41,6 +86,9 @@ internal class FbbStorage private constructor(private val rootDir: File) {
         metadataDir.mkdirs()
     }
 
+    /**
+     * Runs the createSession operation.
+     */
     fun createSession(clock: FbbClock): FbbSessionMetadata {
         val sessionId = UUID.randomUUID().toString()
         val started = clock.wallClockMillis()
@@ -59,8 +107,14 @@ internal class FbbStorage private constructor(private val rootDir: File) {
         return metadata
     }
 
+    /**
+     * Runs the reportFile operation.
+     */
     fun reportFile(metadata: FbbSessionMetadata): File = File(reportsDir, metadata.reportFileName)
 
+    /**
+     * Runs the writeSessionMetadata operation.
+     */
     fun writeSessionMetadata(metadata: FbbSessionMetadata) {
         metadataDir.mkdirs()
         val file = sessionMetadataFile(metadata.sessionId)
@@ -70,14 +124,23 @@ internal class FbbStorage private constructor(private val rootDir: File) {
         }
     }
 
+    /**
+     * Runs the updateActiveMetadata operation.
+     */
     fun updateActiveMetadata(metadata: FbbSessionMetadata) {
         writeSessionMetadata(metadata)
         if (metadata.status == FbbReportStatus.ACTIVE) writeActiveMetadata(metadata)
     }
 
+    /**
+     * Runs the readActiveMetadata operation.
+     */
     fun readActiveMetadata(): FbbSessionMetadata? =
         readMetadataFile(activeMetadataFile)
 
+    /**
+     * Runs the listDescriptors operation.
+     */
     fun listDescriptors(activeSessionId: String?): List<FbbReportDescriptor> {
         val metadata = metadataDir.listFiles { file ->
             file.isFile &&
@@ -99,6 +162,9 @@ internal class FbbStorage private constructor(private val rootDir: File) {
         }.sortedByDescending { it.startedAtEpochMillis }
     }
 
+    /**
+     * Runs the deleteReport operation.
+     */
     fun deleteReport(sessionId: String): Boolean {
         val metadata = readMetadataFile(sessionMetadataFile(sessionId)) ?: return false
         if (metadata.status == FbbReportStatus.ACTIVE) return false
@@ -107,6 +173,9 @@ internal class FbbStorage private constructor(private val rootDir: File) {
         return reportDeleted || metadataDeleted
     }
 
+    /**
+     * Runs the inspectAndRepairReport operation.
+     */
     fun inspectAndRepairReport(report: File): FbbRecoveryInspection {
         if (!report.exists() || report.length() == 0L) {
             return FbbRecoveryInspection(latestSequence = 0L, truncatedIncompleteTail = false)
@@ -123,6 +192,9 @@ internal class FbbStorage private constructor(private val rootDir: File) {
         return FbbRecoveryInspection(latestSequence, truncated)
     }
 
+    /**
+     * Runs the appendRecoveryRecord operation.
+     */
     fun appendRecoveryRecord(
         metadata: FbbSessionMetadata,
         sequence: Long,
@@ -166,10 +238,16 @@ internal class FbbStorage private constructor(private val rootDir: File) {
         return updated
     }
 
+    /**
+     * Runs the writeActiveMetadata operation.
+     */
     private fun writeActiveMetadata(metadata: FbbSessionMetadata) {
         writePropertiesAtomically(activeMetadataFile, metadata, "Shahbaz Flight Black Box active session")
     }
 
+    /**
+     * Runs the writePropertiesAtomically operation.
+     */
     private fun writePropertiesAtomically(
         target: File,
         metadata: FbbSessionMetadata,
@@ -198,8 +276,14 @@ internal class FbbStorage private constructor(private val rootDir: File) {
         }
     }
 
+    /**
+     * Runs the activeSessionId operation.
+     */
     private fun activeSessionId(): String? = readMetadataFile(activeMetadataFile)?.sessionId
 
+    /**
+     * Runs the readMetadataFile operation.
+     */
     private fun readMetadataFile(file: File): FbbSessionMetadata? {
         if (!file.exists()) return null
         val properties = Properties()
@@ -217,6 +301,9 @@ internal class FbbStorage private constructor(private val rootDir: File) {
         }.getOrNull()
     }
 
+    /**
+     * Runs the FbbSessionMetadata operation.
+     */
     private fun FbbSessionMetadata.toProperties(): Properties = Properties().apply {
         setProperty("sessionId", sessionId)
         setProperty("reportFileName", reportFileName)
@@ -227,9 +314,15 @@ internal class FbbStorage private constructor(private val rootDir: File) {
         setProperty("latestDurableSequence", latestDurableSequence.toString())
     }
 
+    /**
+     * Runs the sessionMetadataFile operation.
+     */
     private fun sessionMetadataFile(sessionId: String): File =
         File(metadataDir, "$sessionId.properties")
 
+    /**
+     * Runs the uniqueReportFileName operation.
+     */
     private fun uniqueReportFileName(sessionId: String, startedAtEpochMillis: Long): String {
         val formatter = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).apply {
             timeZone = TimeZone.getDefault()
@@ -246,6 +339,9 @@ internal class FbbStorage private constructor(private val rootDir: File) {
         return candidate
     }
 
+    /**
+     * Runs the truncateIncompleteTail operation.
+     */
     private fun truncateIncompleteTail(report: File): Boolean {
         RandomAccessFile(report, "rw").use { file ->
             val length = file.length()
@@ -269,10 +365,16 @@ internal class FbbStorage private constructor(private val rootDir: File) {
     companion object {
         private val EventIdPattern = Pattern.compile("\\bE(\\d{6,})\\b")
 
+        /**
+         * Runs the fromFilesDir operation.
+         */
         fun fromFilesDir(filesDir: File): FbbStorage =
             FbbStorage(File(filesDir, "flight_black_box"))
     }
 }
 
+/**
+ * Runs the Properties operation.
+ */
 private fun Properties.requireProperty(name: String): String =
     getProperty(name) ?: error("Missing property $name")

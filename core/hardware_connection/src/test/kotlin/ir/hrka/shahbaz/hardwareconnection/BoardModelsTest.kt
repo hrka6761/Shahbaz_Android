@@ -4,7 +4,13 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertThrows
 import org.junit.Test
 
+/**
+ * Documents the BoardModelsTest type and the role it plays in this module.
+ */
 class BoardModelsTest {
+    /**
+     * Runs the usbIdentityMatchesProductionTinyUsbCdcDescriptor operation.
+     */
     @Test
     fun usbIdentityMatchesProductionTinyUsbCdcDescriptor() {
         assertEquals(0x303A, ShahbazBoardUsbIdentity.VENDOR_ID)
@@ -13,6 +19,9 @@ class BoardModelsTest {
         assertEquals(false, hasExactShahbazBoardUsbIdentity(0x303A, 0x4002))
     }
 
+    /**
+     * Runs the invalidTimingAndQnhConfigurationIsRejected operation.
+     */
     @Test
     fun invalidTimingAndQnhConfigurationIsRejected() {
         assertThrows(IllegalArgumentException::class.java) {
@@ -41,6 +50,9 @@ class BoardModelsTest {
         }
     }
 
+    /**
+     * Runs the actuatorPulseBoundsAreValidated operation.
+     */
     @Test
     fun actuatorPulseBoundsAreValidated() {
         val bounds = BoardPulseBounds(900, 2_100)

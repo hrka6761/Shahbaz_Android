@@ -1,7 +1,13 @@
 /** One physical-attachment Protocol v2 session with bounded parser and fresh token state. */
 package ir.hrka.shahbaz.hardwareconnection.internal.protocol
 
+/**
+ * Documents the BoardProtocolSession type and the role it plays in this module.
+ */
 internal class BoardProtocolSession(
+    /**
+     * Exposes the monotonicMicros value.
+     */
     private val monotonicMicros: () -> ULong,
 ) {
     companion object {
@@ -11,11 +17,23 @@ internal class BoardProtocolSession(
         const val INBOUND_REORDER_WINDOW: Int = 12
     }
 
+    /**
+     * Defines the Event contract used by this module.
+     */
     sealed interface Event {
+        /**
+         * Documents the FrameReceived type and the role it plays in this module.
+         */
         data class FrameReceived(val frame: DecodedFrame) : Event
+        /**
+         * Documents the Rejected type and the role it plays in this module.
+         */
         data class Rejected(val exception: ProtocolException) : Event
     }
 
+    /**
+     * Documents the EncodedCommand type and the role it plays in this module.
+     */
     data class EncodedCommand(
         val sequence: UInt,
         val type: MessageType,
@@ -31,6 +49,9 @@ internal class BoardProtocolSession(
     private var highestAcceptedInboundSequence: UInt? = null
     private val acceptedInboundPriorities = arrayOfNulls<MessagePriority>(INBOUND_REORDER_WINDOW)
 
+    /**
+     * Documents the TimeMapping type and the role it plays in this module.
+     */
     private data class TimeMapping(
         val deviceReferenceUs: ULong,
         val hostReferenceUs: ULong,
@@ -41,16 +62,25 @@ internal class BoardProtocolSession(
     var sessionToken: ULong? = null
         private set
 
+    /**
+     * Runs the attach operation.
+     */
     fun attach() {
         reset()
         attached = true
     }
 
+    /**
+     * Runs the detach operation.
+     */
     fun detach() {
         reset()
         attached = false
     }
 
+    /**
+     * Runs the buildTimeSync operation.
+     */
     fun buildTimeSync(): EncodedCommand {
         requireAttached()
         val now = monotonicMicros()
@@ -58,29 +88,71 @@ internal class BoardProtocolSession(
         return encode(SafeRequests.timeSync(now))
     }
 
+    /**
+     * Runs the buildDeviceInfo operation.
+     */
     fun buildDeviceInfo() = encodeAttached(SafeRequests.deviceInfo())
+    /**
+     * Runs the buildDeviceStatus operation.
+     */
     fun buildDeviceStatus() = encodeAttached(SafeRequests.deviceStatus())
+    /**
+     * Runs the buildStartTelemetry operation.
+     */
     fun buildStartTelemetry() = encodeAttached(SafeRequests.startTelemetry())
+    /**
+     * Runs the buildStopTelemetry operation.
+     */
     fun buildStopTelemetry() = encodeAttached(SafeRequests.stopTelemetry())
+    /**
+     * Runs the buildHeartbeat operation.
+     */
     fun buildHeartbeat() = encodeAttached(SafeRequests.heartbeat())
+    /**
+     * Runs the buildDisarm operation.
+     */
     fun buildDisarm() = encodeAttached(SafeRequests.disarm())
+    /**
+     * Runs the buildEmergencyStop operation.
+     */
     fun buildEmergencyStop() = encodeAttached(SafeRequests.emergencyStop())
+    /**
+     * Runs the buildArmRequest operation.
+     */
     fun buildArmRequest() = encodeAttached(SafeRequests.armRequest())
+    /**
+     * Runs the buildArmConfirm operation.
+     */
     fun buildArmConfirm() = encodeAttached(SafeRequests.armConfirm())
+    /**
+     * Runs the buildMotorCommand operation.
+     */
     fun buildMotorCommand(
         channel: Int,
         pulseMicros: Int,
         generatedAtHostMicros: ULong = monotonicMicros(),
     ) = encodeAttached(SafeRequests.motorCommand(channel, pulseMicros), generatedAtHostMicros)
 
+    /**
+     * Runs the buildServoCommand operation.
+     */
     fun buildServoCommand(channel: Int, pulseMicros: Int) =
         encodeAttached(SafeRequests.servoCommand(channel, pulseMicros))
 
+    /**
+     * Runs the buildActuatorCommand operation.
+     */
     fun buildActuatorCommand(kind: ActuatorKind, channel: Int, pulseMicros: Int) =
         encodeAttached(SafeRequests.actuatorCommand(kind, channel, pulseMicros))
 
+    /**
+     * Runs the buildSetControlMode operation.
+     */
     fun buildSetControlMode(mode: Int) = encodeAttached(SafeRequests.setControlMode(mode))
 
+    /**
+     * Runs the timeSyncRefreshDue operation.
+     */
     fun timeSyncRefreshDue(nowUs: ULong = monotonicMicros()): Boolean {
         val last = lastSuccessfulTimeSyncHostUs ?: return true
         return nowUs >= last && nowUs - last >= TIME_SYNC_REFRESH_MICROS
@@ -123,6 +195,9 @@ internal class BoardProtocolSession(
         )
     }
 
+    /**
+     * Runs the requireFreshDeviceFrameTimestamp operation.
+     */
     fun requireFreshDeviceFrameTimestamp(
         frameSenderUs: ULong,
         receivedHostUs: ULong,
@@ -182,6 +257,9 @@ internal class BoardProtocolSession(
         }
     }
 
+    /**
+     * Runs the commitInboundSequence operation.
+     */
     fun commitInboundSequence(sequence: UInt, priority: MessagePriority) {
         requireFreshInboundSequence(sequence, priority)
         val highest = highestAcceptedInboundSequence
@@ -259,6 +337,9 @@ internal class BoardProtocolSession(
         return timeSync.sessionToken
     }
 
+    /**
+     * Runs the feed operation.
+     */
     fun feed(bytes: ByteArray): List<Event> {
         if (!attached) return emptyList()
         val output = mutableListOf<Event>()
@@ -271,6 +352,9 @@ internal class BoardProtocolSession(
         return output
     }
 
+    /**
+     * Runs the encodeAttached operation.
+     */
     private fun encodeAttached(
         request: OutboundRequest,
         senderMonotonicUs: ULong = monotonicMicros(),
@@ -279,6 +363,9 @@ internal class BoardProtocolSession(
         return encode(request, senderMonotonicUs)
     }
 
+    /**
+     * Runs the encode operation.
+     */
     private fun encode(
         request: OutboundRequest,
         senderMonotonicUs: ULong = monotonicMicros(),
@@ -297,12 +384,18 @@ internal class BoardProtocolSession(
         )
     }
 
+    /**
+     * Runs the requireAttached operation.
+     */
     private fun requireAttached() {
         if (!attached) {
             throw ProtocolException(ProtocolErrorKind.POLICY_REJECTED, "USB is not attached")
         }
     }
 
+    /**
+     * Runs the requireCurrentTimeMapping operation.
+     */
     private fun requireCurrentTimeMapping(frameName: String): TimeMapping {
         if (sessionToken == null) {
             throw ProtocolException(
@@ -316,6 +409,9 @@ internal class BoardProtocolSession(
         )
     }
 
+    /**
+     * Runs the requireFreshDeviceTimestamp operation.
+     */
     private fun requireFreshDeviceTimestamp(
         label: String,
         deviceTimestampUs: ULong,
@@ -368,6 +464,9 @@ internal class BoardProtocolSession(
         }
     }
 
+    /**
+     * Runs the reset operation.
+     */
     private fun reset() {
         accumulator.reset()
         nextSequence = 1u

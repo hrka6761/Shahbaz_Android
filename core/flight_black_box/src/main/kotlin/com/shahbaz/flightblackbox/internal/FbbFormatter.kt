@@ -13,20 +13,50 @@ import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.Locale
 
+/**
+ * Documents the FbbSession type and the role it plays in this module.
+ */
 internal data class FbbSession(
+    /**
+     * Exposes the id value.
+     */
     val id: String,
+    /**
+     * Exposes the startedAtEpochMillis value.
+     */
     val startedAtEpochMillis: Long,
+    /**
+     * Exposes the startedAtElapsedNanos value.
+     */
     val startedAtElapsedNanos: Long,
+    /**
+     * Exposes the reportFileName value.
+     */
     val reportFileName: String,
 )
 
+/**
+ * Documents the FbbFormatter type and the role it plays in this module.
+ */
 internal class FbbFormatter(
+    /**
+     * Exposes the session value.
+     */
     private val session: FbbSession,
+    /**
+     * Exposes the appInfo value.
+     */
     private val appInfo: FbbAppInfo,
+    /**
+     * Exposes the config value.
+     */
     private val config: FbbConfig,
 ) {
     private val redactor = FbbRedactor(config)
 
+    /**
+     * Runs the header operation.
+     */
     fun header(): List<String> = listOf(
         "SHAHBAZ FLIGHT BLACK BOX",
         "Format: SEN/1",
@@ -46,6 +76,9 @@ internal class FbbFormatter(
         "TIMELINE",
     )
 
+    /**
+     * Runs the event operation.
+     */
     fun event(sequence: Long, event: FbbEvent, elapsedNanos: Long): List<String> {
         val eventId = formatEventId(sequence)
         val detail = event.detail?.let { redactor.detail(it) }
@@ -82,9 +115,15 @@ internal class FbbFormatter(
         return listOf(mainLine) + formatDetail(detailId, detail)
     }
 
+    /**
+     * Runs the footer operation.
+     */
     fun footer(status: FbbReportStatus, endedAtEpochMillis: Long, latestSequence: Long): List<String> =
         footerLines(status, endedAtEpochMillis, latestSequence)
 
+    /**
+     * Runs the throwableEvent operation.
+     */
     fun throwableEvent(
         sequence: Long,
         type: FbbEventType,
@@ -109,6 +148,9 @@ internal class FbbFormatter(
         )
     }
 
+    /**
+     * Runs the formatDetail operation.
+     */
     private fun formatDetail(detailId: String, detail: String): List<String> {
         val normalizedLines = detail
             .lineSequence()
@@ -122,6 +164,9 @@ internal class FbbFormatter(
         }
     }
 
+    /**
+     * Runs the detailId operation.
+     */
     private fun detailId(text: String): String =
         "D" + text.sha256Short().uppercase(Locale.US)
 
@@ -130,11 +175,20 @@ internal class FbbFormatter(
         private val WallTimeFormatter =
             DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss.SSS XXX", Locale.US)
 
+        /**
+         * Runs the formatEventId operation.
+         */
         fun formatEventId(sequence: Long): String = "E" + sequence.toString().padStart(6, '0')
 
+        /**
+         * Runs the formatWallTime operation.
+         */
         fun formatWallTime(epochMillis: Long): String =
             Instant.ofEpochMilli(epochMillis).atZone(ZoneId.systemDefault()).format(WallTimeFormatter)
 
+        /**
+         * Runs the footerLines operation.
+         */
         fun footerLines(
             status: FbbReportStatus,
             endedAtEpochMillis: Long,
@@ -145,6 +199,9 @@ internal class FbbFormatter(
                 "latestEvent=${latestSequence.toLatestEventId()} #END",
         )
 
+        /**
+         * Runs the formatRelative operation.
+         */
         fun formatRelative(nanos: Long): String {
             val millis = (nanos.coerceAtLeast(0L) / 1_000_000L)
             val hours = millis / 3_600_000L
@@ -154,6 +211,9 @@ internal class FbbFormatter(
             return "+%02d:%02d:%02d.%03d".format(Locale.US, hours, minutes, seconds, remainder)
         }
 
+        /**
+         * Runs the recoveryLine operation.
+         */
         fun recoveryLine(
             sequence: Long,
             startedAtEpochMillis: Long,
@@ -181,11 +241,17 @@ internal class FbbFormatter(
             }
         }
 
+        /**
+         * Runs the Long operation.
+         */
         private fun Long.toLatestEventId(): String =
             if (this > 0L) formatEventId(this) else "none"
     }
 }
 
+/**
+ * Runs the Throwable operation.
+ */
 private fun Throwable.stackTraceText(): String {
     val writer = StringWriter()
     printStackTrace(PrintWriter(writer))

@@ -13,6 +13,9 @@ import org.junit.Test
 
 /** Unit tests for takeoff-altitude parsing and [MapUiState] workflow helpers. */
 class MapUiStateTest {
+    /**
+     * Runs the elapsed sample freshness expires missing and silent sources at the boundary operation.
+     */
     @Test
     fun `elapsed sample freshness expires missing and silent sources at the boundary`() {
         assertTrue(
@@ -38,6 +41,9 @@ class MapUiStateTest {
         )
     }
 
+    /**
+     * Runs the compass timeout distinguishes no response from a stale prior reading operation.
+     */
     @Test
     fun `compass timeout distinguishes no response from a stale prior reading`() {
         val source = CompassSensorSource.ROTATION_VECTOR

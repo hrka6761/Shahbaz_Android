@@ -15,10 +15,19 @@ import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TemporaryFolder
 
+/**
+ * Documents the FbbEngineTest type and the role it plays in this module.
+ */
 class FbbEngineTest {
+    /**
+     * Exposes the temporaryFolder value.
+     */
     @get:Rule
     val temporaryFolder = TemporaryFolder()
 
+    /**
+     * Runs the sessionCreationCreatesReportImmediately operation.
+     */
     @Test
     fun sessionCreationCreatesReportImmediately() {
         val storage = newStorage()
@@ -33,6 +42,9 @@ class FbbEngineTest {
         engine.close()
     }
 
+    /**
+     * Runs the recorderAlwaysUsesDeepTraceAndStrictDurability operation.
+     */
     @Test
     fun recorderAlwaysUsesDeepTraceAndStrictDurability() {
         val storage = newStorage()
@@ -59,6 +71,9 @@ class FbbEngineTest {
         engine.close()
     }
 
+    /**
+     * Runs the eventSequencingAndCausalRelationshipsAreWritten operation.
+     */
     @Test
     fun eventSequencingAndCausalRelationshipsAreWritten() {
         val storage = newStorage()
@@ -89,6 +104,9 @@ class FbbEngineTest {
         engine.close()
     }
 
+    /**
+     * Runs the sensitiveMetadataIsRedacted operation.
+     */
     @Test
     fun sensitiveMetadataIsRedacted() {
         val storage = newStorage()
@@ -113,6 +131,9 @@ class FbbEngineTest {
         engine.close()
     }
 
+    /**
+     * Runs the multipleProducersRemainGapFreeAndOrdered operation.
+     */
     @Test
     fun multipleProducersRemainGapFreeAndOrdered() {
         val storage = newStorage()
@@ -147,6 +168,9 @@ class FbbEngineTest {
         engine.close()
     }
 
+    /**
+     * Runs the criticalEventIsDurablyPersistedBeforeReturning operation.
+     */
     @Test
     fun criticalEventIsDurablyPersistedBeforeReturning() {
         val storage = newStorage()
@@ -168,6 +192,9 @@ class FbbEngineTest {
         engine.close()
     }
 
+    /**
+     * Runs the previousActiveSessionIsRecoveredAndIncompleteTailIsTruncated operation.
+     */
     @Test
     fun previousActiveSessionIsRecoveredAndIncompleteTailIsTruncated() {
         val storage = newStorage()
@@ -199,6 +226,9 @@ class FbbEngineTest {
         second.close()
     }
 
+    /**
+     * Runs the activeReportCannotBeDeletedThroughRepository operation.
+     */
     @Test
     fun activeReportCannotBeDeletedThroughRepository() {
         val storage = newStorage()
@@ -212,6 +242,9 @@ class FbbEngineTest {
         engine.close()
     }
 
+    /**
+     * Runs the repositorySupportsReportsManagementWithoutReadingWholeFiles operation.
+     */
     @Test
     fun repositorySupportsReportsManagementWithoutReadingWholeFiles() {
         val storage = newStorage()
@@ -268,9 +301,15 @@ class FbbEngineTest {
         assertNull(reports.getReportFile(engine.activeSessionId))
     }
 
+    /**
+     * Runs the newStorage operation.
+     */
     private fun newStorage(): FbbStorage =
         FbbStorage.fromFilesDir(temporaryFolder.newFolder("files"))
 
+    /**
+     * Runs the startEngine operation.
+     */
     private fun startEngine(
         storage: FbbStorage,
         config: FbbConfig = FbbConfig(),
@@ -289,12 +328,21 @@ class FbbEngineTest {
         installCrashHandler = false,
     )
 
+    /**
+     * Documents the FakeClock type and the role it plays in this module.
+     */
     private class FakeClock : FbbClock {
         private val wall = AtomicLong(1_787_600_000_000L)
         private val elapsed = AtomicLong(0L)
 
+        /**
+         * Runs the wallClockMillis operation.
+         */
         override fun wallClockMillis(): Long = wall.addAndGet(17L)
 
+        /**
+         * Runs the elapsedRealtimeNanos operation.
+         */
         override fun elapsedRealtimeNanos(): Long = elapsed.addAndGet(1_000_000L)
     }
 

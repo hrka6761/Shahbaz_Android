@@ -21,21 +21,45 @@ internal fun FlightControlSetpoint.controlKind(): ControlKind = when (this) {
 
 /** Internal output of one complete controller-cascade evaluation. */
 internal data class ControllerComputation(
+    /**
+     * Exposes the controllerSetpoints value.
+     */
     val controllerSetpoints: ControllerSetpoints,
+    /**
+     * Exposes the tracking value.
+     */
     val tracking: ControlTracking,
 )
 
 /** Internal outer-loop result passed into attitude and rate control. */
 internal data class PositionControllerResult(
+    /**
+     * Exposes the target value.
+     */
     val target: AttitudeThrottleSetpoint,
+    /**
+     * Exposes the tracking value.
+     */
     val tracking: ControlTracking,
 )
 
 /** Internal attitude/throttle target consumed by attitude and rate control. */
 internal data class AttitudeThrottleSetpoint(
+    /**
+     * Exposes the attitude value.
+     */
     val attitude: Quaterniond,
+    /**
+     * Exposes the bodyRates value.
+     */
     val bodyRates: Vector3d?,
+    /**
+     * Exposes the throttle value.
+     */
     val throttle: Double,
+    /**
+     * Exposes the yawRateFeedForward value.
+     */
     val yawRateFeedForward: Double = 0.0,
 )
 
@@ -47,6 +71,9 @@ internal data class AttitudeThrottleSetpoint(
  * than the faster control-loop period. This is deliberately not an EKF.
  */
 internal class StateEstimator(
+    /**
+     * Exposes the config value.
+     */
     private val config: FlightControllerConfig,
 ) {
     private var attitudeBodyToNed = Quaterniond.IDENTITY
@@ -328,6 +355,9 @@ internal class StateEstimator(
 
 /** Position/velocity controller that produces a body attitude and collective throttle. */
 internal class PositionController(
+    /**
+     * Exposes the config value.
+     */
     private val config: FlightControllerConfig,
 ) {
     private var velocityIntegral = Vector3d.ZERO
@@ -499,6 +529,9 @@ internal class PositionController(
 
 /** Quaternion attitude controller producing body-rate setpoints. */
 internal class AttitudeController(
+    /**
+     * Exposes the config value.
+     */
     private val config: FlightControllerConfig,
 ) {
     private val gains = config.attitudeGains.asVector()
@@ -529,6 +562,9 @@ internal class AttitudeController(
 
 /** Angular-rate PID with derivative-on-measurement and saturation-aware conditional integration. */
 internal class RateController(
+    /**
+     * Exposes the config value.
+     */
     private val config: FlightControllerConfig,
 ) {
     private var integral = Vector3d.ZERO
@@ -594,12 +630,21 @@ internal class RateController(
 
 /** Quad-X allocation result and saturation diagnostic. */
 internal data class MotorAllocation(
+    /**
+     * Exposes the motors value.
+     */
     val motors: List<NormalizedMotorOutput>,
+    /**
+     * Exposes the saturated value.
+     */
     val saturated: Boolean,
 )
 
 /** Configurable Quad-X torque/throttle allocator and PWM mapper. */
 internal class QuadXControlAllocator(
+    /**
+     * Exposes the config value.
+     */
     private val config: FlightControllerConfig,
 ) {
     /** Returns diagnostic stopped outputs; no PWM action is emitted while disarmed. */
@@ -674,8 +719,14 @@ private fun <T> TimedSensorValue<T>?.freshAt(
     nowNanos: Long,
     maximumAgeMillis: Long,
 ): TimedSensorValue<T>? {
+    /**
+     * Exposes the sample value.
+     */
     val sample = this ?: return null
     if (sample.timestampNanos > nowNanos) return null
+    /**
+     * Exposes the maximumAgeNanos value.
+     */
     val maximumAgeNanos = if (maximumAgeMillis > Long.MAX_VALUE / 1_000_000L) {
         Long.MAX_VALUE
     } else {

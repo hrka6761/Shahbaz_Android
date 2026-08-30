@@ -532,6 +532,9 @@ class MainActivity : ComponentActivity() {
     }
 }
 
+/**
+ * Documents the AppRoute type and the role it plays in this module.
+ */
 private enum class AppRoute {
     FLIGHT,
     SETTINGS,

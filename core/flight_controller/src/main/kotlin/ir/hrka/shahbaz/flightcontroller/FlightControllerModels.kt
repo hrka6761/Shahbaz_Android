@@ -21,8 +21,17 @@ import kotlin.math.sqrt
  * @property z Third axis component.
  */
 data class Vector3d(
+    /**
+     * Exposes the x value.
+     */
     val x: Double,
+    /**
+     * Exposes the y value.
+     */
     val y: Double,
+    /**
+     * Exposes the z value.
+     */
     val z: Double,
 ) {
     init {
@@ -106,9 +115,21 @@ operator fun Double.times(vector: Vector3d): Vector3d = vector * this
  * @property z Third vector component.
  */
 data class Quaterniond(
+    /**
+     * Exposes the w value.
+     */
     val w: Double,
+    /**
+     * Exposes the x value.
+     */
     val x: Double,
+    /**
+     * Exposes the y value.
+     */
     val y: Double,
+    /**
+     * Exposes the z value.
+     */
     val z: Double,
 ) {
     init {
@@ -285,8 +306,17 @@ data class Quaterniond(
  * @property yawRadians Heading rotation around the body Z/down axis.
  */
 data class EulerAngles(
+    /**
+     * Exposes the rollRadians value.
+     */
     val rollRadians: Double,
+    /**
+     * Exposes the pitchRadians value.
+     */
     val pitchRadians: Double,
+    /**
+     * Exposes the yawRadians value.
+     */
     val yawRadians: Double,
 ) {
     init {
@@ -303,8 +333,17 @@ data class EulerAngles(
  * meters.
  */
 data class GeoPoint(
+    /**
+     * Exposes the latitudeDegrees value.
+     */
     val latitudeDegrees: Double,
+    /**
+     * Exposes the longitudeDegrees value.
+     */
     val longitudeDegrees: Double,
+    /**
+     * Exposes the altitudeAboveMeanSeaLevelMeters value.
+     */
     val altitudeAboveMeanSeaLevelMeters: Double? = null,
 ) {
     init {
@@ -327,7 +366,13 @@ data class GeoPoint(
  * @property timestampNanos Monotonic acquisition timestamp in nanoseconds.
  */
 data class TimedSensorValue<out T>(
+    /**
+     * Exposes the value value.
+     */
     val value: T,
+    /**
+     * Exposes the timestampNanos value.
+     */
     val timestampNanos: Long,
 ) {
     init {
@@ -352,11 +397,29 @@ data class TimedSensorValue<out T>(
  * @property location Optional phone location owned by the app layer.
  */
 data class PhoneSensorSnapshot(
+    /**
+     * Exposes the accelerationBodyMps2 value.
+     */
     val accelerationBodyMps2: TimedSensorValue<Vector3d>? = null,
+    /**
+     * Exposes the angularVelocityBodyRadPerSecond value.
+     */
     val angularVelocityBodyRadPerSecond: TimedSensorValue<Vector3d>? = null,
+    /**
+     * Exposes the magneticFieldBodyMicroTesla value.
+     */
     val magneticFieldBodyMicroTesla: TimedSensorValue<Vector3d>? = null,
+    /**
+     * Exposes the attitudeBodyToNed value.
+     */
     val attitudeBodyToNed: TimedSensorValue<Quaterniond>? = null,
+    /**
+     * Exposes the pressureHectopascal value.
+     */
     val pressureHectopascal: TimedSensorValue<Double>? = null,
+    /**
+     * Exposes the location value.
+     */
     val location: TimedSensorValue<GeoPoint>? = null,
 ) {
     init {
@@ -375,9 +438,21 @@ data class PhoneSensorSnapshot(
  * @property altitudeAboveMeanSeaLevelMeters Barometric altitude derived from board pressure and QNH.
  */
 data class ExternalSensorSnapshot(
+    /**
+     * Exposes the temperatureCelsius value.
+     */
     val temperatureCelsius: TimedSensorValue<Double>? = null,
+    /**
+     * Exposes the relativeHumidityPercent value.
+     */
     val relativeHumidityPercent: TimedSensorValue<Double>? = null,
+    /**
+     * Exposes the pressurePascal value.
+     */
     val pressurePascal: TimedSensorValue<Int>? = null,
+    /**
+     * Exposes the altitudeAboveMeanSeaLevelMeters value.
+     */
     val altitudeAboveMeanSeaLevelMeters: TimedSensorValue<Double>? = null,
 ) {
     init {
@@ -407,11 +482,29 @@ data class ExternalSensorSnapshot(
  * the first device-status sample.
  */
 data class FlightControllerBoardState(
+    /**
+     * Exposes the ready value.
+     */
     val ready: Boolean = false,
+    /**
+     * Exposes the actuatorAvailable value.
+     */
     val actuatorAvailable: Boolean = false,
+    /**
+     * Exposes the activeMotorChannels value.
+     */
     val activeMotorChannels: Int = 0,
+    /**
+     * Exposes the actuatorArmed value.
+     */
     val actuatorArmed: Boolean = false,
+    /**
+     * Exposes the observedAtNanos value.
+     */
     val observedAtNanos: Long = 0L,
+    /**
+     * Exposes the actuatorStateObservedAtNanos value.
+     */
     val actuatorStateObservedAtNanos: Long? = null,
 ) {
     init {
@@ -430,9 +523,21 @@ data class FlightControllerBoardState(
  * @property board Flight-relevant board readiness and actuator state.
  */
 data class FlightControllerInput(
+    /**
+     * Exposes the timestampNanos value.
+     */
     val timestampNanos: Long,
+    /**
+     * Exposes the phone value.
+     */
     val phone: PhoneSensorSnapshot = PhoneSensorSnapshot(),
+    /**
+     * Exposes the external value.
+     */
     val external: ExternalSensorSnapshot = ExternalSensorSnapshot(),
+    /**
+     * Exposes the board value.
+     */
     val board: FlightControllerBoardState = FlightControllerBoardState(),
 ) {
     init {
@@ -453,9 +558,21 @@ data class FlightControllerInput(
  * @property setpoint Desired low-level aircraft state or motion.
  */
 data class FlightControlCommand(
+    /**
+     * Exposes the sequence value.
+     */
     val sequence: Long,
+    /**
+     * Exposes the issuedAtNanos value.
+     */
     val issuedAtNanos: Long,
+    /**
+     * Exposes the validUntilNanos value.
+     */
     val validUntilNanos: Long,
+    /**
+     * Exposes the setpoint value.
+     */
     val setpoint: FlightControlSetpoint,
 ) {
     init {
@@ -523,6 +640,9 @@ enum class FlightControllerLifecycleRequest {
  * @property normalized Unitless collective thrust in the closed range 0.0..1.0.
  */
 data class CollectiveThrust(
+    /**
+     * Exposes the normalized value.
+     */
     val normalized: Double,
 ) {
     init {
@@ -545,7 +665,13 @@ sealed interface FlightControlSetpoint
  * @property thrust Desired normalized collective thrust.
  */
 data class RateControlTarget(
+    /**
+     * Exposes the bodyRatesRadPerSecond value.
+     */
     val bodyRatesRadPerSecond: Vector3d,
+    /**
+     * Exposes the thrust value.
+     */
     val thrust: CollectiveThrust,
 ) : FlightControlSetpoint
 
@@ -558,8 +684,17 @@ data class RateControlTarget(
  * error is converted to body-rate demand.
  */
 data class AttitudeControlTarget(
+    /**
+     * Exposes the attitude value.
+     */
     val attitude: Quaterniond,
+    /**
+     * Exposes the thrust value.
+     */
     val thrust: CollectiveThrust,
+    /**
+     * Exposes the yawRateFeedForwardRadPerSecond value.
+     */
     val yawRateFeedForwardRadPerSecond: Double = 0.0,
 ) : FlightControlSetpoint {
     init {
@@ -606,9 +741,21 @@ data class AttitudeControlTarget(
  * @property yawRateFeedForwardRadPerSecond Optional yaw-rate feed-forward in radians per second.
  */
 data class AltitudeControlTarget(
+    /**
+     * Exposes the altitudeAboveOriginMeters value.
+     */
     val altitudeAboveOriginMeters: Double,
+    /**
+     * Exposes the verticalVelocityFeedForwardMetersPerSecond value.
+     */
     val verticalVelocityFeedForwardMetersPerSecond: Double = 0.0,
+    /**
+     * Exposes the yawNedRadians value.
+     */
     val yawNedRadians: Double? = null,
+    /**
+     * Exposes the yawRateFeedForwardRadPerSecond value.
+     */
     val yawRateFeedForwardRadPerSecond: Double = 0.0,
 ) : FlightControlSetpoint {
     init {
@@ -629,9 +776,21 @@ data class AltitudeControlTarget(
  * @property yawRateFeedForwardRadPerSecond Optional yaw-rate feed-forward in radians per second.
  */
 data class PositionControlTarget(
+    /**
+     * Exposes the localPositionNedMeters value.
+     */
     val localPositionNedMeters: Vector3d,
+    /**
+     * Exposes the localVelocityFeedForwardNedMetersPerSecond value.
+     */
     val localVelocityFeedForwardNedMetersPerSecond: Vector3d = Vector3d.ZERO,
+    /**
+     * Exposes the yawNedRadians value.
+     */
     val yawNedRadians: Double? = null,
+    /**
+     * Exposes the yawRateFeedForwardRadPerSecond value.
+     */
     val yawRateFeedForwardRadPerSecond: Double = 0.0,
 ) : FlightControlSetpoint {
     init {
@@ -649,8 +808,17 @@ data class PositionControlTarget(
  * @property yawRateFeedForwardRadPerSecond Optional yaw-rate feed-forward in radians per second.
  */
 data class VelocityControlTarget(
+    /**
+     * Exposes the localVelocityNedMetersPerSecond value.
+     */
     val localVelocityNedMetersPerSecond: Vector3d,
+    /**
+     * Exposes the yawNedRadians value.
+     */
     val yawNedRadians: Double? = null,
+    /**
+     * Exposes the yawRateFeedForwardRadPerSecond value.
+     */
     val yawRateFeedForwardRadPerSecond: Double = 0.0,
 ) : FlightControlSetpoint {
     init {
@@ -667,8 +835,17 @@ data class VelocityControlTarget(
  * @property yaw Yaw-axis gain.
  */
 data class AxisGains(
+    /**
+     * Exposes the roll value.
+     */
     val roll: Double,
+    /**
+     * Exposes the pitch value.
+     */
     val pitch: Double,
+    /**
+     * Exposes the yaw value.
+     */
     val yaw: Double,
 ) {
     init {
@@ -689,10 +866,25 @@ data class AxisGains(
  * @property integralLimit Per-axis absolute limits for the accumulated integral term.
  */
 data class RatePidGains(
+    /**
+     * Exposes the proportional value.
+     */
     val proportional: Vector3d = Vector3d(0.16, 0.16, 0.12),
+    /**
+     * Exposes the integral value.
+     */
     val integral: Vector3d = Vector3d(0.08, 0.08, 0.04),
+    /**
+     * Exposes the derivative value.
+     */
     val derivative: Vector3d = Vector3d(0.003, 0.003, 0.0),
+    /**
+     * Exposes the feedForward value.
+     */
     val feedForward: Vector3d = Vector3d.ZERO,
+    /**
+     * Exposes the integralLimit value.
+     */
     val integralLimit: Vector3d = Vector3d(0.30, 0.30, 0.20),
 ) {
     init {
@@ -713,9 +905,21 @@ data class RatePidGains(
  * @property integralLimit Per-axis absolute limits for accumulated velocity integral.
  */
 data class VelocityPidGains(
+    /**
+     * Exposes the proportional value.
+     */
     val proportional: Vector3d = Vector3d(0.18, 0.18, 0.30),
+    /**
+     * Exposes the integral value.
+     */
     val integral: Vector3d = Vector3d(0.04, 0.04, 0.08),
+    /**
+     * Exposes the derivative value.
+     */
     val derivative: Vector3d = Vector3d(0.02, 0.02, 0.03),
+    /**
+     * Exposes the integralLimit value.
+     */
     val integralLimit: Vector3d = Vector3d(0.30, 0.30, 0.40),
 ) {
     init {
@@ -736,10 +940,25 @@ data class VelocityPidGains(
  * @property label Human-readable position label for diagnostics and documentation.
  */
 data class QuadMotorGeometry(
+    /**
+     * Exposes the channel value.
+     */
     val channel: Int,
+    /**
+     * Exposes the rollScale value.
+     */
     val rollScale: Double,
+    /**
+     * Exposes the pitchScale value.
+     */
     val pitchScale: Double,
+    /**
+     * Exposes the yawScale value.
+     */
     val yawScale: Double,
+    /**
+     * Exposes the label value.
+     */
     val label: String,
 ) {
     init {
@@ -755,6 +974,9 @@ data class QuadMotorGeometry(
  * @property motors Exactly four motor geometry entries. Channels must be unique.
  */
 data class QuadXMotorLayout(
+    /**
+     * Exposes the motors value.
+     */
     val motors: List<QuadMotorGeometry>,
 ) {
     init {
@@ -814,42 +1036,141 @@ data class QuadXMotorLayout(
  * @property velocityTargetToleranceMetersPerSecond Completion tolerance for velocity targets.
  */
 data class FlightControllerConfig(
+    /**
+     * Exposes the loopPeriodMillis value.
+     */
     val loopPeriodMillis: Long = 10,
+    /**
+     * Exposes the qnhHectopascal value.
+     */
     val qnhHectopascal: Double = 1_013.25,
+    /**
+     * Exposes the minimumDtSeconds value.
+     */
     val minimumDtSeconds: Double = 0.000125,
+    /**
+     * Exposes the maximumDtSeconds value.
+     */
     val maximumDtSeconds: Double = 0.02,
+    /**
+     * Exposes the staleInputAfterMillis value.
+     */
     val staleInputAfterMillis: Long = 250,
+    /**
+     * Exposes the criticalSensorMaxAgeMillis value.
+     */
     val criticalSensorMaxAgeMillis: Long = 100,
+    /**
+     * Exposes the altitudeSensorMaxAgeMillis value.
+     */
     val altitudeSensorMaxAgeMillis: Long = 500,
+    /**
+     * Exposes the positionSensorMaxAgeMillis value.
+     */
     val positionSensorMaxAgeMillis: Long = 1_500,
+    /**
+     * Exposes the boardStateMaxAgeMillis value.
+     */
     val boardStateMaxAgeMillis: Long = 1_500,
+    /**
+     * Exposes the maximumCommandLifetimeMillis value.
+     */
     val maximumCommandLifetimeMillis: Long = 1_000,
+    /**
+     * Exposes the commandFutureToleranceMillis value.
+     */
     val commandFutureToleranceMillis: Long = 5,
+    /**
+     * Exposes the armingConfirmationTimeoutMillis value.
+     */
     val armingConfirmationTimeoutMillis: Long = 2_000,
+    /**
+     * Exposes the motorLayout value.
+     */
     val motorLayout: QuadXMotorLayout = QuadXMotorLayout.PX4_QUAD_X,
+    /**
+     * Exposes the minimumMotorPulseMicros value.
+     */
     val minimumMotorPulseMicros: Int = 1_000,
+    /**
+     * Exposes the maximumMotorPulseMicros value.
+     */
     val maximumMotorPulseMicros: Int = 2_000,
+    /**
+     * Exposes the disarmedMotorPulseMicros value.
+     */
     val disarmedMotorPulseMicros: Int = 1_000,
+    /**
+     * Exposes the minimumFlyingThrottle value.
+     */
     val minimumFlyingThrottle: Double = 0.08,
+    /**
+     * Exposes the maximumFlyingThrottle value.
+     */
     val maximumFlyingThrottle: Double = 0.95,
+    /**
+     * Exposes the hoverThrottle value.
+     */
     val hoverThrottle: Double = 0.50,
+    /**
+     * Exposes the maxTiltRadians value.
+     */
     val maxTiltRadians: Double = 35.0 * PI / 180.0,
+    /**
+     * Exposes the maxBodyRateRadPerSecond value.
+     */
     val maxBodyRateRadPerSecond: Vector3d = Vector3d(
         220.0 * PI / 180.0,
         220.0 * PI / 180.0,
         160.0 * PI / 180.0,
     ),
+    /**
+     * Exposes the attitudeGains value.
+     */
     val attitudeGains: AxisGains = AxisGains(6.5, 6.5, 2.8),
+    /**
+     * Exposes the rateGains value.
+     */
     val rateGains: RatePidGains = RatePidGains(),
+    /**
+     * Exposes the positionGains value.
+     */
     val positionGains: Vector3d = Vector3d(0.9, 0.9, 1.0),
+    /**
+     * Exposes the velocityGains value.
+     */
     val velocityGains: VelocityPidGains = VelocityPidGains(),
+    /**
+     * Exposes the maximumHorizontalVelocityMetersPerSecond value.
+     */
     val maximumHorizontalVelocityMetersPerSecond: Double = 8.0,
+    /**
+     * Exposes the maximumClimbRateMetersPerSecond value.
+     */
     val maximumClimbRateMetersPerSecond: Double = 3.0,
+    /**
+     * Exposes the maximumDescentRateMetersPerSecond value.
+     */
     val maximumDescentRateMetersPerSecond: Double = 2.0,
+    /**
+     * Exposes the attitudeTargetToleranceRadians value.
+     */
     val attitudeTargetToleranceRadians: Double = 2.0 * PI / 180.0,
+    /**
+     * Exposes the rateTargetToleranceRadPerSecond value.
+     */
     val rateTargetToleranceRadPerSecond: Double = 5.0 * PI / 180.0,
+    /**
+     * Exposes the altitudeTargetToleranceMeters value.
+     */
     val altitudeTargetToleranceMeters: Double = 0.25,
+    /**
+     * Exposes the positionTargetToleranceMeters value.
+     */
     val positionTargetToleranceMeters: Double = 0.50,
+    /**
+     * Exposes the velocityTargetToleranceMetersPerSecond value.
+     */
     val velocityTargetToleranceMetersPerSecond: Double = 0.25,
 ) {
     init {
@@ -920,17 +1241,53 @@ enum class FlightControllerArmingState {
  * @property velocityObservedAtNanos Timestamp of the newest sample contributing to local velocity.
  */
 data class VehicleStateEstimate(
+    /**
+     * Exposes the attitudeBodyToNed value.
+     */
     val attitudeBodyToNed: Quaterniond = Quaterniond.IDENTITY,
+    /**
+     * Exposes the angularVelocityBodyRadPerSecond value.
+     */
     val angularVelocityBodyRadPerSecond: Vector3d? = null,
+    /**
+     * Exposes the localPositionNedMeters value.
+     */
     val localPositionNedMeters: Vector3d? = null,
+    /**
+     * Exposes the localVelocityNedMetersPerSecond value.
+     */
     val localVelocityNedMetersPerSecond: Vector3d? = null,
+    /**
+     * Exposes the altitudeAboveOriginMeters value.
+     */
     val altitudeAboveOriginMeters: Double? = null,
+    /**
+     * Exposes the verticalVelocityMetersPerSecond value.
+     */
     val verticalVelocityMetersPerSecond: Double? = null,
+    /**
+     * Exposes the attitudeObservedAtNanos value.
+     */
     val attitudeObservedAtNanos: Long? = null,
+    /**
+     * Exposes the angularVelocityObservedAtNanos value.
+     */
     val angularVelocityObservedAtNanos: Long? = null,
+    /**
+     * Exposes the altitudeObservedAtNanos value.
+     */
     val altitudeObservedAtNanos: Long? = null,
+    /**
+     * Exposes the verticalVelocityObservedAtNanos value.
+     */
     val verticalVelocityObservedAtNanos: Long? = null,
+    /**
+     * Exposes the positionObservedAtNanos value.
+     */
     val positionObservedAtNanos: Long? = null,
+    /**
+     * Exposes the velocityObservedAtNanos value.
+     */
     val velocityObservedAtNanos: Long? = null,
 ) {
     init {
@@ -1026,7 +1383,13 @@ enum class FlightControllerHealthIssueCode {
  * @property message Human-readable diagnostic detail.
  */
 data class FlightControllerHealthIssue(
+    /**
+     * Exposes the code value.
+     */
     val code: FlightControllerHealthIssueCode,
+    /**
+     * Exposes the message value.
+     */
     val message: String,
 ) {
     init {
@@ -1047,13 +1410,37 @@ data class FlightControllerHealthIssue(
  * @property issues Structured reasons blocking arming or continued actuation.
  */
 data class FlightControllerHealth(
+    /**
+     * Exposes the inputFresh value.
+     */
     val inputFresh: Boolean,
+    /**
+     * Exposes the attitudeAvailable value.
+     */
     val attitudeAvailable: Boolean,
+    /**
+     * Exposes the angularRateAvailable value.
+     */
     val angularRateAvailable: Boolean,
+    /**
+     * Exposes the boardReady value.
+     */
     val boardReady: Boolean,
+    /**
+     * Exposes the actuatorAvailable value.
+     */
     val actuatorAvailable: Boolean,
+    /**
+     * Exposes the motorChannelsReady value.
+     */
     val motorChannelsReady: Boolean,
+    /**
+     * Exposes the commandAccepted value.
+     */
     val commandAccepted: Boolean,
+    /**
+     * Exposes the issues value.
+     */
     val issues: List<FlightControllerHealthIssue> = emptyList(),
 ) {
     /** True when there are no health problems blocking arming or continued actuation. */
@@ -1070,9 +1457,21 @@ data class FlightControllerHealth(
  * @property throttle Normalized collective throttle request.
  */
 data class ControllerSetpoints(
+    /**
+     * Exposes the attitude value.
+     */
     val attitude: Quaterniond = Quaterniond.IDENTITY,
+    /**
+     * Exposes the bodyRatesRadPerSecond value.
+     */
     val bodyRatesRadPerSecond: Vector3d = Vector3d.ZERO,
+    /**
+     * Exposes the torqueNormalized value.
+     */
     val torqueNormalized: Vector3d = Vector3d.ZERO,
+    /**
+     * Exposes the throttle value.
+     */
     val throttle: Double = 0.0,
 ) {
     init {
@@ -1120,13 +1519,37 @@ enum class ControlTargetStatus {
  * @property motorOutputSaturated True when motor allocation had to desaturate or clamp a motor.
  */
 data class ControlTracking(
+    /**
+     * Exposes the commandSequence value.
+     */
     val commandSequence: Long? = null,
+    /**
+     * Exposes the targetStatus value.
+     */
     val targetStatus: ControlTargetStatus = ControlTargetStatus.INACTIVE,
+    /**
+     * Exposes the positionErrorNedMeters value.
+     */
     val positionErrorNedMeters: Vector3d? = null,
+    /**
+     * Exposes the velocityErrorNedMetersPerSecond value.
+     */
     val velocityErrorNedMetersPerSecond: Vector3d? = null,
+    /**
+     * Exposes the altitudeErrorMeters value.
+     */
     val altitudeErrorMeters: Double? = null,
+    /**
+     * Exposes the attitudeErrorRadians value.
+     */
     val attitudeErrorRadians: Vector3d = Vector3d.ZERO,
+    /**
+     * Exposes the rateErrorRadPerSecond value.
+     */
     val rateErrorRadPerSecond: Vector3d = Vector3d.ZERO,
+    /**
+     * Exposes the motorOutputSaturated value.
+     */
     val motorOutputSaturated: Boolean = false,
 )
 
@@ -1139,9 +1562,21 @@ data class ControlTracking(
  * @property label Human-readable motor location label.
  */
 data class NormalizedMotorOutput(
+    /**
+     * Exposes the channel value.
+     */
     val channel: Int,
+    /**
+     * Exposes the normalized value.
+     */
     val normalized: Double,
+    /**
+     * Exposes the pulseMicros value.
+     */
     val pulseMicros: Int,
+    /**
+     * Exposes the label value.
+     */
     val label: String,
 ) {
     init {
@@ -1173,7 +1608,13 @@ sealed interface FlightControllerActuatorAction {
      * @property motors Complete motor frame with unique zero-based channels.
      */
     data class ApplyMotorPwm(
+        /**
+         * Exposes the generatedAtNanos value.
+         */
         val generatedAtNanos: Long,
+        /**
+         * Exposes the motors value.
+         */
         val motors: List<MotorPwmActuatorOutput>,
     ) : FlightControllerActuatorAction {
         init {
@@ -1191,7 +1632,13 @@ sealed interface FlightControllerActuatorAction {
  * @property pulseMicros PWM pulse width in microseconds.
  */
 data class MotorPwmActuatorOutput(
+    /**
+     * Exposes the channel value.
+     */
     val channel: Int,
+    /**
+     * Exposes the pulseMicros value.
+     */
     val pulseMicros: Int,
 ) {
     init {
@@ -1213,13 +1660,37 @@ data class MotorPwmActuatorOutput(
  * @property actuatorActions Neutral actions for a hardware-connection adapter.
  */
 data class FlightControllerOutput(
+    /**
+     * Exposes the timestampNanos value.
+     */
     val timestampNanos: Long,
+    /**
+     * Exposes the armingState value.
+     */
     val armingState: FlightControllerArmingState,
+    /**
+     * Exposes the estimate value.
+     */
     val estimate: VehicleStateEstimate,
+    /**
+     * Exposes the health value.
+     */
     val health: FlightControllerHealth,
+    /**
+     * Exposes the controllerSetpoints value.
+     */
     val controllerSetpoints: ControllerSetpoints,
+    /**
+     * Exposes the tracking value.
+     */
     val tracking: ControlTracking,
+    /**
+     * Exposes the motors value.
+     */
     val motors: List<NormalizedMotorOutput>,
+    /**
+     * Exposes the actuatorActions value.
+     */
     val actuatorActions: List<FlightControllerActuatorAction>,
 )
 
@@ -1232,8 +1703,17 @@ data class FlightControllerOutput(
  * @property lastOutput Most recent full step output, or null before the first step.
  */
 data class FlightControllerSnapshot(
+    /**
+     * Exposes the armingState value.
+     */
     val armingState: FlightControllerArmingState = FlightControllerArmingState.DISARMED,
+    /**
+     * Exposes the estimate value.
+     */
     val estimate: VehicleStateEstimate = VehicleStateEstimate(),
+    /**
+     * Exposes the health value.
+     */
     val health: FlightControllerHealth = FlightControllerHealth(
         inputFresh = false,
         attitudeAvailable = false,
@@ -1249,6 +1729,9 @@ data class FlightControllerSnapshot(
             ),
         ),
     ),
+    /**
+     * Exposes the lastOutput value.
+     */
     val lastOutput: FlightControllerOutput? = null,
 )
 

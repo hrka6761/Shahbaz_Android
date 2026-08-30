@@ -6,7 +6,13 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
+/**
+ * Documents the UsbPermissionPolicyTest type and the role it plays in this module.
+ */
 class UsbPermissionPolicyTest {
+    /**
+     * Runs the permissionPendingIntentAllowsUsbManagerFillInExtras operation.
+     */
     @Test
     fun permissionPendingIntentAllowsUsbManagerFillInExtras() {
         val flags = usbPermissionPendingIntentFlags()
@@ -16,6 +22,9 @@ class UsbPermissionPolicyTest {
         assertFalse(flags and PendingIntent.FLAG_IMMUTABLE != 0)
     }
 
+    /**
+     * Runs the missingCallbackExtrasStillUseAuthoritativeSelectedDeviceState operation.
+     */
     @Test
     fun missingCallbackExtrasStillUseAuthoritativeSelectedDeviceState() {
         assertEquals(
@@ -38,6 +47,9 @@ class UsbPermissionPolicyTest {
         )
     }
 
+    /**
+     * Runs the staleOrDetachedPermissionCallbacksRescan operation.
+     */
     @Test
     fun staleOrDetachedPermissionCallbacksRescan() {
         assertEquals(
@@ -54,6 +66,9 @@ class UsbPermissionPolicyTest {
         )
     }
 
+    /**
+     * Runs the fastReenumerationRevokesOldLinkAndRescansDifferentOrReusedId operation.
+     */
     @Test
     fun fastReenumerationRevokesOldLinkAndRescansDifferentOrReusedId() {
         assertTrue(soleDeviceReplacesOpenedLink(openedDeviceId = 7, soleDeviceId = 8))
@@ -76,6 +91,9 @@ class UsbPermissionPolicyTest {
         )
     }
 
+    /**
+     * Runs the detachedEmptySnapshotWaitsForReplacementWithinGrace operation.
+     */
     @Test
     fun detachedEmptySnapshotWaitsForReplacementWithinGrace() {
         assertEquals(
@@ -88,6 +106,9 @@ class UsbPermissionPolicyTest {
         )
     }
 
+    /**
+     * Runs the trueDetachPublishesOnlyAfterReenumerationGraceExpires operation.
+     */
     @Test
     fun trueDetachPublishesOnlyAfterReenumerationGraceExpires() {
         assertEquals(

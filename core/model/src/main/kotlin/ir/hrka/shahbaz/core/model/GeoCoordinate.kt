@@ -11,7 +11,13 @@ package ir.hrka.shahbaz.core.model
  * @throws IllegalArgumentException if either component is non-finite or outside its range.
  */
 data class GeoCoordinate(
+    /**
+     * Exposes the latitude value.
+     */
     val latitude: Double,
+    /**
+     * Exposes the longitude value.
+     */
     val longitude: Double,
 ) {
     /** Validates both coordinate components when an instance is constructed. */

@@ -15,25 +15,58 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
+/**
+ * Documents the ReportsUiState type and the role it plays in this module.
+ */
 data class ReportsUiState(
+    /**
+     * Exposes the reports value.
+     */
     val reports: List<FbbReportDetails> = emptyList(),
+    /**
+     * Exposes the selectedSessionIds value.
+     */
     val selectedSessionIds: Set<String> = emptySet(),
+    /**
+     * Exposes the selectionMode value.
+     */
     val selectionMode: Boolean = false,
+    /**
+     * Exposes the busy value.
+     */
     val busy: Boolean = true,
+    /**
+     * Exposes the message value.
+     */
     val message: String? = null,
 )
 
+/**
+ * Documents the ReportsViewModel type and the role it plays in this module.
+ */
 class ReportsViewModel(application: Application) : AndroidViewModel(application) {
+    /**
+     * Exposes the appContext value.
+     */
     private val appContext: Application
         get() = getApplication()
 
+    /**
+     * Exposes the _uiState value.
+     */
     private val _uiState = MutableStateFlow(ReportsUiState())
+    /**
+     * Exposes the uiState value.
+     */
     val uiState: StateFlow<ReportsUiState> = _uiState
 
     init {
         refresh()
     }
 
+    /**
+     * Runs the refresh operation.
+     */
     fun refresh() {
         viewModelScope.launch {
             _uiState.update { it.copy(busy = true) }
@@ -51,6 +84,9 @@ class ReportsViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
+    /**
+     * Runs the enterSelectionMode operation.
+     */
     fun enterSelectionMode(sessionId: String) {
         _uiState.update { state ->
             val selected = state.selectedSessionIds.toMutableSet()
@@ -59,6 +95,9 @@ class ReportsViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
+    /**
+     * Runs the toggleReportSelection operation.
+     */
     fun toggleReportSelection(sessionId: String) {
         _uiState.update { state ->
             if (!state.canSelect(sessionId)) return@update state
@@ -68,6 +107,9 @@ class ReportsViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
+    /**
+     * Runs the setAllReportsSelected operation.
+     */
     fun setAllReportsSelected(selected: Boolean) {
         _uiState.update { state ->
             state.copy(
@@ -84,10 +126,16 @@ class ReportsViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
+    /**
+     * Runs the clearSelection operation.
+     */
     fun clearSelection() {
         _uiState.update { it.copy(selectionMode = false, selectedSessionIds = emptySet()) }
     }
 
+    /**
+     * Runs the deleteSelectedReports operation.
+     */
     fun deleteSelectedReports() {
         val selected = _uiState.value.selectedSessionIds
         if (selected.isEmpty()) return
@@ -112,13 +160,22 @@ class ReportsViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
+    /**
+     * Runs the clearMessage operation.
+     */
     fun clearMessage() {
         _uiState.update { it.copy(message = null) }
     }
 
+    /**
+     * Runs the ReportsUiState operation.
+     */
     private fun ReportsUiState.canSelect(sessionId: String): Boolean =
         reports.firstOrNull { it.descriptor.sessionId == sessionId }?.isActiveReport == false
 }
 
+/**
+ * Exposes the FbbReportDetails value.
+ */
 val FbbReportDetails.isActiveReport: Boolean
     get() = descriptor.active || descriptor.status == FbbReportStatus.ACTIVE

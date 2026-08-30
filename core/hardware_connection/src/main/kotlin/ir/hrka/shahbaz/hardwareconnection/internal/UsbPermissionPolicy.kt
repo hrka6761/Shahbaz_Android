@@ -7,6 +7,9 @@ import android.app.PendingIntent
 internal fun usbPermissionPendingIntentFlags(): Int =
     PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_MUTABLE
 
+/**
+ * Documents the UsbPermissionReconciliation type and the role it plays in this module.
+ */
 internal enum class UsbPermissionReconciliation {
     RESCAN,
     OPEN,
@@ -39,6 +42,9 @@ internal fun usbPermissionReconciliation(
 internal fun soleDeviceReplacesOpenedLink(openedDeviceId: Int?, soleDeviceId: Int): Boolean =
     openedDeviceId != null && openedDeviceId != soleDeviceId
 
+/**
+ * Documents the ReenumerationGraceAction type and the role it plays in this module.
+ */
 internal enum class ReenumerationGraceAction {
     WAIT_FOR_REPLACEMENT,
     RESCAN_REPLACEMENT,

@@ -7,7 +7,13 @@ import androidx.lifecycle.LifecycleRegistry
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
+/**
+ * Documents the NavigationLifecycleOwnerTest type and the role it plays in this module.
+ */
 class NavigationLifecycleOwnerTest {
+    /**
+     * Runs the destroy dispatches complete teardown to an active map lifecycle operation.
+     */
     @Test
     fun `destroy dispatches complete teardown to an active map lifecycle`() {
         val parent = TestLifecycleOwner()
@@ -37,6 +43,9 @@ class NavigationLifecycleOwnerTest {
         assertEquals(Lifecycle.State.DESTROYED, owner.lifecycle.currentState)
     }
 
+    /**
+     * Runs the destroyed map lifecycle stops following its parent operation.
+     */
     @Test
     fun `destroyed map lifecycle stops following its parent`() {
         val parent = TestLifecycleOwner()
@@ -57,6 +66,9 @@ class NavigationLifecycleOwnerTest {
         assertEquals(eventCountAfterDestroy, observedEvents.size)
     }
 
+    /**
+     * Runs the owner attached after parent resume catches up before map creation operation.
+     */
     @Test
     fun `owner attached after parent resume catches up before map creation`() {
         val parent = TestLifecycleOwner()
@@ -81,6 +93,9 @@ class NavigationLifecycleOwnerTest {
         )
     }
 
+    /**
+     * Runs the every lifecycle state has a legal destroy sequence operation.
+     */
     @Test
     fun `every lifecycle state has a legal destroy sequence`() {
         assertEquals(
@@ -101,16 +116,25 @@ class NavigationLifecycleOwnerTest {
         )
     }
 
+    /**
+     * Documents the TestLifecycleOwner type and the role it plays in this module.
+     */
     private class TestLifecycleOwner : LifecycleOwner {
         private val registry = LifecycleRegistry.createUnsafe(this)
 
         override val lifecycle: Lifecycle = registry
 
+        /**
+         * Runs the handle operation.
+         */
         fun handle(event: Lifecycle.Event) {
             registry.handleLifecycleEvent(event)
         }
     }
 
+    /**
+     * Runs the testNavigationLifecycleOwner operation.
+     */
     private fun testNavigationLifecycleOwner(parentLifecycle: Lifecycle) =
         NavigationLifecycleOwner(
             parentLifecycle = parentLifecycle,

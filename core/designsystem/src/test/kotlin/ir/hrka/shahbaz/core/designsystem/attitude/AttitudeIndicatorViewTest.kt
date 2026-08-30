@@ -3,7 +3,13 @@ package ir.hrka.shahbaz.core.designsystem.attitude
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
+/**
+ * Documents the AttitudeIndicatorViewTest type and the role it plays in this module.
+ */
 class AttitudeIndicatorViewTest {
+    /**
+     * Runs the signed normalization stays within one half turn operation.
+     */
     @Test
     fun `signed normalization stays within one half turn`() {
         assertEquals(-180f, normalizeSignedAttitudeAngle(180f), 0f)
@@ -11,6 +17,9 @@ class AttitudeIndicatorViewTest {
         assertEquals(-90f, normalizeSignedAttitudeAngle(630f), 0f)
     }
 
+    /**
+     * Runs the shortest roll delta crosses the wrap boundary operation.
+     */
     @Test
     fun `shortest roll delta crosses the wrap boundary`() {
         assertEquals(2f, shortestAttitudeAngleDelta(179f, -179f), 0f)
@@ -18,6 +27,9 @@ class AttitudeIndicatorViewTest {
         assertEquals(20f, shortestAttitudeAngleDelta(170f, -170f), 0f)
     }
 
+    /**
+     * Runs the roll scale labels use aircraft signed angles operation.
+     */
     @Test
     fun `roll scale labels use aircraft signed angles`() {
         assertEquals("0", rollScaleLabel(0))

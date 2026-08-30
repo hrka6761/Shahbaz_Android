@@ -228,6 +228,9 @@ internal class AndroidCompass(
      * @property generation immutable session identifier captured when observation starts.
      */
     private inner class SessionSensorEventListener(
+        /**
+         * Exposes the generation value.
+         */
         private val generation: Long,
     ) : SensorEventListener {
         /** Converts a selected-source sample into a logical event when it is eligible. */
@@ -611,7 +614,13 @@ private sealed interface SensorSelection {
      * @property source fused or geomagnetic public source identity.
      */
     data class RotationVector(
+        /**
+         * Exposes the sensor value.
+         */
         val sensor: Sensor,
+        /**
+         * Exposes the source value.
+         */
         override val source: CompassSensorSource,
     ) : SensorSelection {
         /** Accepts accuracy only from the selected rotation-vector sensor type. */
@@ -625,7 +634,13 @@ private sealed interface SensorSelection {
      * @property magnetometer selected magnetic-field sensor.
      */
     data class AccelerometerAndMagnetometer(
+        /**
+         * Exposes the accelerometer value.
+         */
         val accelerometer: Sensor,
+        /**
+         * Exposes the magnetometer value.
+         */
         val magnetometer: Sensor,
     ) : SensorSelection {
         /** Identifies this strategy in availability and emitted readings. */
@@ -669,7 +684,13 @@ private sealed interface MatrixBuildResult {
  * @property estimatedHeadingErrorDegrees optional heading error within `0f < value <= 360f`.
  */
 private data class RotationMatrixSample(
+    /**
+     * Exposes the rotationMatrix value.
+     */
     val rotationMatrix: FloatArray,
+    /**
+     * Exposes the estimatedHeadingErrorDegrees value.
+     */
     val estimatedHeadingErrorDegrees: Float?,
 )
 
@@ -680,7 +701,13 @@ private data class RotationMatrixSample(
  * @property event reading or failure to invoke outside the module lock.
  */
 private data class CompassDispatch(
+    /**
+     * Exposes the listener value.
+     */
     val listener: CompassListener,
+    /**
+     * Exposes the event value.
+     */
     val event: CompassEvent,
 )
 
@@ -691,7 +718,13 @@ private data class CompassDispatch(
  * @property yAxis Android `SensorManager.AXIS_*` value for display Y.
  */
 internal data class DisplayAxes(
+    /**
+     * Exposes the xAxis value.
+     */
     val xAxis: Int,
+    /**
+     * Exposes the yAxis value.
+     */
     val yAxis: Int,
 )
 

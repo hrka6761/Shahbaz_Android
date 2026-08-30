@@ -13,19 +13,49 @@ import ir.hrka.shahbaz.hardwareconnection.hasExactShahbazBoardUsbIdentity
 import java.io.Closeable
 import java.util.concurrent.atomic.AtomicBoolean
 
+/**
+ * Documents the AndroidUsbCdcTransport type and the role it plays in this module.
+ */
 internal class AndroidUsbCdcTransport(
     context: Context,
+    /**
+     * Exposes the listener value.
+     */
     private val listener: Listener,
+    /**
+     * Exposes the readTimeoutMillis value.
+     */
     private val readTimeoutMillis: Int = 100,
+    /**
+     * Exposes the writeTimeoutMillis value.
+     */
     private val writeTimeoutMillis: Int = 1_000,
 ) : Closeable {
+    /**
+     * Defines the Listener contract used by this module.
+     */
     internal interface Listener {
+        /**
+         * Runs the onBytes operation.
+         */
         fun onBytes(generation: Long, bytes: ByteArray)
+        /**
+         * Runs the onTransportError operation.
+         */
         fun onTransportError(generation: Long, message: String, cause: Throwable?)
     }
 
+    /**
+     * Exposes the usbManager value.
+     */
     private val usbManager = context.getSystemService(Context.USB_SERVICE) as UsbManager
+    /**
+     * Exposes the running value.
+     */
     private val running = AtomicBoolean(false)
+    /**
+     * Exposes the writeLock value.
+     */
     private val writeLock = Any()
 
     @Volatile private var generation = 0L
@@ -37,19 +67,31 @@ internal class AndroidUsbCdcTransport(
     @Volatile private var outputEndpoint: UsbEndpoint? = null
     @Volatile private var readerThread: Thread? = null
 
+    /**
+     * Runs the matchingDevices operation.
+     */
     fun matchingDevices(): List<UsbDevice> = usbManager.deviceList.values
         .filter { candidate ->
             hasExactShahbazBoardUsbIdentity(candidate.vendorId, candidate.productId)
         }
         .sortedBy { it.deviceId }
 
+    /**
+     * Runs the hasPermission operation.
+     */
     fun hasPermission(device: UsbDevice): Boolean = usbManager.hasPermission(device)
 
+    /**
+     * Runs the isAttached operation.
+     */
     fun isAttached(deviceId: Int): Boolean = usbManager.deviceList.values.any {
         it.deviceId == deviceId &&
             hasExactShahbazBoardUsbIdentity(it.vendorId, it.productId)
     }
 
+    /**
+     * Runs the open operation.
+     */
     fun open(device: UsbDevice, generation: Long): OpenResult {
         Log.i(
             USB_LOG_TAG,
@@ -104,6 +146,9 @@ internal class AndroidUsbCdcTransport(
         }
     }
 
+    /**
+     * Runs the write operation.
+     */
     fun write(expectedGeneration: Long, bytes: ByteArray): Boolean {
         if (bytes.isEmpty()) return true
         if (expectedGeneration != generation || !running.get()) return false
@@ -138,8 +183,14 @@ internal class AndroidUsbCdcTransport(
         return true
     }
 
+    /**
+     * Runs the openedDeviceId operation.
+     */
     fun openedDeviceId(): Int? = device?.deviceId
 
+    /**
+     * Runs the close operation.
+     */
     override fun close() {
         device?.let {
             Log.i(USB_LOG_TAG, "CDC close deviceId=${it.deviceId} generation=$generation")
@@ -171,6 +222,9 @@ internal class AndroidUsbCdcTransport(
         }
     }
 
+    /**
+     * Runs the startReader operation.
+     */
     private fun startReader(generation: Long) {
         running.set(true)
         readerThread = Thread(
@@ -198,6 +252,9 @@ internal class AndroidUsbCdcTransport(
         }
     }
 
+    /**
+     * Runs the configureCdc operation.
+     */
     private fun configureCdc(connection: UsbDeviceConnection, communication: UsbInterface) {
         val lineCoding = byteArrayOf(
             0x00, 0xC2.toByte(), 0x01, 0x00, // 115200, informational for TinyUSB CDC.
@@ -225,6 +282,9 @@ internal class AndroidUsbCdcTransport(
         }
     }
 
+    /**
+     * Runs the setLineCoding operation.
+     */
     private fun setLineCoding(
         connection: UsbDeviceConnection,
         communication: UsbInterface,
@@ -240,6 +300,9 @@ internal class AndroidUsbCdcTransport(
         }
     }
 
+    /**
+     * Runs the setControlLineState operation.
+     */
     private fun setControlLineState(
         connection: UsbDeviceConnection,
         communication: UsbInterface,
@@ -256,6 +319,9 @@ internal class AndroidUsbCdcTransport(
         }
     }
 
+    /**
+     * Runs the clearHandles operation.
+     */
     private fun clearHandles() {
         device = null
         connection = null
@@ -266,6 +332,9 @@ internal class AndroidUsbCdcTransport(
         readerThread = null
     }
 
+    /**
+     * Runs the findEndpoints operation.
+     */
     private fun findEndpoints(device: UsbDevice): Endpoints? {
         var communication: UsbInterface? = null
         val dataCandidates = mutableListOf<UsbInterface>()
@@ -298,18 +367,51 @@ internal class AndroidUsbCdcTransport(
         return null
     }
 
+    /**
+     * Documents the Endpoints type and the role it plays in this module.
+     */
     private data class Endpoints(
+        /**
+         * Exposes the communication value.
+         */
         val communication: UsbInterface,
+        /**
+         * Exposes the data value.
+         */
         val data: UsbInterface,
+        /**
+         * Exposes the input value.
+         */
         val input: UsbEndpoint,
+        /**
+         * Exposes the output value.
+         */
         val output: UsbEndpoint,
     )
 
+    /**
+     * Defines the OpenResult contract used by this module.
+     */
     sealed interface OpenResult {
+        /**
+         * Provides the singleton Opened services for this module.
+         */
         data object Opened : OpenResult
+        /**
+         * Provides the singleton PermissionMissing services for this module.
+         */
         data object PermissionMissing : OpenResult
+        /**
+         * Provides the singleton OpenFailed services for this module.
+         */
         data object OpenFailed : OpenResult
+        /**
+         * Documents the Incompatible type and the role it plays in this module.
+         */
         data class Incompatible(val message: String) : OpenResult
+        /**
+         * Documents the Failed type and the role it plays in this module.
+         */
         data class Failed(val cause: Throwable) : OpenResult
     }
 

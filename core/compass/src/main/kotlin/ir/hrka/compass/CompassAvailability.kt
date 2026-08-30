@@ -46,7 +46,13 @@ enum class CompassUnavailableReason {
  * @property cause optional platform exception retained for diagnostics, when one exists.
  */
 data class CompassFailure(
+    /**
+     * Exposes the code value.
+     */
     val code: CompassFailureCode,
+    /**
+     * Exposes the cause value.
+     */
     val cause: Throwable? = null,
 )
 

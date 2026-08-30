@@ -36,7 +36,13 @@ private const val MAX_HEADING_ERROR_RADIANS = (2.0 * PI).toFloat()
  * @property minimumCallbackIntervalNanos enforced minimum interval between emitted readings.
  */
 internal data class SamplingPolicy(
+    /**
+     * Exposes the samplingPeriodMicros value.
+     */
     val samplingPeriodMicros: Int,
+    /**
+     * Exposes the minimumCallbackIntervalNanos value.
+     */
     val minimumCallbackIntervalNanos: Long,
 )
 
@@ -95,6 +101,9 @@ internal fun directionDeviation(
 ): DirectionDeviation {
     require(azimuthDegrees.isFinite()) { "Azimuth must be finite" }
     require(bearingDegrees.isFinite()) { "Bearing must be finite" }
+    /**
+     * Exposes the signed value.
+     */
     val signed = normalizeSignedDegrees(azimuthDegrees - bearingDegrees)
     return DirectionDeviation(signedDegrees = signed, absoluteDegrees = abs(signed))
 }
@@ -120,8 +129,17 @@ internal fun smoothAzimuthDegrees(
     require(newestWeight.isFinite() && newestWeight in 0f..1f) {
         "Smoothing weight must be within 0..1"
     }
+    /**
+     * Exposes the normalizedCurrent value.
+     */
     val normalizedCurrent = normalizeDegrees(currentDegrees)
+    /**
+     * Exposes the previous value.
+     */
     val previous = previousDegrees ?: return normalizedCurrent
+    /**
+     * Exposes the shortestDelta value.
+     */
     val shortestDelta = normalizeSignedDegrees(normalizedCurrent - normalizeDegrees(previous))
     return normalizeDegrees(previous + newestWeight * shortestDelta)
 }

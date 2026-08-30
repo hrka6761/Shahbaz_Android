@@ -4,7 +4,13 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertThrows
 import org.junit.Test
 
+/**
+ * Documents the HandshakePolicyTest type and the role it plays in this module.
+ */
 class HandshakePolicyTest {
+    /**
+     * Runs the heartbeatRecoveryStrictlyPrecedesTelemetryStartAndReady operation.
+     */
     @Test
     fun heartbeatRecoveryStrictlyPrecedesTelemetryStartAndReady() {
         assertEquals(
@@ -25,6 +31,9 @@ class HandshakePolicyTest {
         )
     }
 
+    /**
+     * Runs the impossibleTelemetryAcknowledgementIsRejected operation.
+     */
     @Test
     fun impossibleTelemetryAcknowledgementIsRejected() {
         assertThrows(IllegalArgumentException::class.java) {
@@ -35,6 +44,9 @@ class HandshakePolicyTest {
         }
     }
 
+    /**
+     * Runs the initialTimeSyncRetriesAreTimedAndBounded operation.
+     */
     @Test
     fun initialTimeSyncRetriesAreTimedAndBounded() {
         assertEquals(
@@ -55,6 +67,9 @@ class HandshakePolicyTest {
         )
     }
 
+    /**
+     * Runs the acceptedRetryResponseCannotRestartDeviceInfoValidation operation.
+     */
     @Test
     fun acceptedRetryResponseCannotRestartDeviceInfoValidation() {
         assertEquals(

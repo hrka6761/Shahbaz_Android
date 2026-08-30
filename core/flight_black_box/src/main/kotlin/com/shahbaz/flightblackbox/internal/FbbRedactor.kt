@@ -3,7 +3,13 @@ package com.shahbaz.flightblackbox.internal
 import com.shahbaz.flightblackbox.FbbConfig
 import java.util.Locale
 
+/**
+ * Documents the FbbRedactor type and the role it plays in this module.
+ */
 internal class FbbRedactor(private val config: FbbConfig) {
+    /**
+     * Runs the metadata operation.
+     */
     fun metadata(metadata: Map<String, Any?>): Map<String, String> =
         metadata.toSortedMap().mapValues { (key, value) ->
             if (isSensitiveKey(key)) {
@@ -13,6 +19,9 @@ internal class FbbRedactor(private val config: FbbConfig) {
             }
         }
 
+    /**
+     * Runs the valueToString operation.
+     */
     fun valueToString(value: Any?): String {
         val raw = when (value) {
             null -> "null"
@@ -30,17 +39,26 @@ internal class FbbRedactor(private val config: FbbConfig) {
         return sanitize(raw).take(config.maxInlineValueLength)
     }
 
+    /**
+     * Runs the detail operation.
+     */
     fun detail(text: String): String = text
         .replace("\r\n", "\n")
         .replace('\r', '\n')
         .take(config.maxDetailLength)
 
+    /**
+     * Runs the sanitize operation.
+     */
     private fun sanitize(value: String): String = value
         .replace('\n', ' ')
         .replace('\r', ' ')
         .replace('|', '/')
         .trim()
 
+    /**
+     * Runs the isSensitiveKey operation.
+     */
     private fun isSensitiveKey(key: String): Boolean {
         val normalized = key.lowercase(Locale.US)
         return SensitiveFragments.any { normalized.contains(it) }

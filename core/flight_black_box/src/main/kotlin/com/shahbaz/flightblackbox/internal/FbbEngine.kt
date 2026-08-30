@@ -17,24 +17,78 @@ import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
 
+/**
+ * Documents the FbbEngine type and the role it plays in this module.
+ */
 internal class FbbEngine private constructor(
+    /**
+     * Exposes the storage value.
+     */
     private val storage: FbbStorage,
+    /**
+     * Exposes the session value.
+     */
     private val session: FbbSession,
+    /**
+     * Exposes the config value.
+     */
     private val config: FbbConfig,
+    /**
+     * Exposes the clock value.
+     */
     private val clock: FbbClock,
+    /**
+     * Exposes the formatter value.
+     */
     private val formatter: FbbFormatter,
+    /**
+     * Exposes the fileWriter value.
+     */
     private val fileWriter: FbbReportFileWriter,
 ) : Closeable {
+    /**
+     * Exposes the queue value.
+     */
     private val queue = LinkedBlockingQueue<FbbPendingRecord>(config.queueCapacity)
+    /**
+     * Exposes the recordLock value.
+     */
     private val recordLock = Any()
+    /**
+     * Exposes the queueAccessLock value.
+     */
     private val queueAccessLock = Any()
+    /**
+     * Exposes the writerProcessingLock value.
+     */
     private val writerProcessingLock = Any()
+    /**
+     * Exposes the running value.
+     */
     private val running = AtomicBoolean(true)
+    /**
+     * Exposes the footerWritten value.
+     */
     private val footerWritten = AtomicBoolean(false)
+    /**
+     * Exposes the latestProducedSequence value.
+     */
     private val latestProducedSequence = AtomicLong(0L)
+    /**
+     * Exposes the latestWrittenSequence value.
+     */
     private val latestWrittenSequence = AtomicLong(0L)
+    /**
+     * Exposes the latestDurableSequence value.
+     */
     private val latestDurableSequence = AtomicLong(0L)
+    /**
+     * Exposes the backpressureBlocks value.
+     */
     private val backpressureBlocks = AtomicLong(0L)
+    /**
+     * Exposes the writerFailures value.
+     */
     private val writerFailures = AtomicLong(0L)
     @Volatile private var lastFailure: String? = null
     @Volatile private var metadata = FbbSessionMetadata(
@@ -47,22 +101,40 @@ internal class FbbEngine private constructor(
         latestDurableSequence = 0L,
     )
 
+    /**
+     * Exposes the activeSessionId value.
+     */
     val activeSessionId: String = session.id
 
+    /**
+     * Stores the mutable processStartEvent value.
+     */
     @Volatile
     var processStartEvent: FbbEventRef? = null
         private set
 
+    /**
+     * Exposes the writerThread value.
+     */
     private val writerThread = Thread(::writerLoop, "ShahbazFlightBlackBoxWriter").apply {
         isDaemon = true
         start()
     }
 
+    /**
+     * Runs the elapsedRealtimeNanos operation.
+     */
     fun elapsedRealtimeNanos(): Long = clock.elapsedRealtimeNanos()
 
+    /**
+     * Runs the durationMillisSince operation.
+     */
     fun durationMillisSince(startElapsedNanos: Long): Long =
         ((clock.elapsedRealtimeNanos() - startElapsedNanos).coerceAtLeast(0L) / 1_000_000L)
 
+    /**
+     * Runs the record operation.
+     */
     fun record(event: FbbEvent): FbbEventRef? {
         if (!running.get()) return null
         val pending = synchronized(recordLock) {
@@ -85,6 +157,9 @@ internal class FbbEngine private constructor(
         return FbbEventRef(pending.eventId)
     }
 
+    /**
+     * Runs the recordThrowable operation.
+     */
     fun recordThrowable(
         type: FbbEventType,
         description: String,
@@ -106,6 +181,9 @@ internal class FbbEngine private constructor(
         )
     )
 
+    /**
+     * Runs the recordCrashSynchronously operation.
+     */
     fun recordCrashSynchronously(thread: Thread, error: Throwable) {
         if (!running.get()) return
         synchronized(recordLock) {
@@ -147,6 +225,9 @@ internal class FbbEngine private constructor(
         }
     }
 
+    /**
+     * Runs the flushAndForce operation.
+     */
     fun flushAndForce() {
         synchronized(queueAccessLock) {
             synchronized(writerProcessingLock) {
@@ -167,6 +248,9 @@ internal class FbbEngine private constructor(
         }
     }
 
+    /**
+     * Runs the completeSession operation.
+     */
     fun completeSession() {
         synchronized(recordLock) {
             flushAndForce()
@@ -176,6 +260,9 @@ internal class FbbEngine private constructor(
         }
     }
 
+    /**
+     * Runs the health operation.
+     */
     fun health(): FbbHealth = FbbHealth(
         initialized = true,
         activeSessionId = session.id,
@@ -188,6 +275,9 @@ internal class FbbEngine private constructor(
         lastFailure = lastFailure,
     )
 
+    /**
+     * Runs the close operation.
+     */
     override fun close() {
         running.set(false)
         flushAndForce()
@@ -199,6 +289,9 @@ internal class FbbEngine private constructor(
         runCatching { fileWriter.close() }.onFailure(::rememberWriterFailure)
     }
 
+    /**
+     * Runs the enqueueOrWriteSynchronously operation.
+     */
     private fun enqueueOrWriteSynchronously(record: FbbPendingRecord) {
         val queued = runCatching {
             queue.offer(
@@ -220,6 +313,9 @@ internal class FbbEngine private constructor(
         }
     }
 
+    /**
+     * Runs the writerLoop operation.
+     */
     private fun writerLoop() {
         while (running.get() || queue.isNotEmpty()) {
             synchronized(queueAccessLock) {
@@ -246,6 +342,9 @@ internal class FbbEngine private constructor(
         }
     }
 
+    /**
+     * Runs the drainQueueSynchronouslyLocked operation.
+     */
     private fun drainQueueSynchronouslyLocked() {
         while (true) {
             val record = queue.poll() ?: return
@@ -253,6 +352,9 @@ internal class FbbEngine private constructor(
         }
     }
 
+    /**
+     * Runs the flushIfDueLocked operation.
+     */
     private fun flushIfDueLocked() {
         val force = shouldForceByInterval()
         runCatching {
@@ -271,6 +373,9 @@ internal class FbbEngine private constructor(
         }.onFailure(::rememberWriterFailure)
     }
 
+    /**
+     * Runs the writeRecord operation.
+     */
     private fun writeRecord(record: FbbPendingRecord, flush: Boolean, force: Boolean) {
         runCatching {
             fileWriter.append(record.lines, flush = flush, force = force)
@@ -292,6 +397,9 @@ internal class FbbEngine private constructor(
         record.ack?.countDown()
     }
 
+    /**
+     * Runs the writeFooterLocked operation.
+     */
     private fun writeFooterLocked(status: FbbReportStatus) {
         if (!footerWritten.compareAndSet(false, true)) return
         runCatching {
@@ -309,38 +417,77 @@ internal class FbbEngine private constructor(
         }.onFailure(::rememberWriterFailure)
     }
 
+    /**
+     * Runs the shouldAwaitAck operation.
+     */
     private fun shouldAwaitAck(persistence: FbbPersistence): Boolean =
         config.durabilityMode == FbbDurabilityMode.STRICT || persistence == FbbPersistence.CRITICAL
 
+    /**
+     * Runs the shouldFlush operation.
+     */
     private fun shouldFlush(record: FbbPendingRecord): Boolean =
         record.persistence != FbbPersistence.NORMAL ||
             config.durabilityMode == FbbDurabilityMode.STRICT
 
+    /**
+     * Runs the shouldForce operation.
+     */
     private fun shouldForce(record: FbbPendingRecord): Boolean =
         record.persistence == FbbPersistence.CRITICAL ||
             config.durabilityMode == FbbDurabilityMode.STRICT ||
             shouldForceByInterval()
 
+    /**
+     * Runs the shouldForceByInterval operation.
+     */
     private fun shouldForceByInterval(): Boolean =
         latestWrittenSequence.get() > latestDurableSequence.get() &&
             durationMillisSince(lastForceElapsedNanos) >= config.forceIntervalMillis
 
+    /**
+     * Runs the rememberWriterFailure operation.
+     */
     private fun rememberWriterFailure(error: Throwable) {
         writerFailures.incrementAndGet()
         lastFailure = "${error.javaClass.simpleName}: ${error.message.orEmpty()}"
     }
 
+    /**
+     * Runs the updateMetadata operation.
+     */
     private fun updateMetadata(update: FbbSessionMetadata.() -> FbbSessionMetadata) {
         metadata = metadata.update()
     }
 
+    /**
+     * Stores the mutable lastForceElapsedNanos value.
+     */
     private var lastForceElapsedNanos: Long = clock.elapsedRealtimeNanos()
 
+    /**
+     * Documents the FbbPendingRecord type and the role it plays in this module.
+     */
     private data class FbbPendingRecord(
+        /**
+         * Exposes the sequence value.
+         */
         val sequence: Long,
+        /**
+         * Exposes the eventId value.
+         */
         val eventId: String,
+        /**
+         * Exposes the lines value.
+         */
         val lines: List<String>,
+        /**
+         * Exposes the persistence value.
+         */
         val persistence: FbbPersistence,
+        /**
+         * Exposes the ack value.
+         */
         val ack: CountDownLatch?,
     )
 
@@ -349,6 +496,9 @@ internal class FbbEngine private constructor(
         private const val WRITER_JOIN_TIMEOUT_MILLIS = 2_000L
         private const val METADATA_UPDATE_INTERVAL = 25L
 
+        /**
+         * Runs the start operation.
+         */
         fun start(
             storage: FbbStorage,
             appInfo: FbbAppInfo,
@@ -388,6 +538,9 @@ internal class FbbEngine private constructor(
             return engine
         }
 
+        /**
+         * Runs the recoverPreviousActiveSession operation.
+         */
         private fun recoverPreviousActiveSession(storage: FbbStorage, clock: FbbClock) {
             val previous = storage.readActiveMetadata() ?: return
             if (previous.status != FbbReportStatus.ACTIVE) return
@@ -403,10 +556,22 @@ internal class FbbEngine private constructor(
     }
 }
 
+/**
+ * Documents the FbbCrashHandler type and the role it plays in this module.
+ */
 private class FbbCrashHandler(
+    /**
+     * Exposes the engine value.
+     */
     private val engine: FbbEngine,
+    /**
+     * Exposes the previous value.
+     */
     private val previous: Thread.UncaughtExceptionHandler?,
 ) : Thread.UncaughtExceptionHandler {
+    /**
+     * Runs the uncaughtException operation.
+     */
     override fun uncaughtException(thread: Thread, error: Throwable) {
         engine.recordCrashSynchronously(thread, error)
         if (previous != null && previous !== this) {
@@ -417,6 +582,9 @@ private class FbbCrashHandler(
     }
 
     companion object {
+        /**
+         * Runs the install operation.
+         */
         fun install(engine: FbbEngine) {
             val previous = Thread.getDefaultUncaughtExceptionHandler()
             if (previous is FbbCrashHandler) return
@@ -425,6 +593,9 @@ private class FbbCrashHandler(
     }
 }
 
+/**
+ * Runs the Throwable operation.
+ */
 private fun Throwable.stackTraceText(): String {
     val writer = java.io.StringWriter()
     printStackTrace(java.io.PrintWriter(writer))

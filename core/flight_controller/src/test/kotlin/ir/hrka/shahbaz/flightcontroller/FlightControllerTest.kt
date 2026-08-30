@@ -9,7 +9,13 @@ import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
+/**
+ * Documents the FlightControllerTest type and the role it plays in this module.
+ */
 class FlightControllerTest {
+    /**
+     * Runs the disarmedControllerProducesOnlyDiagnosticStoppedValues operation.
+     */
     @Test
     fun disarmedControllerProducesOnlyDiagnosticStoppedValues() {
         val now = 1_000_000_000L
@@ -25,6 +31,9 @@ class FlightControllerTest {
         assertEquals(ControlTargetStatus.INACTIVE, output.tracking.targetStatus)
     }
 
+    /**
+     * Runs the runNeverArmsWithoutExplicitArmRequest operation.
+     */
     @Test
     fun runNeverArmsWithoutExplicitArmRequest() {
         val now = 1_000_000_000L
@@ -38,6 +47,9 @@ class FlightControllerTest {
         assertTrue(output.actuatorActions.isEmpty())
     }
 
+    /**
+     * Runs the armWaitsForFreshBoardConfirmationBeforeMotorOutput operation.
+     */
     @Test
     fun armWaitsForFreshBoardConfirmationBeforeMotorOutput() {
         val controller = FlightController.create()
@@ -63,6 +75,9 @@ class FlightControllerTest {
         assertEquals(listOf(1_500, 1_500, 1_500, 1_500), confirmed.motors.map { it.pulseMicros })
     }
 
+    /**
+     * Runs the unsafeArmIsRejectedWithStructuredIssue operation.
+     */
     @Test
     fun unsafeArmIsRejectedWithStructuredIssue() {
         val now = 1_000_000_000L
@@ -85,6 +100,9 @@ class FlightControllerTest {
         assertTrue(output.health.hasIssue(FlightControllerHealthIssueCode.ACTUATOR_UNAVAILABLE))
     }
 
+    /**
+     * Runs the unexpectedActuatorCountRejectsArming operation.
+     */
     @Test
     fun unexpectedActuatorCountRejectsArming() {
         listOf(3, 5).forEachIndexed { index, channelCount ->
@@ -105,6 +123,9 @@ class FlightControllerTest {
         }
     }
 
+    /**
+     * Runs the armingConfirmationTimeoutFailsClosed operation.
+     */
     @Test
     fun armingConfirmationTimeoutFailsClosed() {
         val controller = FlightController.create(
@@ -125,6 +146,9 @@ class FlightControllerTest {
         assertTrue(output.health.hasIssue(FlightControllerHealthIssueCode.ARMING_CONFIRMATION_TIMEOUT))
     }
 
+    /**
+     * Runs the unexpectedBoardDisarmForcesFailsafe operation.
+     */
     @Test
     fun unexpectedBoardDisarmForcesFailsafe() {
         val now = 1_000_000_000L
@@ -142,6 +166,9 @@ class FlightControllerTest {
         assertTrue(output.health.hasIssue(FlightControllerHealthIssueCode.ACTUATOR_DISARMED_UNEXPECTEDLY))
     }
 
+    /**
+     * Runs the positiveRollAttitudeErrorUsesConfiguredQuadXSigns operation.
+     */
     @Test
     fun positiveRollAttitudeErrorUsesConfiguredQuadXSigns() {
         val now = 1_000_000_000L
@@ -166,6 +193,9 @@ class FlightControllerTest {
         assertTrue(requireNotNull(pulse[2]) > requireNotNull(pulse[3]))
     }
 
+    /**
+     * Runs the measuredPositiveRollRateProducesOpposingTorque operation.
+     */
     @Test
     fun measuredPositiveRollRateProducesOpposingTorque() {
         val now = 1_000_000_000L
@@ -187,6 +217,9 @@ class FlightControllerTest {
         assertTrue(output.tracking.rateErrorRadPerSecond.x < 0.0)
     }
 
+    /**
+     * Runs the altitudeAboveCurrentCommandsMoreThanHoverThrottle operation.
+     */
     @Test
     fun altitudeAboveCurrentCommandsMoreThanHoverThrottle() {
         val now = 1_000_000_000L
@@ -209,6 +242,9 @@ class FlightControllerTest {
         assertTrue(requireNotNull(output.tracking.altitudeErrorMeters) > 0.0)
     }
 
+    /**
+     * Runs the altitudeErrorShrinksAsMeasurementApproachesTarget operation.
+     */
     @Test
     fun altitudeErrorShrinksAsMeasurementApproachesTarget() {
         val now = 1_000_000_000L
@@ -234,6 +270,9 @@ class FlightControllerTest {
         assertTrue(abs(requireNotNull(second.tracking.altitudeErrorMeters)) < abs(requireNotNull(first.tracking.altitudeErrorMeters)))
     }
 
+    /**
+     * Runs the headingWraparoundUsesShortestRotationAcrossPi operation.
+     */
     @Test
     fun headingWraparoundUsesShortestRotationAcrossPi() {
         val now = 1_000_000_000L
@@ -261,6 +300,9 @@ class FlightControllerTest {
         assertTrue(abs(output.controllerSetpoints.bodyRatesRadPerSecond.z) > 0.01)
     }
 
+    /**
+     * Runs the eastPositionErrorCommandsWestRollWithoutMissionSequencing operation.
+     */
     @Test
     fun eastPositionErrorCommandsWestRollWithoutMissionSequencing() {
         val now = 1_000_000_000L
@@ -287,6 +329,9 @@ class FlightControllerTest {
         assertTrue(output.controllerSetpoints.attitude.toEuler().rollRadians < 0.0)
     }
 
+    /**
+     * Runs the northVelocityTargetCommandsNoseDownPitch operation.
+     */
     @Test
     fun northVelocityTargetCommandsNoseDownPitch() {
         val now = 1_000_000_000L
@@ -308,6 +353,9 @@ class FlightControllerTest {
         assertTrue(output.controllerSetpoints.attitude.toEuler().pitchRadians < 0.0)
     }
 
+    /**
+     * Runs the reachedPrimitiveIsReportedWithoutGeneratingAnotherCommand operation.
+     */
     @Test
     fun reachedPrimitiveIsReportedWithoutGeneratingAnotherCommand() {
         val now = 1_000_000_000L
@@ -330,6 +378,9 @@ class FlightControllerTest {
         assertTrue(output.actuatorActions.single() is FlightControllerActuatorAction.ApplyMotorPwm)
     }
 
+    /**
+     * Runs the newerCommandReplacesTargetAndOlderCommandIsRejected operation.
+     */
     @Test
     fun newerCommandReplacesTargetAndOlderCommandIsRejected() {
         val now = 1_000_000_000L
@@ -357,6 +408,9 @@ class FlightControllerTest {
         assertTrue(rejected.health.hasIssue(FlightControllerHealthIssueCode.COMMAND_OUT_OF_ORDER))
     }
 
+    /**
+     * Runs the expiredPilotCommandForcesArmedControllerToFailsafe operation.
+     */
     @Test
     fun expiredPilotCommandForcesArmedControllerToFailsafe() {
         val now = 1_000_000_000L
@@ -374,6 +428,9 @@ class FlightControllerTest {
         assertTrue(output.health.hasIssue(FlightControllerHealthIssueCode.COMMAND_EXPIRED))
     }
 
+    /**
+     * Runs the staleIndividualGyroscopeFailsEvenWhenInputFrameTimeIsFresh operation.
+     */
     @Test
     fun staleIndividualGyroscopeFailsEvenWhenInputFrameTimeIsFresh() {
         val config = FlightControllerConfig(criticalSensorMaxAgeMillis = 5)
@@ -395,6 +452,9 @@ class FlightControllerTest {
         assertTrue(output.health.hasIssue(FlightControllerHealthIssueCode.ANGULAR_RATE_UNAVAILABLE))
     }
 
+    /**
+     * Runs the duplicateInputTimestampIsRejected operation.
+     */
     @Test
     fun duplicateInputTimestampIsRejected() {
         val now = 1_000_000_000L
@@ -411,6 +471,9 @@ class FlightControllerTest {
         assertTrue(output.health.hasIssue(FlightControllerHealthIssueCode.INPUT_TIMESTAMP_NOT_MONOTONIC))
     }
 
+    /**
+     * Runs the aggressiveRateTargetSaturatesButOutputsRemainFiniteAndBounded operation.
+     */
     @Test
     fun aggressiveRateTargetSaturatesButOutputsRemainFiniteAndBounded() {
         val now = 1_000_000_000L
@@ -432,6 +495,9 @@ class FlightControllerTest {
         assertTrue(output.motors.all { it.pulseMicros in 1_000..2_000 })
     }
 
+    /**
+     * Runs the rateIntegralDoesNotWindUpWhileAllocationIsSaturated operation.
+     */
     @Test
     fun rateIntegralDoesNotWindUpWhileAllocationIsSaturated() {
         val controller = RateController(FlightControllerConfig())
@@ -453,6 +519,9 @@ class FlightControllerTest {
         assertEquals(0.0, recovered.x, 1e-12)
     }
 
+    /**
+     * Runs the quadXMixerUsesDocumentedRollPitchAndYawSigns operation.
+     */
     @Test
     fun quadXMixerUsesDocumentedRollPitchAndYawSigns() {
         val allocator = QuadXControlAllocator(FlightControllerConfig())
@@ -473,6 +542,9 @@ class FlightControllerTest {
         assertTrue(requireNotNull(yaw[1]) > requireNotNull(yaw[3]))
     }
 
+    /**
+     * Runs the invalidNumericalModelsAreRejectedBeforeControlMath operation.
+     */
     @Test
     fun invalidNumericalModelsAreRejectedBeforeControlMath() {
         assertThrows(IllegalArgumentException::class.java) { Vector3d(Double.NaN, 0.0, 0.0) }
@@ -488,6 +560,9 @@ class FlightControllerTest {
         }
     }
 
+    /**
+     * Runs the emergencyStopOverridesCommandAndRemainsLatchedUntilReset operation.
+     */
     @Test
     fun emergencyStopOverridesCommandAndRemainsLatchedUntilReset() {
         val now = 1_000_000_000L
@@ -511,6 +586,9 @@ class FlightControllerTest {
         assertTrue(stillStopped.actuatorActions.isEmpty())
     }
 
+    /**
+     * Runs the resetIsRejectedWhileArmedAndClearsCommandSequenceAfterDisarm operation.
+     */
     @Test
     fun resetIsRejectedWhileArmedAndClearsCommandSequenceAfterDisarm() {
         val now = 1_000_000_000L
@@ -538,6 +616,9 @@ class FlightControllerTest {
         assertFalse(output.health.hasIssue(FlightControllerHealthIssueCode.COMMAND_OUT_OF_ORDER))
     }
 
+    /**
+     * Runs the estimatorDifferentiatesLocationUsingSampleTimeNotLoopTime operation.
+     */
     @Test
     fun estimatorDifferentiatesLocationUsingSampleTimeNotLoopTime() {
         val estimator = StateEstimator(FlightControllerConfig())
@@ -568,6 +649,9 @@ class FlightControllerTest {
         )
     }
 
+    /**
+     * Runs the phoneMountPresetMapsScreenUpTopForwardToBodyFrd operation.
+     */
     @Test
     fun phoneMountPresetMapsScreenUpTopForwardToBodyFrd() {
         val transform = AndroidPhoneSensorMounting.SCREEN_UP_TOP_FORWARD.bodyFromDeviceRotation
@@ -581,6 +665,9 @@ class FlightControllerTest {
         assertVectorEquals(Vector3d(0.0, 0.0, -1.0), deviceOutOfScreen)
     }
 
+    /**
+     * Runs the armedController operation.
+     */
     private fun armedController(
         now: Long,
         command: FlightControlCommand,
@@ -611,6 +698,9 @@ class FlightControllerTest {
         return controller
     }
 
+    /**
+     * Runs the command operation.
+     */
     private fun command(
         sequence: Long,
         now: Long,
@@ -623,6 +713,9 @@ class FlightControllerTest {
         setpoint = target,
     )
 
+    /**
+     * Runs the levelAttitudeTarget operation.
+     */
     private fun levelAttitudeTarget(): AttitudeControlTarget =
         AttitudeControlTarget.fromEuler(
             rollRadians = 0.0,
@@ -631,6 +724,9 @@ class FlightControllerTest {
             thrust = CollectiveThrust(0.5),
         )
 
+    /**
+     * Runs the healthyInput operation.
+     */
     private fun healthyInput(
         timestampNanos: Long,
         sensorTimestampNanos: Long = timestampNanos,
@@ -676,23 +772,38 @@ class FlightControllerTest {
         ),
     )
 
+    /**
+     * Runs the FlightControllerHealth operation.
+     */
     private fun FlightControllerHealth.hasIssue(code: FlightControllerHealthIssueCode): Boolean =
         issues.any { it.code == code }
 
+    /**
+     * Runs the eastOffsetLongitudeDegrees operation.
+     */
     private fun eastOffsetLongitudeDegrees(latitudeDegrees: Double, metersEast: Double): Double {
         val latitudeRadians = latitudeDegrees * PI / 180.0
         return metersEast / (6_378_137.0 * cos(latitudeRadians)) * 180.0 / PI
     }
 
+    /**
+     * Runs the assertVectorEquals operation.
+     */
     private fun assertVectorEquals(expected: Vector3d, actual: Vector3d) {
         assertEquals(expected.x, actual.x, 1e-9)
         assertEquals(expected.y, actual.y, 1e-9)
         assertEquals(expected.z, actual.z, 1e-9)
     }
 
+    /**
+     * Exposes the Long value.
+     */
     private val Long.ms: Long
         get() = this * 1_000_000L
 
+    /**
+     * Exposes the Int value.
+     */
     private val Int.ms: Long
         get() = toLong() * 1_000_000L
 }

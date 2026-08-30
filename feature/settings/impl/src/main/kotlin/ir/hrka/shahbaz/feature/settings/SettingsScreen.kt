@@ -39,6 +39,9 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import java.util.Locale
 
+/**
+ * Runs the SettingsScreen operation.
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen(
@@ -79,6 +82,9 @@ fun SettingsScreen(
     }
 }
 
+/**
+ * Runs the SettingsHome operation.
+ */
 @Composable
 private fun SettingsHome(
     state: SettingsUiState,
@@ -97,6 +103,9 @@ private fun SettingsHome(
     }
 }
 
+/**
+ * Runs the SummaryPanel operation.
+ */
 @Composable
 private fun SummaryPanel(state: SettingsUiState, onOpenReports: () -> Unit) {
     Card(
@@ -129,6 +138,9 @@ private fun SummaryPanel(state: SettingsUiState, onOpenReports: () -> Unit) {
     }
 }
 
+/**
+ * Runs the StatusPill operation.
+ */
 @Composable
 private fun StatusPill(label: String) {
     Surface(
@@ -144,6 +156,9 @@ private fun StatusPill(label: String) {
     }
 }
 
+/**
+ * Runs the formatBytes operation.
+ */
 private fun formatBytes(bytes: Long): String {
     if (bytes < 1_024L) return "$bytes B"
     val units = listOf("KB", "MB", "GB")

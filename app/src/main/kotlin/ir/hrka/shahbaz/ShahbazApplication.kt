@@ -11,9 +11,18 @@ import com.shahbaz.flightblackbox.FlightBlackBox
 
 /** Initializes process-owned diagnostics before Activity or feature startup work begins. */
 class ShahbazApplication : Application() {
+    /**
+     * Stores the mutable lastLifecycleEvent value.
+     */
     private var lastLifecycleEvent: FbbEventRef? = null
+    /**
+     * Stores the mutable startedActivities value.
+     */
     private var startedActivities = 0
 
+    /**
+     * Runs the onCreate operation.
+     */
     override fun onCreate() {
         super.onCreate()
         FlightBlackBox.initialize(
@@ -30,6 +39,9 @@ class ShahbazApplication : Application() {
     }
 
     private inner class FlightBlackBoxActivityCallbacks : ActivityLifecycleCallbacks {
+        /**
+         * Runs the onActivityCreated operation.
+         */
         override fun onActivityCreated(activity: Activity, savedInstanceState: Bundle?) {
             lifecycle(
                 activity = activity,
@@ -38,6 +50,9 @@ class ShahbazApplication : Application() {
             )
         }
 
+        /**
+         * Runs the onActivityStarted operation.
+         */
         override fun onActivityStarted(activity: Activity) {
             if (startedActivities == 0) {
                 lifecycle(
@@ -50,14 +65,23 @@ class ShahbazApplication : Application() {
             lifecycle(activity, "${activity.localClassName}.onStart()")
         }
 
+        /**
+         * Runs the onActivityResumed operation.
+         */
         override fun onActivityResumed(activity: Activity) {
             lifecycle(activity, "${activity.localClassName}.onResume()")
         }
 
+        /**
+         * Runs the onActivityPaused operation.
+         */
         override fun onActivityPaused(activity: Activity) {
             lifecycle(activity, "${activity.localClassName}.onPause()")
         }
 
+        /**
+         * Runs the onActivityStopped operation.
+         */
         override fun onActivityStopped(activity: Activity) {
             lifecycle(activity, "${activity.localClassName}.onStop()")
             startedActivities = (startedActivities - 1).coerceAtLeast(0)
@@ -70,14 +94,23 @@ class ShahbazApplication : Application() {
             }
         }
 
+        /**
+         * Runs the onActivitySaveInstanceState operation.
+         */
         override fun onActivitySaveInstanceState(activity: Activity, outState: Bundle) {
             lifecycle(activity, "${activity.localClassName}.onSaveInstanceState()")
         }
 
+        /**
+         * Runs the onActivityDestroyed operation.
+         */
         override fun onActivityDestroyed(activity: Activity) {
             lifecycle(activity, "${activity.localClassName}.onDestroy()")
         }
 
+        /**
+         * Runs the lifecycle operation.
+         */
         private fun lifecycle(
             activity: Activity,
             description: String,

@@ -14,7 +14,13 @@ import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
+/**
+ * Documents the TelemetryStoreTest type and the role it plays in this module.
+ */
 class TelemetryStoreTest {
+    /**
+     * Runs the validSensorsBecomeAvailableWithExactUnits operation.
+     */
     @Test
     fun validSensorsBecomeAvailableWithExactUnits() {
         val store = TelemetryStore(1013.25)
@@ -31,6 +37,9 @@ class TelemetryStoreTest {
         assertTrue(abs(ms.altitudeAboveMeanSeaLevelMeters) < 0.001)
     }
 
+    /**
+     * Runs the qnhRecalculatesAltitudeWithoutChangingRawPressure operation.
+     */
     @Test
     fun qnhRecalculatesAltitudeWithoutChangingRawPressure() {
         val store = TelemetryStore(1013.25)
@@ -43,6 +52,9 @@ class TelemetryStoreTest {
         assertEquals(1000.0, after.qnhHectopascal, 0.0)
     }
 
+    /**
+     * Runs the missingEvidenceAndHealthFaultsNeverBecomeAvailable operation.
+     */
     @Test
     fun missingEvidenceAndHealthFaultsNeverBecomeAvailable() {
         val store = TelemetryStore(1013.25)
@@ -57,6 +69,9 @@ class TelemetryStoreTest {
         assertEquals(SensorErrorCode.HEALTH_FAULT, unhealthy.error.code)
     }
 
+    /**
+     * Runs the staleAndOfflineStatesRetainLastGoodReading operation.
+     */
     @Test
     fun staleAndOfflineStatesRetainLastGoodReading() {
         val store = TelemetryStore(1013.25)
@@ -77,6 +92,9 @@ class TelemetryStoreTest {
         assertTrue(offline.lastSample != null)
     }
 
+    /**
+     * Runs the unknownSensorAndKnownFutureInstanceRemainRawAndExtensible operation.
+     */
     @Test
     fun unknownSensorAndKnownFutureInstanceRemainRawAndExtensible() {
         val store = TelemetryStore(1013.25)
@@ -94,6 +112,9 @@ class TelemetryStoreTest {
         assertEquals(unknown.sensorId, store.snapshot.unknownSensors.getValue(SensorKey(42, 3)).sensorId)
     }
 
+    /**
+     * Runs the duplicateSampleSequenceIsRejectedAndDoesNotReplaceLastGoodValue operation.
+     */
     @Test
     fun duplicateSampleSequenceIsRejectedAndDoesNotReplaceLastGoodValue() {
         val store = TelemetryStore(1013.25)
@@ -104,6 +125,9 @@ class TelemetryStoreTest {
         assertEquals(5L, failed.lastSample?.sequence)
     }
 
+    /**
+     * Runs the firstSampleTimeoutFailsOnlyTheSensorThatDidNotRespond operation.
+     */
     @Test
     fun firstSampleTimeoutFailsOnlyTheSensorThatDidNotRespond() {
         val store = TelemetryStore(1013.25)
@@ -121,6 +145,9 @@ class TelemetryStoreTest {
         assertEquals(SensorErrorCode.NO_RESPONSE, missingPressure.error.code)
     }
 
+    /**
+     * Runs the lateValidSampleRecoversAfterNoResponseFailure operation.
+     */
     @Test
     fun lateValidSampleRecoversAfterNoResponseFailure() {
         val store = TelemetryStore(1013.25)
@@ -149,6 +176,9 @@ class TelemetryStoreTest {
         )
     }
 
+    /**
+     * Runs the unknownSensorRetentionIsStrictlyBoundedAndEvictsOldest operation.
+     */
     @Test
     fun unknownSensorRetentionIsStrictlyBoundedAndEvictsOldest() {
         val store = TelemetryStore(1013.25, maximumUnknownSensors = 2)
@@ -163,6 +193,9 @@ class TelemetryStoreTest {
         assertEquals(3L, store.snapshot.diagnostics.unknownSensorSamples)
     }
 
+    /**
+     * Runs the shtSample operation.
+     */
     private fun shtSample(
         sequence: UInt,
         validity: UInt = 0x1Bu,
@@ -181,6 +214,9 @@ class TelemetryStoreTest {
         ),
     )
 
+    /**
+     * Runs the msSample operation.
+     */
     private fun msSample(
         sequence: UInt,
         pressurePa: Int = 101_325,
@@ -199,6 +235,9 @@ class TelemetryStoreTest {
         ),
     )
 
+    /**
+     * Runs the unknownSample operation.
+     */
     private fun unknownSample(sensorId: Int) = RawWireSensorSample(
         sensorId = sensorId,
         instanceId = 0,

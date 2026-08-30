@@ -123,6 +123,9 @@ import org.maplibre.spatialk.geojson.Position
 /** Exact adaptive pane decision used by the 70/30 dashboard layout. */
 internal enum class DashboardPaneLayout { PORTRAIT, LANDSCAPE }
 
+/**
+ * Runs the dashboardPaneLayout operation.
+ */
 internal fun dashboardPaneLayout(width: Float, height: Float): DashboardPaneLayout {
     require(width >= 0f && height >= 0f)
     return if (width > height) DashboardPaneLayout.LANDSCAPE else DashboardPaneLayout.PORTRAIT
@@ -131,6 +134,9 @@ internal fun dashboardPaneLayout(width: Float, height: Float): DashboardPaneLayo
 /** Recovery action exposed by the blocking board-connection gate. */
 internal enum class ConnectionGateAction { NONE, REQUEST_PERMISSION, RETRY }
 
+/**
+ * Runs the connectionGateAction operation.
+ */
 internal fun connectionGateAction(state: BoardConnectionState): ConnectionGateAction = when (state) {
     is BoardConnectionState.PermissionRequired -> ConnectionGateAction.REQUEST_PERMISSION
     is BoardConnectionState.Disconnected,
@@ -150,9 +156,15 @@ internal fun connectionGateAction(state: BoardConnectionState): ConnectionGateAc
     is BoardConnectionState.StartingTelemetry -> ConnectionGateAction.NONE
 }
 
+/**
+ * Runs the shouldBlockDashboard operation.
+ */
 internal fun shouldBlockDashboard(state: BoardConnectionState): Boolean =
     state !is BoardConnectionState.Ready
 
+/**
+ * Runs the dashboardBlockReason operation.
+ */
 internal fun dashboardBlockReason(state: BoardConnectionState): String = when (state) {
     BoardConnectionState.Stopped -> "Stopped"
     BoardConnectionState.Searching -> "Searching"
@@ -193,6 +205,9 @@ internal enum class InstrumentStatusKind {
     INACTIVE,
 }
 
+/**
+ * Runs the sensorStatusKind operation.
+ */
 internal fun sensorStatusKind(state: SensorState<*>): InstrumentStatusKind = when (state) {
     is SensorState.Available -> InstrumentStatusKind.LIVE
     is SensorState.Stale -> InstrumentStatusKind.STALE
@@ -213,6 +228,9 @@ internal fun sensorStatusKind(state: SensorState<*>): InstrumentStatusKind = whe
     }
 }
 
+/**
+ * Runs the phoneStatusKind operation.
+ */
 internal fun phoneStatusKind(state: PhoneReading<*>): InstrumentStatusKind = when (state) {
     is PhoneReading.Available -> InstrumentStatusKind.LIVE
     is PhoneReading.Stale -> InstrumentStatusKind.STALE
@@ -342,6 +360,9 @@ fun DashboardScreen(
     }
 }
 
+/**
+ * Runs the BoardConnectionGate operation.
+ */
 @Composable
 private fun BoardConnectionGate(
     state: BoardConnectionState,
@@ -418,6 +439,9 @@ private fun BoardConnectionGate(
     }
 }
 
+/**
+ * Runs the connectionTitle operation.
+ */
 @Composable
 private fun connectionTitle(state: BoardConnectionState): String = stringResource(
     when (state) {
@@ -436,6 +460,9 @@ private fun connectionTitle(state: BoardConnectionState): String = stringResourc
     }
 )
 
+/**
+ * Runs the connectionMessage operation.
+ */
 @Composable
 private fun connectionMessage(state: BoardConnectionState): String = when (state) {
     BoardConnectionState.Stopped -> stringResource(R.string.board_stopped_message)
@@ -461,6 +488,9 @@ private fun connectionMessage(state: BoardConnectionState): String = when (state
     is BoardConnectionState.Ready -> stringResource(R.string.board_ready_message)
 }
 
+/**
+ * Runs the disconnectReasonText operation.
+ */
 @Composable
 private fun disconnectReasonText(reason: BoardDisconnectReason): String = stringResource(
     when (reason) {
@@ -470,6 +500,9 @@ private fun disconnectReasonText(reason: BoardDisconnectReason): String = string
     }
 )
 
+/**
+ * Runs the InstrumentPane operation.
+ */
 @Composable
 private fun InstrumentPane(state: DashboardUiState, modifier: Modifier = Modifier) {
     Column(
@@ -487,12 +520,18 @@ private fun InstrumentPane(state: DashboardUiState, modifier: Modifier = Modifie
     }
 }
 
+/**
+ * Runs the instrumentColumnCount operation.
+ */
 internal fun instrumentColumnCount(availableWidthDp: Float): Int = when {
     availableWidthDp >= 900f -> 3
     availableWidthDp >= 520f -> 2
     else -> 1
 }
 
+/**
+ * Runs the AttitudePanel operation.
+ */
 @Composable
 private fun AttitudePanel(orientation: PhoneReading<CompassReading>) {
     val reading = when (orientation) {
@@ -565,9 +604,21 @@ private fun AttitudePanel(orientation: PhoneReading<CompassReading>) {
     }
 }
 
+/**
+ * Documents the OrientationReadout type and the role it plays in this module.
+ */
 private data class OrientationReadout(
+    /**
+     * Exposes the label value.
+     */
     val label: String,
+    /**
+     * Exposes the value value.
+     */
     val value: String,
+    /**
+     * Exposes the icon value.
+     */
     val icon: ImageVector,
 )
 
@@ -623,6 +674,9 @@ private fun OrientationReadoutRow(
     }
 }
 
+/**
+ * Runs the OrientationReadoutCard operation.
+ */
 @Composable
 private fun OrientationReadoutCard(
     readout: OrientationReadout,
@@ -688,14 +742,35 @@ private fun OrientationReadoutCard(
     }
 }
 
+/**
+ * Documents the InstrumentReadout type and the role it plays in this module.
+ */
 private data class InstrumentReadout(
+    /**
+     * Exposes the id value.
+     */
     val id: String,
+    /**
+     * Exposes the title value.
+     */
     val title: String,
+    /**
+     * Exposes the icon value.
+     */
     val icon: ImageVector,
+    /**
+     * Exposes the primaryValue value.
+     */
     val primaryValue: String,
+    /**
+     * Exposes the status value.
+     */
     val status: InstrumentStatusKind,
 )
 
+/**
+ * Runs the environmentInstruments operation.
+ */
 @Composable
 private fun environmentInstruments(state: DashboardUiState): List<InstrumentReadout> {
     val shtStatus = sensorStatusKind(state.boardTelemetry.sht30)
@@ -734,6 +809,9 @@ private fun environmentInstruments(state: DashboardUiState): List<InstrumentRead
     )
 }
 
+/**
+ * Runs the altitudeInstruments operation.
+ */
 @Composable
 private fun altitudeInstruments(state: DashboardUiState): List<InstrumentReadout> {
     val msStatus = sensorStatusKind(state.boardTelemetry.ms5611)
@@ -784,6 +862,9 @@ private fun altitudeInstruments(state: DashboardUiState): List<InstrumentReadout
     )
 }
 
+/**
+ * Runs the retainedInstrumentValue operation.
+ */
 @Composable
 private fun retainedInstrumentValue(
     formattedValue: String?,
@@ -794,6 +875,9 @@ private fun retainedInstrumentValue(
     else -> stringResource(R.string.last_valid_value, formattedValue)
 }
 
+/**
+ * Runs the InstrumentRow operation.
+ */
 @Composable
 private fun InstrumentRow(instruments: List<InstrumentReadout>) {
     Row(
@@ -809,6 +893,9 @@ private fun InstrumentRow(instruments: List<InstrumentReadout>) {
     }
 }
 
+/**
+ * Runs the InstrumentCard operation.
+ */
 @Composable
 private fun InstrumentCard(readout: InstrumentReadout, modifier: Modifier = Modifier) {
     val description = stringResource(
@@ -857,6 +944,9 @@ private fun InstrumentCard(readout: InstrumentReadout, modifier: Modifier = Modi
     }
 }
 
+/**
+ * Runs the StatusPill operation.
+ */
 @Composable
 private fun StatusPill(text: String, kind: InstrumentStatusKind) {
     Surface(
@@ -875,6 +965,9 @@ private fun StatusPill(text: String, kind: InstrumentStatusKind) {
     }
 }
 
+/**
+ * Runs the StatusDot operation.
+ */
 @Composable
 private fun StatusDot(kind: InstrumentStatusKind) {
     Box(
@@ -884,6 +977,9 @@ private fun StatusDot(kind: InstrumentStatusKind) {
     )
 }
 
+/**
+ * Runs the statusColor operation.
+ */
 @Composable
 private fun statusColor(kind: InstrumentStatusKind): Color = when (kind) {
     InstrumentStatusKind.LIVE -> ClearGreen
@@ -899,6 +995,9 @@ private fun statusColor(kind: InstrumentStatusKind): Color = when (kind) {
     InstrumentStatusKind.INACTIVE -> UnknownGrey
 }
 
+/**
+ * Runs the statusLabel operation.
+ */
 @Composable
 private fun statusLabel(kind: InstrumentStatusKind): String = stringResource(
     when (kind) {
@@ -916,6 +1015,9 @@ private fun statusLabel(kind: InstrumentStatusKind): String = stringResource(
     }
 )
 
+/**
+ * Runs the SensorState operation.
+ */
 private fun SensorState<ir.hrka.shahbaz.hardwareconnection.Sht30Telemetry>.lastShtValue() = when (this) {
     is SensorState.Available -> sample.value
     is SensorState.Stale -> lastSample?.value
@@ -923,6 +1025,9 @@ private fun SensorState<ir.hrka.shahbaz.hardwareconnection.Sht30Telemetry>.lastS
     else -> null
 }
 
+/**
+ * Runs the SensorState operation.
+ */
 private fun SensorState<ir.hrka.shahbaz.hardwareconnection.Ms5611Telemetry>.lastMsValue() = when (this) {
     is SensorState.Available -> sample.value
     is SensorState.Stale -> lastSample?.value
@@ -930,6 +1035,9 @@ private fun SensorState<ir.hrka.shahbaz.hardwareconnection.Ms5611Telemetry>.last
     else -> null
 }
 
+/**
+ * Runs the DashboardMapPane operation.
+ */
 @Composable
 private fun DashboardMapPane(state: DashboardUiState, modifier: Modifier = Modifier) {
     val plan = state.flightPlan
@@ -959,6 +1067,9 @@ private fun DashboardMapPane(state: DashboardUiState, modifier: Modifier = Modif
     }
 }
 
+/**
+ * Documents the DashboardMapLoadState type and the role it plays in this module.
+ */
 internal enum class DashboardMapLoadState {
     LOADING,
     READY,
@@ -966,6 +1077,9 @@ internal enum class DashboardMapLoadState {
     ERROR,
 }
 
+/**
+ * Runs the dashboardMapLoadState operation.
+ */
 internal fun dashboardMapLoadState(
     isOnline: Boolean,
     styleAttached: Boolean,
@@ -979,6 +1093,9 @@ internal fun dashboardMapLoadState(
     else -> DashboardMapLoadState.LOADING
 }
 
+/**
+ * Runs the DashboardRouteMap operation.
+ */
 @Composable
 private fun DashboardRouteMap(
     origin: GeoCoordinate,
@@ -999,6 +1116,9 @@ private fun DashboardRouteMap(
     }
 }
 
+/**
+ * Runs the DashboardRouteMapInstance operation.
+ */
 @Composable
 private fun DashboardRouteMapInstance(
     origin: GeoCoordinate,
@@ -1154,6 +1274,9 @@ private fun DashboardRouteMapInstance(
     }
 }
 
+/**
+ * Runs the DashboardMapOverlays operation.
+ */
 @Composable
 private fun DashboardMapOverlays(
     origin: GeoCoordinate,
@@ -1219,6 +1342,9 @@ private fun DashboardMapOverlays(
     )
 }
 
+/**
+ * Runs the BoxScope operation.
+ */
 @Composable
 private fun BoxScope.DashboardMapStatusPresentation(
     state: DashboardMapLoadState,
@@ -1270,6 +1396,9 @@ private fun BoxScope.DashboardMapStatusPresentation(
     }
 }
 
+/**
+ * Runs the DashboardMapStatusCard operation.
+ */
 @Composable
 private fun DashboardMapStatusCard(
     state: DashboardMapLoadState,
@@ -1318,6 +1447,9 @@ private fun DashboardMapStatusCard(
     }
 }
 
+/**
+ * Runs the pointData operation.
+ */
 private fun pointData(position: Position?): GeoJsonData {
     val features: List<Feature<Point, JsonObject?>> = position?.let {
         listOf(Feature(geometry = Point(it), properties = null))
@@ -1325,6 +1457,9 @@ private fun pointData(position: Position?): GeoJsonData {
     return GeoJsonData.Features(FeatureCollection(features))
 }
 
+/**
+ * Runs the lineData operation.
+ */
 private fun lineData(start: Position?, end: Position?): GeoJsonData {
     val features: List<Feature<LineString, JsonObject?>> = if (start != null && end != null) {
         listOf(Feature(geometry = LineString(start, end), properties = null))
@@ -1334,11 +1469,17 @@ private fun lineData(start: Position?, end: Position?): GeoJsonData {
     return GeoJsonData.Features(FeatureCollection(features))
 }
 
+/**
+ * Runs the GeoCoordinate operation.
+ */
 private fun GeoCoordinate.toPosition(): Position = Position(
     longitude = longitude,
     latitude = latitude,
 )
 
+/**
+ * Runs the MapLocalError operation.
+ */
 @Composable
 private fun MapLocalError(text: String, modifier: Modifier = Modifier) {
     Surface(
@@ -1356,6 +1497,9 @@ private fun MapLocalError(text: String, modifier: Modifier = Modifier) {
     }
 }
 
+/**
+ * Runs the StartFlightPlaceholder operation.
+ */
 @Composable
 private fun StartFlightPlaceholder(modifier: Modifier = Modifier) {
     val unavailable = stringResource(R.string.start_flight_unavailable)
@@ -1380,30 +1524,102 @@ private fun StartFlightPlaceholder(modifier: Modifier = Modifier) {
     }
 }
 
+/**
+ * Exposes the INSTRUMENT_WEIGHT value.
+ */
 private const val INSTRUMENT_WEIGHT = 0.70f
+/**
+ * Exposes the MAP_WEIGHT value.
+ */
 private const val MAP_WEIGHT = 0.30f
 
+/**
+ * Exposes the DashboardCardShape value.
+ */
 private val DashboardCardShape = RoundedCornerShape(8.dp)
+/**
+ * Exposes the DashboardDynamicGeoJsonOptions value.
+ */
 private val DashboardDynamicGeoJsonOptions = GeoJsonOptions(synchronousUpdate = true)
+/**
+ * Exposes the DashboardRouteColor value.
+ */
 private val DashboardRouteColor = Color.Black
+/**
+ * Exposes the DashboardRouteLineWidth value.
+ */
 private val DashboardRouteLineWidth = 2.8.dp
+/**
+ * Exposes the DASHBOARD_MAP_CAMERA_PADDING value.
+ */
 private val DASHBOARD_MAP_CAMERA_PADDING = 32.dp
+/**
+ * Exposes the DASHBOARD_MAP_BOTTOM_CONTENT_PADDING value.
+ */
 private val DASHBOARD_MAP_BOTTOM_CONTENT_PADDING = 96.dp
+/**
+ * Exposes the DASHBOARD_MAP_ORNAMENT_BOTTOM_PADDING value.
+ */
 private val DASHBOARD_MAP_ORNAMENT_BOTTOM_PADDING = 96.dp
 
+/**
+ * Exposes the DASHBOARD_MAP_STYLE_URL value.
+ */
 private const val DASHBOARD_MAP_STYLE_URL = "https://tiles.openfreemap.org/styles/liberty"
+/**
+ * Exposes the DASHBOARD_MAP_LOAD_TIMEOUT_MILLIS value.
+ */
 private const val DASHBOARD_MAP_LOAD_TIMEOUT_MILLIS = 15_000L
+/**
+ * Exposes the DASHBOARD_MAP_CLOSE_ROUTE_ZOOM value.
+ */
 private const val DASHBOARD_MAP_CLOSE_ROUTE_ZOOM = 18.0
+/**
+ * Exposes the DASHBOARD_MAP_MIN_BOUNDS_DISTANCE_METERS value.
+ */
 private const val DASHBOARD_MAP_MIN_BOUNDS_DISTANCE_METERS = 2.0
 
+/**
+ * Exposes the CockpitBackground value.
+ */
 private val CockpitBackground = Color(0xFF0D151C)
+/**
+ * Exposes the CockpitSurface value.
+ */
 private val CockpitSurface = Color(0xFF17232D)
+/**
+ * Exposes the CockpitOnSurface value.
+ */
 private val CockpitOnSurface = Color(0xFFF1F6F8)
+/**
+ * Exposes the CockpitMuted value.
+ */
 private val CockpitMuted = Color(0xFF9FB0BC)
+/**
+ * Exposes the SkyBlue value.
+ */
 private val SkyBlue = Color(0xFF3277A8)
+/**
+ * Exposes the GroundBrown value.
+ */
 private val GroundBrown = Color(0xFF8A5B36)
+/**
+ * Exposes the ClearGreen value.
+ */
 private val ClearGreen = Color(0xFF35C978)
+/**
+ * Exposes the WarningAmber value.
+ */
 private val WarningAmber = Color(0xFFF4C247)
+/**
+ * Exposes the CriticalRed value.
+ */
 private val CriticalRed = Color(0xFFD92D3E)
+/**
+ * Exposes the UnknownGrey value.
+ */
 private val UnknownGrey = Color(0xFF7B8790)
+/**
+ * Exposes the UnknownGreyDark value.
+ */
 private val UnknownGreyDark = Color(0xFF4A555D)

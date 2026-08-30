@@ -22,18 +22,54 @@ import kotlinx.coroutines.launch
 
 /** Activity-scoped dashboard state holder following the existing MapViewModel convention. */
 class DashboardViewModel(application: Application) : AndroidViewModel(application) {
+    /**
+     * Exposes the appContext value.
+     */
     private val appContext = application.applicationContext
+    /**
+     * Exposes the board value.
+     */
     private val board = HardwareConnection(appContext)
+    /**
+     * Exposes the mutableUiState value.
+     */
     private val mutableUiState = MutableStateFlow(DashboardUiState())
+    /**
+     * Exposes the uiState value.
+     */
     val uiState: StateFlow<DashboardUiState> = mutableUiState.asStateFlow()
 
+    /**
+     * Stores the mutable hostForeground value.
+     */
     private var hostForeground = false
+    /**
+     * Stores the mutable boardStopDeferredForPermission value.
+     */
     private var boardStopDeferredForPermission = false
+    /**
+     * Stores the mutable usbPermissionRequestPending value.
+     */
     private var usbPermissionRequestPending = false
+    /**
+     * Stores the mutable usbPermissionRequestReturnedToHost value.
+     */
     private var usbPermissionRequestReturnedToHost = false
+    /**
+     * Stores the mutable permissionResultBackgroundStopJob value.
+     */
     private var permissionResultBackgroundStopJob: Job? = null
+    /**
+     * Stores the mutable baselineCaptureGate value.
+     */
     private var baselineCaptureGate: TakeoffBaselineCaptureGate? = null
+    /**
+     * Stores the mutable lastBoardConnectionEvent value.
+     */
     private var lastBoardConnectionEvent: FbbEventRef? = null
+    /**
+     * Stores the mutable lastUsbPermissionRequestEvent value.
+     */
     private var lastUsbPermissionRequestEvent: FbbEventRef? = null
 
     init {
@@ -313,6 +349,9 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
         stopSources(event)
     }
 
+    /**
+     * Runs the requestUsbPermission operation.
+     */
     fun requestUsbPermission() {
         val request = FlightBlackBox.record(
             type = FbbEventType.USER,
@@ -329,6 +368,9 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
         board.requestPermission()
     }
 
+    /**
+     * Runs the retryBoardConnection operation.
+     */
     fun retryBoardConnection() {
         val retry = FlightBlackBox.record(
             type = FbbEventType.USER,
@@ -343,8 +385,14 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
         )
     }
 
+    /**
+     * Runs the setQnhHectopascal operation.
+     */
     fun setQnhHectopascal(value: Double) = board.setQnh(value)
 
+    /**
+     * Runs the onCleared operation.
+     */
     override fun onCleared() {
         FlightBlackBox.record(
             type = FbbEventType.LIFECYCLE,
@@ -355,6 +403,9 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
         super.onCleared()
     }
 
+    /**
+     * Runs the startSources operation.
+     */
     private fun startSources(cause: FbbEventRef?) {
         FlightBlackBox.record(
             type = FbbEventType.CALL,
@@ -364,6 +415,9 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
         board.start()
     }
 
+    /**
+     * Runs the stopSources operation.
+     */
     private fun stopSources(cause: FbbEventRef?) {
         FlightBlackBox.record(
             type = FbbEventType.CALL,
@@ -373,6 +427,9 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
         board.stop()
     }
 
+    /**
+     * Runs the schedulePermissionResultBackgroundStop operation.
+     */
     private fun schedulePermissionResultBackgroundStop() {
         cancelPermissionResultBackgroundStop()
         permissionResultBackgroundStopJob = viewModelScope.launch {
@@ -390,12 +447,18 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
         }
     }
 
+    /**
+     * Runs the cancelPermissionResultBackgroundStop operation.
+     */
     private fun cancelPermissionResultBackgroundStop() {
         permissionResultBackgroundStopJob?.cancel()
         permissionResultBackgroundStopJob = null
     }
 }
 
+/**
+ * Exposes the PERMISSION_RESULT_FOREGROUND_GRACE_MILLIS value.
+ */
 private const val PERMISSION_RESULT_FOREGROUND_GRACE_MILLIS = 3_000L
 
 /** A USB permission PendingIntent must remain observable while Android's system prompt is active. */
@@ -441,6 +504,9 @@ internal fun shouldStopBoardForHostBackground(
 ): Boolean = !permissionStopAlreadyDeferred &&
     !shouldKeepBoardStartedForPermissionResult(connection, requestPending)
 
+/**
+ * Runs the BoardConnectionState operation.
+ */
 private fun BoardConnectionState.fbbKind(): String = when (this) {
     BoardConnectionState.Stopped -> "Stopped"
     BoardConnectionState.Searching -> "Searching"
@@ -456,6 +522,9 @@ private fun BoardConnectionState.fbbKind(): String = when (this) {
     is BoardConnectionState.Failed -> "Failed"
 }
 
+/**
+ * Runs the BoardConnectionState operation.
+ */
 private fun BoardConnectionState.fbbMetadata(): Map<String, Any?> = when (this) {
     is BoardConnectionState.PermissionRequired -> device.fbbMetadata()
     is BoardConnectionState.RequestingPermission -> device.fbbMetadata()
@@ -485,6 +554,9 @@ private fun BoardConnectionState.fbbMetadata(): Map<String, Any?> = when (this) 
     BoardConnectionState.Searching -> emptyMap()
 }
 
+/**
+ * Runs the ir operation.
+ */
 private fun ir.hrka.shahbaz.hardwareconnection.BoardUsbDevice.fbbMetadata(): Map<String, Any?> =
     mapOf(
         "deviceId" to deviceId,

@@ -8,27 +8,63 @@ import ir.hrka.shahbaz.hardwareconnection.RawSensorFieldType
 import java.util.concurrent.CancellationException
 import kotlin.math.pow
 
+/**
+ * Provides the singleton WireContract services for this module.
+ */
 internal object WireContract {
+    /**
+     * Exposes the VERSION value.
+     */
     const val VERSION = 2
+    /**
+     * Exposes the HEADER_LENGTH value.
+     */
     const val HEADER_LENGTH = 22
+    /**
+     * Exposes the CRC_LENGTH value.
+     */
     const val CRC_LENGTH = 4
+    /**
+     * Exposes the MAX_PAYLOAD_LENGTH value.
+     */
     const val MAX_PAYLOAD_LENGTH = 512
+    /**
+     * Exposes the MAX_DECODED_FRAME_LENGTH value.
+     */
     const val MAX_DECODED_FRAME_LENGTH = HEADER_LENGTH + MAX_PAYLOAD_LENGTH + CRC_LENGTH
+    /**
+     * Exposes the MAX_COBS_BODY_LENGTH value.
+     */
     const val MAX_COBS_BODY_LENGTH =
         MAX_DECODED_FRAME_LENGTH + (MAX_DECODED_FRAME_LENGTH / 254) + 1
+    /**
+     * Exposes the MAX_DELIMITED_FRAME_LENGTH value.
+     */
     const val MAX_DELIMITED_FRAME_LENGTH = MAX_COBS_BODY_LENGTH + 1
+    /**
+     * Exposes the DELIMITER value.
+     */
     const val DELIMITER: Byte = 0
 }
 
+/**
+ * Documents the MessagePriority type and the role it plays in this module.
+ */
 internal enum class MessagePriority(val wireValue: Int) {
     CRITICAL(0), HIGH(1), NORMAL(2), LOW(3);
 
     companion object {
+        /**
+         * Runs the fromWire operation.
+         */
         fun fromWire(value: Int): MessagePriority = entries.firstOrNull { it.wireValue == value }
             ?: throw ProtocolException(ProtocolErrorKind.INVALID_HEADER, "invalid priority $value")
     }
 }
 
+/**
+ * Documents the MessageType type and the role it plays in this module.
+ */
 internal enum class MessageType(val wireValue: Int) {
     DEVICE_INFO_REQUEST(0x0001), DEVICE_INFO_RESPONSE(0x0002),
     START_TELEMETRY(0x0010), STOP_TELEMETRY(0x0011), SET_SENSOR_RATE(0x0012),
@@ -42,6 +78,9 @@ internal enum class MessageType(val wireValue: Int) {
     MOTOR_COMMAND(0x8011), SERVO_COMMAND(0x8012), SET_CONTROL_MODE(0x8013);
 
     companion object {
+        /**
+         * Runs the fromWire operation.
+         */
         fun fromWire(value: Int): MessageType = entries.firstOrNull { it.wireValue == value }
             ?: throw ProtocolException(
                 ProtocolErrorKind.UNKNOWN_MESSAGE,
@@ -50,6 +89,9 @@ internal enum class MessageType(val wireValue: Int) {
     }
 }
 
+/**
+ * Documents the ProtocolErrorKind type and the role it plays in this module.
+ */
 internal enum class ProtocolErrorKind {
     MALFORMED_COBS,
     CRC_MISMATCH,
@@ -70,6 +112,9 @@ internal enum class InboundSessionStage {
     READY,
 }
 
+/**
+ * Runs the MessageType operation.
+ */
 internal fun MessageType.requireAllowedInboundAt(stage: InboundSessionStage) {
     val allowed = when (this) {
         MessageType.DEVICE_INFO_RESPONSE -> stage == InboundSessionStage.VALIDATING_DEVICE
@@ -94,17 +139,32 @@ internal fun MessageType.requireAllowedInboundAt(stage: InboundSessionStage) {
     }
 }
 
+/**
+ * Documents the ProtocolException type and the role it plays in this module.
+ */
 internal class ProtocolException(
+    /**
+     * Exposes the kind value.
+     */
     val kind: ProtocolErrorKind,
     message: String,
 ) : IllegalArgumentException(message)
 
 /** Converts every CRC-valid frame handler failure into an observable protocol rejection. */
 internal sealed interface FrameHandlingResult {
+    /**
+     * Provides the singleton Accepted services for this module.
+     */
     data object Accepted : FrameHandlingResult
+    /**
+     * Documents the Rejected type and the role it plays in this module.
+     */
     data class Rejected(val exception: ProtocolException) : FrameHandlingResult
 }
 
+/**
+ * Runs the handleCrcValidFrameSafely operation.
+ */
 internal inline fun handleCrcValidFrameSafely(block: () -> Unit): FrameHandlingResult = try {
     block()
     FrameHandlingResult.Accepted
@@ -121,17 +181,47 @@ internal inline fun handleCrcValidFrameSafely(block: () -> Unit): FrameHandlingR
     )
 }
 
+/**
+ * Documents the FrameHeader type and the role it plays in this module.
+ */
 internal data class FrameHeader(
+    /**
+     * Exposes the messageType value.
+     */
     val messageType: MessageType,
+    /**
+     * Exposes the priority value.
+     */
     val priority: MessagePriority,
+    /**
+     * Exposes the sequence value.
+     */
     val sequence: UInt,
+    /**
+     * Exposes the senderMonotonicUs value.
+     */
     val senderMonotonicUs: ULong,
+    /**
+     * Exposes the payloadLength value.
+     */
     val payloadLength: Int,
+    /**
+     * Exposes the flags value.
+     */
     val flags: Int = 0,
 )
 
+/**
+ * Documents the DecodedFrame type and the role it plays in this module.
+ */
 internal data class DecodedFrame(
+    /**
+     * Exposes the header value.
+     */
     val header: FrameHeader,
+    /**
+     * Exposes the payload value.
+     */
     val payload: ByteArray,
 )
 
@@ -158,14 +248,35 @@ internal fun DecodedFrame.requireExpectedInboundPriority() {
     }
 }
 
+/**
+ * Documents the OutboundRequest type and the role it plays in this module.
+ */
 internal data class OutboundRequest(
+    /**
+     * Exposes the messageType value.
+     */
     val messageType: MessageType,
+    /**
+     * Exposes the priority value.
+     */
     val priority: MessagePriority,
+    /**
+     * Exposes the payload value.
+     */
     val payload: ByteArray,
+    /**
+     * Exposes the sessionBound value.
+     */
     val sessionBound: Boolean,
 )
 
+/**
+ * Provides the singleton Crc32c services for this module.
+ */
 internal object Crc32c {
+    /**
+     * Runs the calculate operation.
+     */
     fun calculate(bytes: ByteArray, length: Int = bytes.size): Int {
         require(length in 0..bytes.size)
         var crc = -1
@@ -180,7 +291,13 @@ internal object Crc32c {
     }
 }
 
+/**
+ * Provides the singleton Cobs services for this module.
+ */
 internal object Cobs {
+    /**
+     * Runs the encode operation.
+     */
     fun encode(input: ByteArray): ByteArray {
         if (input.size > WireContract.MAX_DECODED_FRAME_LENGTH) {
             throw ProtocolException(ProtocolErrorKind.OVERSIZE, "decoded frame exceeds bound")
@@ -210,6 +327,9 @@ internal object Cobs {
         return output.copyOf(writeIndex)
     }
 
+    /**
+     * Runs the decode operation.
+     */
     fun decode(input: ByteArray): ByteArray {
         if (input.isEmpty()) {
             throw ProtocolException(ProtocolErrorKind.MALFORMED_COBS, "empty COBS frame")
@@ -244,7 +364,13 @@ internal object Cobs {
     }
 }
 
+/**
+ * Provides the singleton FrameCodec services for this module.
+ */
 internal object FrameCodec {
+    /**
+     * Runs the encode operation.
+     */
     fun encode(
         request: OutboundRequest,
         sequence: UInt,
@@ -284,6 +410,9 @@ internal object FrameCodec {
         return Cobs.encode(decoded) + byteArrayOf(WireContract.DELIMITER)
     }
 
+    /**
+     * Runs the decodeBody operation.
+     */
     fun decodeBody(encodedBody: ByteArray): DecodedFrame {
         val decoded = Cobs.decode(encodedBody)
         if (decoded.size < WireContract.HEADER_LENGTH + WireContract.CRC_LENGTH) {
@@ -334,21 +463,48 @@ internal object FrameCodec {
     }
 }
 
+/**
+ * Defines the StreamEvent contract used by this module.
+ */
 internal sealed interface StreamEvent {
+    /**
+     * Documents the Frame type and the role it plays in this module.
+     */
     data class Frame(val value: DecodedFrame) : StreamEvent
+    /**
+     * Documents the Rejected type and the role it plays in this module.
+     */
     data class Rejected(val exception: ProtocolException) : StreamEvent
 }
 
+/**
+ * Documents the FrameAccumulator type and the role it plays in this module.
+ */
 internal class FrameAccumulator {
+    /**
+     * Exposes the encoded value.
+     */
     private val encoded = ByteArray(WireContract.MAX_COBS_BODY_LENGTH)
+    /**
+     * Stores the mutable size value.
+     */
     private var size = 0
+    /**
+     * Stores the mutable discarding value.
+     */
     private var discarding = false
 
+    /**
+     * Runs the reset operation.
+     */
     fun reset() {
         size = 0
         discarding = false
     }
 
+    /**
+     * Runs the feed operation.
+     */
     fun feed(chunk: ByteArray): List<StreamEvent> {
         val output = mutableListOf<StreamEvent>()
         for (byte in chunk) {
@@ -389,24 +545,57 @@ internal class FrameAccumulator {
     }
 }
 
+/**
+ * Provides the singleton SafeRequests services for this module.
+ */
 internal object SafeRequests {
+    /**
+     * Runs the timeSync operation.
+     */
     fun timeSync(hostUs: ULong) = request(
         type = MessageType.TIME_SYNC_REQUEST,
         payload = ByteArray(8).also { writeU64(it, 0, hostUs) },
     )
 
+    /**
+     * Runs the deviceInfo operation.
+     */
     fun deviceInfo() = request(MessageType.DEVICE_INFO_REQUEST)
+    /**
+     * Runs the deviceStatus operation.
+     */
     fun deviceStatus() = request(MessageType.DEVICE_STATUS_REQUEST)
+    /**
+     * Runs the startTelemetry operation.
+     */
     fun startTelemetry() = request(MessageType.START_TELEMETRY, sessionBound = true)
+    /**
+     * Runs the stopTelemetry operation.
+     */
     fun stopTelemetry() = request(MessageType.STOP_TELEMETRY, sessionBound = true)
+    /**
+     * Runs the heartbeat operation.
+     */
     fun heartbeat() = request(MessageType.HEARTBEAT, MessagePriority.CRITICAL, sessionBound = true)
 
     /** Tokenless safety override used while closing or explicitly disarming. */
     fun disarm() = request(MessageType.DISARM, MessagePriority.CRITICAL)
+    /**
+     * Runs the emergencyStop operation.
+     */
     fun emergencyStop() = request(MessageType.EMERGENCY_STOP, MessagePriority.CRITICAL)
+    /**
+     * Runs the armRequest operation.
+     */
     fun armRequest() = request(MessageType.ARM_REQUEST, MessagePriority.CRITICAL, sessionBound = true)
+    /**
+     * Runs the armConfirm operation.
+     */
     fun armConfirm() = request(MessageType.ARM_CONFIRM, MessagePriority.CRITICAL, sessionBound = true)
 
+    /**
+     * Runs the motorCommand operation.
+     */
     fun motorCommand(channel: Int, pulseMicros: Int) = request(
         type = MessageType.MOTOR_COMMAND,
         priority = MessagePriority.CRITICAL,
@@ -414,6 +603,9 @@ internal object SafeRequests {
         sessionBound = true,
     )
 
+    /**
+     * Runs the servoCommand operation.
+     */
     fun servoCommand(channel: Int, pulseMicros: Int) = request(
         type = MessageType.SERVO_COMMAND,
         priority = MessagePriority.CRITICAL,
@@ -421,6 +613,9 @@ internal object SafeRequests {
         sessionBound = true,
     )
 
+    /**
+     * Runs the actuatorCommand operation.
+     */
     fun actuatorCommand(kind: ActuatorKind, channel: Int, pulseMicros: Int) = request(
         type = MessageType.ACTUATOR_COMMAND,
         priority = MessagePriority.CRITICAL,
@@ -432,6 +627,9 @@ internal object SafeRequests {
         sessionBound = true,
     )
 
+    /**
+     * Runs the setControlMode operation.
+     */
     fun setControlMode(mode: Int) = request(
         type = MessageType.SET_CONTROL_MODE,
         priority = MessagePriority.HIGH,
@@ -439,6 +637,9 @@ internal object SafeRequests {
         sessionBound = true,
     )
 
+    /**
+     * Runs the request operation.
+     */
     private fun request(
         type: MessageType,
         priority: MessagePriority = MessagePriority.HIGH,
@@ -446,23 +647,35 @@ internal object SafeRequests {
         sessionBound: Boolean = false,
     ) = OutboundRequest(type, priority, payload, sessionBound)
 
+    /**
+     * Runs the directPulsePayload operation.
+     */
     private fun directPulsePayload(channel: Int, pulseMicros: Int): ByteArray =
         ByteArray(3).also {
             it[0] = channelByte(channel)
             writeU16(it, 1, pulseMicros)
         }
 
+    /**
+     * Runs the channelByte operation.
+     */
     private fun channelByte(value: Int): Byte {
         require(value in 0..255) { "value must fit in uint8" }
         return value.toByte()
     }
 }
 
+/**
+ * Documents the ActuatorKind type and the role it plays in this module.
+ */
 internal enum class ActuatorKind(val wireValue: Int) {
     MOTOR(1),
     SERVO(2),
 }
 
+/**
+ * Exposes the GUARDED_HOST_REQUEST_TYPES value.
+ */
 private val GUARDED_HOST_REQUEST_TYPES = setOf(
     MessageType.TIME_SYNC_REQUEST,
     MessageType.DEVICE_INFO_REQUEST,
@@ -480,13 +693,31 @@ private val GUARDED_HOST_REQUEST_TYPES = setOf(
     MessageType.SET_CONTROL_MODE,
 )
 
+/**
+ * Documents the TimeSyncResponse type and the role it plays in this module.
+ */
 internal data class TimeSyncResponse(
+    /**
+     * Exposes the clientSendUs value.
+     */
     val clientSendUs: ULong,
+    /**
+     * Exposes the deviceRxUs value.
+     */
     val deviceRxUs: ULong,
+    /**
+     * Exposes the deviceTxUs value.
+     */
     val deviceTxUs: ULong,
+    /**
+     * Exposes the sessionToken value.
+     */
     val sessionToken: ULong,
 )
 
+/**
+ * Runs the DecodedFrame operation.
+ */
 internal fun DecodedFrame.decodeTimeSync(): TimeSyncResponse? {
     if (header.messageType != MessageType.TIME_SYNC_RESPONSE) return null
     requirePayloadSize(32)
@@ -495,6 +726,9 @@ internal fun DecodedFrame.decodeTimeSync(): TimeSyncResponse? {
     )
 }
 
+/**
+ * Runs the DecodedFrame operation.
+ */
 internal fun DecodedFrame.decodeDeviceInfo(): BoardDeviceInfo? {
     if (header.messageType != MessageType.DEVICE_INFO_RESPONSE) return null
     requirePayloadSize(20)
@@ -518,17 +752,47 @@ internal fun DecodedFrame.decodeDeviceInfo(): BoardDeviceInfo? {
     )
 }
 
+/**
+ * Documents the RawWireSensorSample type and the role it plays in this module.
+ */
 internal data class RawWireSensorSample(
+    /**
+     * Exposes the sensorId value.
+     */
     val sensorId: Int,
+    /**
+     * Exposes the instanceId value.
+     */
     val instanceId: Int,
+    /**
+     * Exposes the sequence value.
+     */
     val sequence: UInt,
+    /**
+     * Exposes the deviceTimestampUs value.
+     */
     val deviceTimestampUs: ULong,
+    /**
+     * Exposes the validityFlags value.
+     */
     val validityFlags: UInt,
+    /**
+     * Exposes the qualityFlags value.
+     */
     val qualityFlags: UInt,
+    /**
+     * Exposes the healthFlags value.
+     */
     val healthFlags: UInt,
+    /**
+     * Exposes the fields value.
+     */
     val fields: List<RawSensorField>,
 )
 
+/**
+ * Runs the DecodedFrame operation.
+ */
 internal fun DecodedFrame.decodeSensorSample(): RawWireSensorSample? {
     if (header.messageType != MessageType.SENSOR_SAMPLE) return null
     if (payload.size < 27) {
@@ -569,23 +833,50 @@ internal fun DecodedFrame.decodeSensorSample(): RawWireSensorSample? {
     )
 }
 
+/**
+ * Documents the CommandNack type and the role it plays in this module.
+ */
 internal data class CommandNack(
+    /**
+     * Exposes the requestSequence value.
+     */
     val requestSequence: UInt,
+    /**
+     * Exposes the reason value.
+     */
     val reason: Int,
+    /**
+     * Exposes the validationError value.
+     */
     val validationError: Int,
 )
 
+/**
+ * Runs the DecodedFrame operation.
+ */
 internal fun DecodedFrame.decodeCommandNack(): CommandNack? {
     if (header.messageType != MessageType.COMMAND_NACK) return null
     requirePayloadSize(8)
     return CommandNack(readU32(payload, 0), readU16(payload, 4), readU16(payload, 6))
 }
 
+/**
+ * Documents the CommandAck type and the role it plays in this module.
+ */
 internal data class CommandAck(
+    /**
+     * Exposes the requestSequence value.
+     */
     val requestSequence: UInt,
+    /**
+     * Exposes the applicationAction value.
+     */
     val applicationAction: ApplicationAction,
 )
 
+/**
+ * Documents the ApplicationAction type and the role it plays in this module.
+ */
 internal enum class ApplicationAction(val wireValue: Int) {
     NONE(0),
     REQUEST_DEVICE_INFO(1),
@@ -607,6 +898,9 @@ internal enum class ApplicationAction(val wireValue: Int) {
     SET_CONTROL_MODE(17);
 
     companion object {
+        /**
+         * Runs the fromWire operation.
+         */
         fun fromWire(value: Int): ApplicationAction = entries.firstOrNull { it.wireValue == value }
             ?: throw ProtocolException(
                 ProtocolErrorKind.PAYLOAD_INVALID,
@@ -615,12 +909,18 @@ internal enum class ApplicationAction(val wireValue: Int) {
     }
 }
 
+/**
+ * Runs the DecodedFrame operation.
+ */
 internal fun DecodedFrame.decodeCommandAck(): CommandAck? {
     if (header.messageType != MessageType.COMMAND_ACK) return null
     requirePayloadSize(5)
     return CommandAck(readU32(payload, 0), ApplicationAction.fromWire(readU8(payload, 4)))
 }
 
+/**
+ * Runs the CommandAck operation.
+ */
 internal fun CommandAck.requireAcknowledges(
     expectedRequestSequence: UInt,
     expectedAction: ApplicationAction,
@@ -633,6 +933,9 @@ internal fun CommandAck.requireAcknowledges(
     }
 }
 
+/**
+ * Runs the DecodedFrame operation.
+ */
 internal fun DecodedFrame.requireHeartbeatAckPayload() {
     if (header.messageType != MessageType.HEARTBEAT_ACK) {
         throw ProtocolException(ProtocolErrorKind.PAYLOAD_INVALID, "frame is not HeartbeatAck")
@@ -640,15 +943,39 @@ internal fun DecodedFrame.requireHeartbeatAckPayload() {
     requirePayloadSize(0)
 }
 
+/**
+ * Documents the DeviceStatusPayload type and the role it plays in this module.
+ */
 internal data class DeviceStatusPayload(
+    /**
+     * Exposes the safetyState value.
+     */
     val safetyState: Int,
+    /**
+     * Exposes the communicationState value.
+     */
     val communicationState: Int,
+    /**
+     * Exposes the telemetryEnabled value.
+     */
     val telemetryEnabled: Boolean,
+    /**
+     * Exposes the actuatorArmed value.
+     */
     val actuatorArmed: Boolean,
+    /**
+     * Exposes the sht30Online value.
+     */
     val sht30Online: Boolean,
+    /**
+     * Exposes the ms5611Online value.
+     */
     val ms5611Online: Boolean,
 )
 
+/**
+ * Runs the DecodedFrame operation.
+ */
 internal fun DecodedFrame.decodeDeviceStatus(): DeviceStatusPayload? {
     if (header.messageType != MessageType.DEVICE_STATUS_RESPONSE) return null
     requirePayloadSize(6)
@@ -658,6 +985,9 @@ internal fun DecodedFrame.decodeDeviceStatus(): DeviceStatusPayload? {
     )
 }
 
+/**
+ * Runs the altitudeMeters operation.
+ */
 internal fun altitudeMeters(pressurePa: Int, qnhHpa: Double): Double {
     if (pressurePa !in 1_000..120_000) {
         throw ProtocolException(ProtocolErrorKind.PAYLOAD_INVALID, "pressure is out of range")
@@ -668,6 +998,9 @@ internal fun altitudeMeters(pressurePa: Int, qnhHpa: Double): Double {
     return 44_330.0 * (1.0 - (pressurePa / (qnhHpa * 100.0)).pow(0.19029495718363465))
 }
 
+/**
+ * Runs the DecodedFrame operation.
+ */
 private fun DecodedFrame.requirePayloadSize(size: Int) {
     if (payload.size != size) {
         throw ProtocolException(
@@ -677,39 +1010,63 @@ private fun DecodedFrame.requirePayloadSize(size: Int) {
     }
 }
 
+/**
+ * Runs the readBooleanByte operation.
+ */
 private fun readBooleanByte(input: ByteArray, offset: Int): Boolean = when (readU8(input, offset)) {
     0 -> false
     1 -> true
     else -> throw ProtocolException(ProtocolErrorKind.PAYLOAD_INVALID, "invalid boolean byte")
 }
 
+/**
+ * Runs the readU8 operation.
+ */
 internal fun readU8(input: ByteArray, offset: Int): Int = input[offset].toInt() and 0xFF
 
+/**
+ * Runs the readU16 operation.
+ */
 internal fun readU16(input: ByteArray, offset: Int): Int =
     readU8(input, offset) or (readU8(input, offset + 1) shl 8)
 
+/**
+ * Runs the readU32 operation.
+ */
 internal fun readU32(input: ByteArray, offset: Int): UInt {
     var result = 0u
     repeat(4) { result = result or (readU8(input, offset + it).toUInt() shl (8 * it)) }
     return result
 }
 
+/**
+ * Runs the readU64 operation.
+ */
 internal fun readU64(input: ByteArray, offset: Int): ULong {
     var result = 0uL
     repeat(8) { result = result or (readU8(input, offset + it).toULong() shl (8 * it)) }
     return result
 }
 
+/**
+ * Runs the writeU16 operation.
+ */
 internal fun writeU16(output: ByteArray, offset: Int, value: Int) {
     require(value in 0..0xFFFF)
     output[offset] = value.toByte()
     output[offset + 1] = (value ushr 8).toByte()
 }
 
+/**
+ * Runs the writeU32 operation.
+ */
 internal fun writeU32(output: ByteArray, offset: Int, value: UInt) {
     repeat(4) { output[offset + it] = (value shr (8 * it)).toByte() }
 }
 
+/**
+ * Runs the writeU64 operation.
+ */
 internal fun writeU64(output: ByteArray, offset: Int, value: ULong) {
     repeat(8) { output[offset + it] = (value shr (8 * it)).toByte() }
 }

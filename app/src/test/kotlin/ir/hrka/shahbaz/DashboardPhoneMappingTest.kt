@@ -21,6 +21,9 @@ import org.junit.Test
 
 /** Pure JVM verification that phone values keep explicit phone-only provenance and availability. */
 class DashboardPhoneMappingTest {
+    /**
+     * Runs the ready location maps to an available dashboard position operation.
+     */
     @Test
     fun `ready location maps to an available dashboard position`() {
         val coordinate = GeoCoordinate(35.7, 51.4)
@@ -36,6 +39,9 @@ class DashboardPhoneMappingTest {
         assertTrue(result.orientation is PhoneReading.Inactive)
     }
 
+    /**
+     * Runs the missing permission remains unavailable instead of becoming zero data operation.
+     */
     @Test
     fun `missing permission remains unavailable instead of becoming zero data`() {
         val result = MapUiState(
@@ -45,6 +51,9 @@ class DashboardPhoneMappingTest {
         assertTrue(result.position is PhoneReading.Unavailable)
     }
 
+    /**
+     * Runs the stale compass status never maps a retained reading as live operation.
+     */
     @Test
     fun `stale compass status never maps a retained reading as live`() {
         val result = MapUiState(
@@ -59,6 +68,9 @@ class DashboardPhoneMappingTest {
         )
     }
 
+    /**
+     * Runs the silent and absent compass sources remain distinct operation.
+     */
     @Test
     fun `silent and absent compass sources remain distinct`() {
         val silent = MapUiState(
@@ -76,6 +88,9 @@ class DashboardPhoneMappingTest {
         assertTrue(absent.orientation is PhoneReading.NotPresent)
     }
 
+    /**
+     * Runs the invalid samples and registration failures remain distinct operation.
+     */
     @Test
     fun `invalid samples and registration failures remain distinct`() {
         val invalid = MapUiState(

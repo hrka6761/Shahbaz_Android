@@ -4,8 +4,14 @@ import android.content.Context
 
 /** Persistent access to recorder configuration, with diagnostics fixed to deep and strict modes. */
 class FlightBlackBoxConfiguration internal constructor(context: Context) {
+    /**
+     * Exposes the preferences value.
+     */
     private val preferences = context.getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE)
 
+    /**
+     * Runs the read operation.
+     */
     fun read(): FbbConfig {
         val defaults = FbbConfig()
         return runCatching {
@@ -38,6 +44,9 @@ class FlightBlackBoxConfiguration internal constructor(context: Context) {
         }
     }
 
+    /**
+     * Runs the save operation.
+     */
     fun save(config: FbbConfig): FbbConfig {
         val fixedConfig = config.withRequiredDiagnosticsMode()
         preferences.edit()
@@ -57,14 +66,23 @@ class FlightBlackBoxConfiguration internal constructor(context: Context) {
         return fixedConfig
     }
 
+    /**
+     * Runs the update operation.
+     */
     fun update(transform: FbbConfig.() -> FbbConfig): FbbConfig =
         save(read().transform())
 
+    /**
+     * Runs the reset operation.
+     */
     fun reset(): FbbConfig {
         preferences.edit().clear().apply()
         return FbbConfig()
     }
 
+    /**
+     * Runs the fun operation.
+     */
     private inline fun <reified T : Enum<T>> readEnum(key: String, defaultValue: T): T {
         val stored = preferences.getString(key, null) ?: return defaultValue
         return runCatching { enumValueOf<T>(stored) }.getOrDefault(defaultValue)

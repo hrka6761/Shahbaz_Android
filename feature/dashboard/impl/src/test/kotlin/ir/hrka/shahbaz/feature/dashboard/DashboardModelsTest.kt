@@ -29,6 +29,9 @@ import org.junit.Test
 
 /** JVM coverage for dashboard rules that do not require Android services or Compose rendering. */
 class DashboardModelsTest {
+    /**
+     * Runs the relative altitude is zero at baseline and rises as pressure falls operation.
+     */
     @Test
     fun `relative altitude is zero at baseline and rises as pressure falls`() {
         assertEquals(0.0, relativeBarometricAltitudeMeters(101_325, 101_325), 0.0001)
@@ -36,6 +39,9 @@ class DashboardModelsTest {
         assertTrue(relativeBarometricAltitudeMeters(102_000, 101_325) < 0.0)
     }
 
+    /**
+     * Runs the relative altitude rejects impossible pressures operation.
+     */
     @Test
     fun `relative altitude rejects impossible pressures`() {
         assertThrows(IllegalArgumentException::class.java) {
@@ -46,12 +52,18 @@ class DashboardModelsTest {
         }
     }
 
+    /**
+     * Runs the relative altitude accepts the complete hardware decoder pressure range operation.
+     */
     @Test
     fun `relative altitude accepts the complete hardware decoder pressure range`() {
         assertTrue(relativeBarometricAltitudeMeters(1_000, 120_000).isFinite())
         assertTrue(relativeBarometricAltitudeMeters(120_000, 1_000).isFinite())
     }
 
+    /**
+     * Runs the dashboard altitude getter is total at decoder boundaries and invalid baselines operation.
+     */
     @Test
     fun `dashboard altitude getter is total at decoder boundaries and invalid baselines`() {
         val lowPressure = DashboardUiState(
@@ -74,6 +86,9 @@ class DashboardModelsTest {
         assertNull(invalidBaseline.altitudeAboveTakeoffMeters)
     }
 
+    /**
+     * Runs the baseline requires a new pressure sample after the current session becomes ready operation.
+     */
     @Test
     fun `baseline requires a new pressure sample after the current session becomes ready`() {
         val ready = readyConnection(connectedAtMillis = 100L)
@@ -120,6 +135,9 @@ class DashboardModelsTest {
         )
     }
 
+    /**
+     * Runs the baseline rejects samples predating or belonging to a different ready session operation.
+     */
     @Test
     fun `baseline rejects samples predating or belonging to a different ready session`() {
         val ready = readyConnection(connectedAtMillis = 100L)
@@ -155,6 +173,9 @@ class DashboardModelsTest {
         )
     }
 
+    /**
+     * Runs the established flight baseline survives an ordinary reconnect but no-plan state cannot capture operation.
+     */
     @Test
     fun `established flight baseline survives an ordinary reconnect but no-plan state cannot capture`() {
         assertEquals(
@@ -185,6 +206,9 @@ class DashboardModelsTest {
         )
     }
 
+    /**
+     * Runs the cardinal angles report signed deviation and absolute distance to N E S W operation.
+     */
     @Test
     fun `cardinal angles report signed deviation and absolute distance to N E S W`() {
         val angles = cardinalAngles(compassReading(30f), NorthReference.MAGNETIC)
@@ -196,11 +220,17 @@ class DashboardModelsTest {
         assertAngle(angles, CompassDirection.WEST, signed = 120f, absolute = 120f)
     }
 
+    /**
+     * Runs the true cardinal angles are absent until a geomagnetic position provides true north operation.
+     */
     @Test
     fun `true cardinal angles are absent until a geomagnetic position provides true north`() {
         assertTrue(cardinalAngles(compassReading(30f), NorthReference.TRUE).isEmpty())
     }
 
+    /**
+     * Runs the one external sensor failure does not erase another sensor value operation.
+     */
     @Test
     fun `one external sensor failure does not erase another sensor value`() {
         val shtSample = SensorSample(
@@ -225,6 +255,9 @@ class DashboardModelsTest {
         assertNull(state.currentPressurePascal)
     }
 
+    /**
+     * Runs the quality operation.
+     */
     private fun quality() = SensorSampleQuality(
         recoveredAfterError = false,
         rateLimited = false,
@@ -233,6 +266,9 @@ class DashboardModelsTest {
         rawHealthFlags = 0,
     )
 
+    /**
+     * Runs the msSample operation.
+     */
     private fun msSample(
         pressurePascal: Int,
         sequence: Long = 1,
@@ -250,6 +286,9 @@ class DashboardModelsTest {
         quality = quality(),
     )
 
+    /**
+     * Runs the compassReading operation.
+     */
     private fun compassReading(azimuth: Float) = CompassReading(
         magneticAzimuthDegrees = azimuth,
         trueAzimuthDegrees = null,
@@ -265,6 +304,9 @@ class DashboardModelsTest {
         timestampNanos = 1L,
     )
 
+    /**
+     * Runs the assertAngle operation.
+     */
     private fun assertAngle(
         angles: List<CardinalAngle>,
         direction: CompassDirection,
@@ -276,6 +318,9 @@ class DashboardModelsTest {
         assertEquals(absolute, angle.absoluteDegrees, 0.0001f)
     }
 
+    /**
+     * Runs the readyConnection operation.
+     */
     private fun readyConnection(connectedAtMillis: Long) = BoardConnectionState.Ready(
         device = BoardUsbDevice(
             deviceId = 4,

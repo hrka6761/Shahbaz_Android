@@ -70,9 +70,18 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 
+/**
+ * Exposes the USB_PERMISSION_DEVICE_ID_EXTRA value.
+ */
 private const val USB_PERMISSION_DEVICE_ID_EXTRA =
     "ir.hrka.shahbaz.hardwareconnection.extra.USB_PERMISSION_DEVICE_ID"
+/**
+ * Exposes the USB_LOG_TAG value.
+ */
 private const val USB_LOG_TAG = "ShahbazUsb"
+/**
+ * Exposes the USB_REENUMERATION_GRACE_MILLIS value.
+ */
 private const val USB_REENUMERATION_GRACE_MILLIS = 2_000L
 
 /**
@@ -85,59 +94,179 @@ private const val USB_REENUMERATION_GRACE_MILLIS = 2_000L
  */
 class HardwareConnection(
     context: Context,
+    /**
+     * Exposes the config value.
+     */
     private val config: HardwareConnectionConfig = HardwareConnectionConfig(),
 ) : Closeable, AndroidUsbCdcTransport.Listener {
+    /**
+     * Exposes the applicationContext value.
+     */
     private val applicationContext = context.applicationContext
+    /**
+     * Exposes the usbManager value.
+     */
     private val usbManager = applicationContext.getSystemService(Context.USB_SERVICE) as UsbManager
+    /**
+     * Exposes the serialDispatcher value.
+     */
     private val serialDispatcher: CoroutineDispatcher = Dispatchers.IO.limitedParallelism(1)
+    /**
+     * Exposes the scope value.
+     */
     private val scope = CoroutineScope(SupervisorJob() + serialDispatcher)
+    /**
+     * Exposes the closed value.
+     */
     private val closed = AtomicBoolean(false)
+    /**
+     * Exposes the session value.
+     */
     private val session = BoardProtocolSession(::elapsedRealtimeMicros)
+    /**
+     * Exposes the telemetryStore value.
+     */
     private val telemetryStore = TelemetryStore(
         config.initialQnhHectopascal,
         config.maximumUnknownSensors,
     )
+    /**
+     * Exposes the transport value.
+     */
     private val transport = AndroidUsbCdcTransport(applicationContext, this)
 
+    /**
+     * Exposes the mutableConnectionState value.
+     */
     private val mutableConnectionState = MutableStateFlow<BoardConnectionState>(
         BoardConnectionState.Stopped,
     )
+    /**
+     * Exposes the mutableTelemetry value.
+     */
     private val mutableTelemetry = MutableStateFlow(telemetryStore.snapshot)
 
+    /**
+     * Exposes the connectionState value.
+     */
     val connectionState: StateFlow<BoardConnectionState> = mutableConnectionState.asStateFlow()
+    /**
+     * Exposes the telemetry value.
+     */
     val telemetry: StateFlow<BoardTelemetrySnapshot> = mutableTelemetry.asStateFlow()
 
+    /**
+     * Exposes the permissionAction value.
+     */
     private val permissionAction = buildString {
         append(applicationContext.packageName)
         append(".SHAHBAZ_HARDWARE_CONNECTION_USB_PERMISSION.")
         append(UUID.randomUUID())
     }
+    /**
+     * Stores the mutable started value.
+     */
     private var started = false
+    /**
+     * Stores the mutable receiversRegistered value.
+     */
     private var receiversRegistered = false
+    /**
+     * Stores the mutable selectedDevice value.
+     */
     private var selectedDevice: UsbDevice? = null
+    /**
+     * Stores the mutable selectedDescriptor value.
+     */
     private var selectedDescriptor: BoardUsbDevice? = null
+    /**
+     * Stores the mutable generation value.
+     */
     private var generation = 0L
+    /**
+     * Stores the mutable linkJob value.
+     */
     private var linkJob: Job? = null
+    /**
+     * Stores the mutable reenumerationGraceJob value.
+     */
     private var reenumerationGraceJob: Job? = null
+    /**
+     * Stores the mutable deviceInfo value.
+     */
     private var deviceInfo: BoardDeviceInfo? = null
+    /**
+     * Stores the mutable activeToken value.
+     */
     private var activeToken: ULong? = null
+    /**
+     * Stores the mutable telemetryStartSequence value.
+     */
     private var telemetryStartSequence: UInt? = null
+    /**
+     * Stores the mutable telemetryStartAcknowledged value.
+     */
     private var telemetryStartAcknowledged = false
+    /**
+     * Stores the mutable heartbeatAcknowledged value.
+     */
     private var heartbeatAcknowledged = false
+    /**
+     * Stores the mutable connectedAtMillis value.
+     */
     private var connectedAtMillis = 0L
+    /**
+     * Stores the mutable stageDeadlineMillis value.
+     */
     private var stageDeadlineMillis = 0L
+    /**
+     * Stores the mutable lastHeartbeatSentMillis value.
+     */
     private var lastHeartbeatSentMillis = 0L
+    /**
+     * Stores the mutable lastHeartbeatAckMillis value.
+     */
     private var lastHeartbeatAckMillis = 0L
+    /**
+     * Stores the mutable timeSyncSentMillis value.
+     */
     private var timeSyncSentMillis = 0L
+    /**
+     * Stores the mutable timeSyncPending value.
+     */
     private var timeSyncPending = false
+    /**
+     * Stores the mutable initialTimeSyncAttemptsSent value.
+     */
     private var initialTimeSyncAttemptsSent = 0
+    /**
+     * Stores the mutable lastDeviceStatusSentMillis value.
+     */
     private var lastDeviceStatusSentMillis = 0L
+    /**
+     * Stores the mutable lastUsbEvent value.
+     */
     private var lastUsbEvent: FbbEventRef? = null
+    /**
+     * Stores the mutable lastCommandSentType value.
+     */
     private var lastCommandSentType: MessageType? = null
+    /**
+     * Stores the mutable lastCommandSentSequence value.
+     */
     private var lastCommandSentSequence: UInt? = null
+    /**
+     * Exposes the pendingCommandAcks value.
+     */
     private val pendingCommandAcks = mutableMapOf<UInt, ApplicationAction>()
 
+    /**
+     * Exposes the permissionReceiver value.
+     */
     private val permissionReceiver = object : BroadcastReceiver() {
+        /**
+         * Runs the onReceive operation.
+         */
         override fun onReceive(context: Context?, intent: Intent?) {
             if (intent?.action != permissionAction) return
             val requestedDeviceId = if (intent.hasExtra(USB_PERMISSION_DEVICE_ID_EXTRA)) {
@@ -187,7 +316,13 @@ class HardwareConnection(
         }
     }
 
+    /**
+     * Exposes the usbLifecycleReceiver value.
+     */
     private val usbLifecycleReceiver = object : BroadcastReceiver() {
+        /**
+         * Runs the onReceive operation.
+         */
         override fun onReceive(context: Context?, intent: Intent?) {
             val action = intent?.action ?: return
             val announcedDevice = intent.usbDevice()
@@ -406,6 +541,9 @@ class HardwareConnection(
             session.buildEmergencyStop()
         }
 
+    /**
+     * Runs the close operation.
+     */
     override fun close() {
         if (!closed.compareAndSet(false, true)) return
         FlightBlackBox.record(
@@ -433,6 +571,9 @@ class HardwareConnection(
         scope.cancel()
     }
 
+    /**
+     * Runs the onBytes operation.
+     */
     override fun onBytes(generation: Long, bytes: ByteArray) {
         if (closed.get()) return
         val rx = FlightBlackBox.record(
@@ -462,6 +603,9 @@ class HardwareConnection(
         }
     }
 
+    /**
+     * Runs the onTransportError operation.
+     */
     override fun onTransportError(generation: Long, message: String, cause: Throwable?) {
         if (closed.get()) return
         lastUsbEvent = FlightBlackBox.record(
@@ -489,6 +633,9 @@ class HardwareConnection(
         }
     }
 
+    /**
+     * Runs the startInternal operation.
+     */
     private suspend fun startInternal() {
         if (started) {
             FlightBlackBox.record(
@@ -549,6 +696,9 @@ class HardwareConnection(
         scanAndConnect()
     }
 
+    /**
+     * Runs the stopInternal operation.
+     */
     private fun stopInternal(reason: BoardDisconnectReason, publishStopped: Boolean) {
         if (!started && !receiversRegistered) {
             if (publishStopped) mutableConnectionState.value = BoardConnectionState.Stopped
@@ -579,6 +729,9 @@ class HardwareConnection(
         }
     }
 
+    /**
+     * Runs the scanAndConnect operation.
+     */
     private fun scanAndConnect() {
         if (!started) return
         val scan = FlightBlackBox.record(
@@ -678,6 +831,9 @@ class HardwareConnection(
         }
     }
 
+    /**
+     * Runs the requestPermissionInternal operation.
+     */
     private fun requestPermissionInternal() {
         if (!started) return
         val request = FlightBlackBox.record(
@@ -754,6 +910,9 @@ class HardwareConnection(
         }
     }
 
+    /**
+     * Runs the handlePermissionResult operation.
+     */
     private fun handlePermissionResult(requestedDeviceId: Int?) {
         if (!started) return
         val resultEvent = FlightBlackBox.record(
@@ -818,6 +977,9 @@ class HardwareConnection(
         }
     }
 
+    /**
+     * Runs the open operation.
+     */
     private fun open(device: UsbDevice, descriptor: BoardUsbDevice) {
         if (transport.openedDeviceId() == device.deviceId && session.attached) {
             FlightBlackBox.record(
@@ -910,6 +1072,9 @@ class HardwareConnection(
         }
     }
 
+    /**
+     * Runs the handleProtocolBytes operation.
+     */
     private fun handleProtocolBytes(bytes: ByteArray) {
         val processingGeneration = generation
         val events = session.feed(bytes)
@@ -991,6 +1156,9 @@ class HardwareConnection(
         }
     }
 
+    /**
+     * Runs the handleTimeSyncAccepted operation.
+     */
     private fun handleTimeSyncAccepted(token: ULong) {
         val accepted = FlightBlackBox.record(
             type = FbbEventType.VALUE,
@@ -1033,6 +1201,9 @@ class HardwareConnection(
         if (!send(session.buildDeviceInfo())) return
     }
 
+    /**
+     * Runs the handleFrame operation.
+     */
     private fun handleFrame(frame: DecodedFrame, receivedAtUs: ULong) {
         frame.header.messageType.requireAllowedInboundAt(currentInboundSessionStage())
         // Every session-bound board response must come from the device-time window established
@@ -1221,6 +1392,9 @@ class HardwareConnection(
         }
     }
 
+    /**
+     * Runs the currentInboundSessionStage operation.
+     */
     private fun currentInboundSessionStage(): InboundSessionStage =
         when (mutableConnectionState.value) {
             is BoardConnectionState.ValidatingDevice -> InboundSessionStage.VALIDATING_DEVICE
@@ -1230,6 +1404,9 @@ class HardwareConnection(
             else -> InboundSessionStage.NOT_SYNCHRONIZED
         }
 
+    /**
+     * Runs the handleDeviceInfo operation.
+     */
     private fun handleDeviceInfo(frame: DecodedFrame) {
         val info = frame.decodeDeviceInfo() ?: throw ProtocolException(
             ProtocolErrorKind.PAYLOAD_INVALID,
@@ -1265,6 +1442,9 @@ class HardwareConnection(
         if (!sendHeartbeat()) return
     }
 
+    /**
+     * Runs the advanceValidatedHandshake operation.
+     */
     private fun advanceValidatedHandshake() {
         val info = deviceInfo ?: return
         val descriptor = selectedDescriptor ?: return
@@ -1318,6 +1498,9 @@ class HardwareConnection(
         }
     }
 
+    /**
+     * Runs the requireHeartbeatResponseIsExpected operation.
+     */
     private fun requireHeartbeatResponseIsExpected() {
         if (
             activeToken == null ||
@@ -1331,6 +1514,9 @@ class HardwareConnection(
         }
     }
 
+    /**
+     * Runs the requireStartTelemetryResponseIsExpected operation.
+     */
     private fun requireStartTelemetryResponseIsExpected() {
         if (
             activeToken == null ||
@@ -1345,6 +1531,9 @@ class HardwareConnection(
         }
     }
 
+    /**
+     * Runs the requireFreshSessionFrame operation.
+     */
     private fun requireFreshSessionFrame(frame: DecodedFrame, receivedAtUs: ULong) {
         session.requireFreshDeviceFrameTimestamp(
             frameSenderUs = frame.header.senderMonotonicUs,
@@ -1355,6 +1544,9 @@ class HardwareConnection(
         )
     }
 
+    /**
+     * Runs the recordRejectedFrame operation.
+     */
     private fun recordRejectedFrame(error: ProtocolException) {
         FlightBlackBox.record(
             type = FbbEventType.WARNING,
@@ -1375,6 +1567,9 @@ class HardwareConnection(
         publishTelemetry()
     }
 
+    /**
+     * Runs the startLinkMaintenance operation.
+     */
     private fun startLinkMaintenance(linkGeneration: Long) {
         linkJob?.cancel()
         linkJob = scope.launch {
@@ -1385,6 +1580,9 @@ class HardwareConnection(
         }
     }
 
+    /**
+     * Runs the maintenanceTick operation.
+     */
     private fun maintenanceTick(linkGeneration: Long) {
         if (linkGeneration != generation || !session.attached) return
         val now = SystemClock.elapsedRealtime()
@@ -1478,6 +1676,9 @@ class HardwareConnection(
         if (before != telemetryStore.snapshot) publishTelemetry()
     }
 
+    /**
+     * Runs the submitActuatorRequest operation.
+     */
     private fun submitActuatorRequest(
         commandName: String,
         commandCount: Int,
@@ -1519,6 +1720,9 @@ class HardwareConnection(
         return BoardActuatorCommandResult.Queued(commandCount)
     }
 
+    /**
+     * Runs the submitSafetyOverride operation.
+     */
     private fun submitSafetyOverride(
         commandName: String,
         expectedAction: ApplicationAction,
@@ -1559,6 +1763,9 @@ class HardwareConnection(
         return BoardActuatorCommandResult.Queued(1)
     }
 
+    /**
+     * Runs the validateReadyForActuatorOutput operation.
+     */
     private fun validateReadyForActuatorOutput(): BoardActuatorCommandResult.Rejected? {
         if (!config.allowActuatorCommands) {
             return actuatorRejected(
@@ -1581,6 +1788,9 @@ class HardwareConnection(
         return null
     }
 
+    /**
+     * Runs the validateMotorBatch operation.
+     */
     private fun validateMotorBatch(
         pulses: List<BoardMotorPulse>,
     ): BoardActuatorCommandResult.Rejected? {
@@ -1625,6 +1835,9 @@ class HardwareConnection(
         return null
     }
 
+    /**
+     * Runs the validateServoBatch operation.
+     */
     private fun validateServoBatch(
         pulses: List<BoardServoPulse>,
     ): BoardActuatorCommandResult.Rejected? {
@@ -1684,6 +1897,9 @@ class HardwareConnection(
         return null
     }
 
+    /**
+     * Runs the actuatorRejected operation.
+     */
     private fun actuatorRejected(
         reason: BoardActuatorRejection,
         message: String,
@@ -1698,6 +1914,9 @@ class HardwareConnection(
         return BoardActuatorCommandResult.Rejected(reason, message)
     }
 
+    /**
+     * Runs the sendTimeSync operation.
+     */
     private fun sendTimeSync(): Boolean {
         val sent = send(session.buildTimeSync())
         if (sent) {
@@ -1707,17 +1926,26 @@ class HardwareConnection(
         return sent
     }
 
+    /**
+     * Runs the sendInitialTimeSync operation.
+     */
     private fun sendInitialTimeSync(): Boolean {
         initialTimeSyncAttemptsSent += 1
         return sendTimeSync()
     }
 
+    /**
+     * Runs the sendHeartbeat operation.
+     */
     private fun sendHeartbeat(): Boolean {
         val sent = send(session.buildHeartbeat())
         if (sent) lastHeartbeatSentMillis = SystemClock.elapsedRealtime()
         return sent
     }
 
+    /**
+     * Runs the sendExpectingAck operation.
+     */
     private fun sendExpectingAck(
         command: BoardProtocolSession.EncodedCommand,
         expectedAction: ApplicationAction,
@@ -1727,6 +1955,9 @@ class HardwareConnection(
         return sent
     }
 
+    /**
+     * Runs the send operation.
+     */
     private fun send(command: BoardProtocolSession.EncodedCommand): Boolean {
         val highFrequencyActuatorCommand =
             command.type == MessageType.MOTOR_COMMAND ||
@@ -1768,6 +1999,9 @@ class HardwareConnection(
         return false
     }
 
+    /**
+     * Runs the handlePhysicalDetach operation.
+     */
     private fun handlePhysicalDetach(source: String) {
         val detachedDeviceId = transport.openedDeviceId()
         lastUsbEvent = FlightBlackBox.record(
@@ -1813,6 +2047,9 @@ class HardwareConnection(
         }
     }
 
+    /**
+     * Runs the startReenumerationGrace operation.
+     */
     private fun startReenumerationGrace(detachedDeviceId: Int?, detachGeneration: Long) {
         cancelReenumerationGrace()
         Log.i(
@@ -1850,11 +2087,17 @@ class HardwareConnection(
         }
     }
 
+    /**
+     * Runs the cancelReenumerationGrace operation.
+     */
     private fun cancelReenumerationGrace() {
         reenumerationGraceJob?.cancel()
         reenumerationGraceJob = null
     }
 
+    /**
+     * Runs the fail operation.
+     */
     private fun fail(code: BoardLinkErrorCode, message: String, recoverable: Boolean) {
         lastUsbEvent = FlightBlackBox.record(
             type = FbbEventType.ERROR,
@@ -1873,6 +2116,9 @@ class HardwareConnection(
         )
     }
 
+    /**
+     * Runs the failWithoutOpen operation.
+     */
     private fun failWithoutOpen(code: BoardLinkErrorCode, message: String) {
         lastUsbEvent = FlightBlackBox.record(
             type = FbbEventType.ERROR,
@@ -1887,6 +2133,9 @@ class HardwareConnection(
         )
     }
 
+    /**
+     * Runs the closeLink operation.
+     */
     private fun closeLink(sendSafetyShutdown: Boolean) {
         cancelReenumerationGrace()
         linkJob?.cancel()
@@ -1905,6 +2154,9 @@ class HardwareConnection(
         publishTelemetry()
     }
 
+    /**
+     * Runs the resetHandshakeState operation.
+     */
     private fun resetHandshakeState() {
         deviceInfo = null
         activeToken = null
@@ -1923,10 +2175,16 @@ class HardwareConnection(
         pendingCommandAcks.clear()
     }
 
+    /**
+     * Runs the publishTelemetry operation.
+     */
     private fun publishTelemetry() {
         mutableTelemetry.value = telemetryStore.snapshot
     }
 
+    /**
+     * Runs the registerReceivers operation.
+     */
     private fun registerReceivers() {
         if (receiversRegistered) return
         val usbFilter = IntentFilter().apply {
@@ -1968,6 +2226,9 @@ class HardwareConnection(
         }
     }
 
+    /**
+     * Runs the unregisterReceivers operation.
+     */
     private fun unregisterReceivers() {
         if (!receiversRegistered) return
         runCatching { applicationContext.unregisterReceiver(permissionReceiver) }
@@ -1975,12 +2236,18 @@ class HardwareConnection(
         receiversRegistered = false
     }
 
+    /**
+     * Runs the BoardUsbDevice operation.
+     */
     private fun BoardUsbDevice.fbbMetadata(): Map<String, Any?> = mapOf(
         "deviceId" to deviceId,
         "vid" to "0x${vendorId.toString(16)}",
         "pid" to "0x${productId.toString(16)}",
     )
 
+    /**
+     * Runs the usbDiagnosticContextMetadata operation.
+     */
     private fun usbDiagnosticContextMetadata(): Map<String, Any?> = mapOf(
         "connection" to mutableConnectionState.value.fbbKind(),
         "stage" to currentInboundSessionStage(),
@@ -1990,6 +2257,9 @@ class HardwareConnection(
         "lastCommandSequence" to lastCommandSentSequence,
     )
 
+    /**
+     * Runs the BoardConnectionState operation.
+     */
     private fun BoardConnectionState.fbbKind(): String = when (this) {
         BoardConnectionState.Stopped -> "Stopped"
         BoardConnectionState.Searching -> "Searching"
@@ -2005,6 +2275,9 @@ class HardwareConnection(
         is BoardConnectionState.Failed -> "Failed"
     }
 
+    /**
+     * Runs the DecodedFrame operation.
+     */
     private fun DecodedFrame.fbbMetadata(receivedAtUs: ULong): Map<String, Any?> = mapOf(
         "messageType" to header.messageType,
         "priority" to header.priority,
@@ -2014,6 +2287,9 @@ class HardwareConnection(
         "receivedHostUs" to receivedAtUs,
     )
 
+    /**
+     * Runs the UsbDevice operation.
+     */
     private fun UsbDevice.toPublicDescriptor() = BoardUsbDevice(
         deviceId = deviceId,
         deviceName = deviceName,
@@ -2021,22 +2297,37 @@ class HardwareConnection(
         productId = productId,
     )
 
+    /**
+     * Runs the UsbDevice operation.
+     */
     private fun UsbDevice.isExactShahbazIdentity(): Boolean =
         hasExactShahbazBoardUsbIdentity(vendorId, productId)
 
+    /**
+     * Runs the matchingDeviceIdsForLog operation.
+     */
     private fun matchingDeviceIdsForLog(): String = runCatching {
         transport.matchingDevices()
             .joinToString(prefix = "[", postfix = "]") { it.deviceId.toString() }
     }.getOrElse { "unavailable(${it.javaClass.simpleName})" }
 
+    /**
+     * Runs the attachmentStateForLog operation.
+     */
     private fun attachmentStateForLog(deviceId: Int): String = runCatching {
         transport.isAttached(deviceId).toString()
     }.getOrElse { "unavailable(${it.javaClass.simpleName})" }
 
+    /**
+     * Runs the permissionStateForLog operation.
+     */
     private fun permissionStateForLog(device: UsbDevice): String = runCatching {
         transport.hasPermission(device).toString()
     }.getOrElse { "unavailable(${it.javaClass.simpleName})" }
 
+    /**
+     * Runs the Intent operation.
+     */
     private fun Intent.usbDevice(): UsbDevice? = if (Build.VERSION.SDK_INT >= 33) {
         getParcelableExtra(UsbManager.EXTRA_DEVICE, UsbDevice::class.java)
     } else {
@@ -2044,6 +2335,9 @@ class HardwareConnection(
         getParcelableExtra(UsbManager.EXTRA_DEVICE) as? UsbDevice
     }
 
+    /**
+     * Runs the elapsedRealtimeMicros operation.
+     */
     private fun elapsedRealtimeMicros(): ULong =
         SystemClock.elapsedRealtimeNanos().toULong() / 1_000uL
 }

@@ -54,6 +54,9 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
+/**
+ * Runs the ReportsScreen operation.
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ReportsScreen(
@@ -121,6 +124,9 @@ fun ReportsScreen(
     }
 }
 
+/**
+ * Runs the ReportsList operation.
+ */
 @Composable
 private fun ReportsList(
     state: ReportsUiState,
@@ -179,6 +185,9 @@ private fun ReportsList(
     }
 }
 
+/**
+ * Runs the SelectionActions operation.
+ */
 @Composable
 private fun SelectionActions(
     selectedCount: Int,
@@ -233,6 +242,9 @@ private fun SelectionActions(
     }
 }
 
+/**
+ * Runs the ReportCard operation.
+ */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun ReportCard(
@@ -296,6 +308,9 @@ private fun ReportCard(
     }
 }
 
+/**
+ * Runs the ReportInfoLine operation.
+ */
 @Composable
 private fun ReportInfoLine(label: String, value: String) {
     Row(
@@ -312,6 +327,9 @@ private fun ReportInfoLine(label: String, value: String) {
     }
 }
 
+/**
+ * Runs the LoadingReports operation.
+ */
 @Composable
 private fun LoadingReports() {
     Box(
@@ -322,6 +340,9 @@ private fun LoadingReports() {
     }
 }
 
+/**
+ * Runs the EmptyReports operation.
+ */
 @Composable
 private fun EmptyReports() {
     Box(
@@ -334,6 +355,9 @@ private fun EmptyReports() {
     }
 }
 
+/**
+ * Runs the ReportStatusIcon operation.
+ */
 @Composable
 private fun ReportStatusIcon(status: FbbReportStatus) {
     val icon = when (status) {
@@ -353,9 +377,15 @@ private fun ReportStatusIcon(status: FbbReportStatus) {
     Icon(icon, contentDescription = null, tint = tint)
 }
 
+/**
+ * Runs the formatTimestamp operation.
+ */
 private fun formatTimestamp(epochMillis: Long): String =
     SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault()).format(Date(epochMillis))
 
+/**
+ * Runs the formatBytes operation.
+ */
 private fun formatBytes(bytes: Long): String {
     if (bytes < 1_024L) return "$bytes B"
     val units = listOf("KB", "MB", "GB")

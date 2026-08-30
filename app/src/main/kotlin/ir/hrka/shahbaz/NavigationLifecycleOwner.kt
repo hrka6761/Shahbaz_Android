@@ -18,15 +18,30 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
  * owner before changing the branch that contains their `MapView`.
  */
 internal class NavigationLifecycleOwner(
+    /**
+     * Exposes the parentLifecycle value.
+     */
     private val parentLifecycle: Lifecycle,
     lifecycleRegistryFactory: (LifecycleOwner) -> LifecycleRegistry = { owner ->
         LifecycleRegistry(owner)
     },
 ) : LifecycleOwner, LifecycleEventObserver {
+    /**
+     * Exposes the registry value.
+     */
     private val registry = lifecycleRegistryFactory(this)
+    /**
+     * Stores the mutable attached value.
+     */
     private var attached = false
+    /**
+     * Stores the mutable destroyed value.
+     */
     private var destroyed = false
 
+    /**
+     * Exposes the lifecycle value.
+     */
     override val lifecycle: Lifecycle = registry
 
     /** Starts mirroring the parent and immediately catches up to its current lifecycle state. */

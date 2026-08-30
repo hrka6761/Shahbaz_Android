@@ -8,7 +8,13 @@ package ir.hrka.compass
  * @property smoothing amount of circular low-pass filtering applied to azimuth readings.
  */
 data class CompassConfig @JvmOverloads constructor(
+    /**
+     * Exposes the updateRate value.
+     */
     val updateRate: CompassUpdateRate = CompassUpdateRate.NORMAL,
+    /**
+     * Exposes the smoothing value.
+     */
     val smoothing: CompassSmoothing = CompassSmoothing.BALANCED,
 )
 

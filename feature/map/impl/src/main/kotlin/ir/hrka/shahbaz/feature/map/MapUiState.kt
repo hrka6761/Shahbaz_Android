@@ -60,8 +60,17 @@ enum class LocationStatus {
  * @property timestampEpochMillis Epoch timestamp associated with the accepted location sample.
  */
 data class PhoneSpeedReading(
+    /**
+     * Exposes the metersPerSecond value.
+     */
     val metersPerSecond: Float,
+    /**
+     * Exposes the accuracyMetersPerSecond value.
+     */
     val accuracyMetersPerSecond: Float?,
+    /**
+     * Exposes the timestampEpochMillis value.
+     */
     val timestampEpochMillis: Long,
 ) {
     /** Rejects malformed platform values before they enter presentation state. */

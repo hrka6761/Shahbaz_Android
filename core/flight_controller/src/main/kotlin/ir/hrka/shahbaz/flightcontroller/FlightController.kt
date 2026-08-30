@@ -60,26 +60,80 @@ interface FlightController {
 
 /** Default PX4-inspired cascaded multicopter controller. */
 private class DefaultFlightController(
+    /**
+     * Exposes the config value.
+     */
     private val config: FlightControllerConfig,
 ) : FlightController {
+    /**
+     * Exposes the estimator value.
+     */
     private val estimator = StateEstimator(config)
+    /**
+     * Exposes the positionController value.
+     */
     private val positionController = PositionController(config)
+    /**
+     * Exposes the attitudeController value.
+     */
     private val attitudeController = AttitudeController(config)
+    /**
+     * Exposes the rateController value.
+     */
     private val rateController = RateController(config)
+    /**
+     * Exposes the allocator value.
+     */
     private val allocator = QuadXControlAllocator(config)
+    /**
+     * Exposes the mutableSnapshot value.
+     */
     private val mutableSnapshot = MutableStateFlow(FlightControllerSnapshot())
 
+    /**
+     * Stores the mutable armingState value.
+     */
     private var armingState = FlightControllerArmingState.DISARMED
+    /**
+     * Stores the mutable armingRequestedAtNanos value.
+     */
     private var armingRequestedAtNanos: Long? = null
+    /**
+     * Stores the mutable lastInputNanos value.
+     */
     private var lastInputNanos: Long? = null
+    /**
+     * Stores the mutable lastEstimate value.
+     */
     private var lastEstimate = VehicleStateEstimate()
+    /**
+     * Stores the mutable latestAcceptedCommand value.
+     */
     private var latestAcceptedCommand: FlightControlCommand? = null
+    /**
+     * Stores the mutable activeControlKind value.
+     */
     private var activeControlKind: ControlKind? = null
+    /**
+     * Stores the mutable previousMotorSaturated value.
+     */
     private var previousMotorSaturated = false
+    /**
+     * Stores the mutable lastEvent value.
+     */
     private var lastEvent: FbbEventRef? = null
+    /**
+     * Stores the mutable lastRecordedIssueCodes value.
+     */
     private var lastRecordedIssueCodes: Set<FlightControllerHealthIssueCode> = emptySet()
+    /**
+     * Stores the mutable saturationRecorded value.
+     */
     private var saturationRecorded = false
 
+    /**
+     * Exposes the snapshot value.
+     */
     override val snapshot: StateFlow<FlightControllerSnapshot> = mutableSnapshot.asStateFlow()
 
     /** Serializes all mutable estimator and controller state updates. */
@@ -780,14 +834,29 @@ private data class InputTiming(val monotonic: Boolean, val gapFresh: Boolean)
 
 /** Pilot-command validation and replacement result. */
 private data class CommandValidation(
+    /**
+     * Exposes the accepted value.
+     */
     val accepted: FlightControlCommand? = null,
+    /**
+     * Exposes the replacement value.
+     */
     val replacement: FlightControlCommand? = null,
+    /**
+     * Exposes the issues value.
+     */
     val issues: List<FlightControllerHealthIssue>,
 )
 
 /** Arming state-machine output. */
 private data class ArmingDecision(
+    /**
+     * Exposes the actions value.
+     */
     val actions: List<FlightControllerActuatorAction>,
+    /**
+     * Exposes the additionalIssues value.
+     */
     val additionalIssues: List<FlightControllerHealthIssue>,
 )
 

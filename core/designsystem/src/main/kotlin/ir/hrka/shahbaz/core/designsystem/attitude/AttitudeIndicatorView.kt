@@ -44,18 +44,57 @@ import kotlin.math.cos
 import kotlin.math.min
 import kotlin.math.sin
 
+/**
+ * Exposes the InstrumentBlack value.
+ */
 private val InstrumentBlack = Color.Black
+/**
+ * Exposes the ScaleWhite value.
+ */
 private val ScaleWhite = Color(0xFFF7F7F7)
+/**
+ * Exposes the BezelDark value.
+ */
 private val BezelDark = Color(0xFF121212)
+/**
+ * Exposes the BezelOutline value.
+ */
 private val BezelOutline = Color(0xFF292929)
+/**
+ * Exposes the MarkerRed value.
+ */
 private val MarkerRed = Color(0xFFFF2028)
+/**
+ * Exposes the AircraftAmber value.
+ */
 private val AircraftAmber = Color(0xFFFFD000)
+/**
+ * Exposes the AircraftOutline value.
+ */
 private val AircraftOutline = Color(0xFF080808)
+/**
+ * Exposes the SkyTop value.
+ */
 private val SkyTop = Color(0xFF03468F)
+/**
+ * Exposes the SkyHorizon value.
+ */
 private val SkyHorizon = Color(0xFF1486E3)
+/**
+ * Exposes the GroundHorizon value.
+ */
 private val GroundHorizon = Color(0xFF87502C)
+/**
+ * Exposes the GroundBottom value.
+ */
 private val GroundBottom = Color(0xFF3C1D0C)
+/**
+ * Exposes the InactiveUpper value.
+ */
 private val InactiveUpper = Color(0xFF454545)
+/**
+ * Exposes the InactiveLower value.
+ */
 private val InactiveLower = Color(0xFF252525)
 
 /**
@@ -101,6 +140,9 @@ fun AttitudeIndicatorView(
     }
 }
 
+/**
+ * Runs the AttitudeCanvas operation.
+ */
 @Composable
 private fun AttitudeCanvas(
     animatedPitch: State<Float>,
@@ -179,6 +221,9 @@ private fun AttitudeCanvas(
     }
 }
 
+/**
+ * Runs the DrawScope operation.
+ */
 private fun DrawScope.drawRollScale(
     center: Offset,
     diameter: Float,
@@ -220,6 +265,9 @@ private fun DrawScope.drawRollScale(
     }
 }
 
+/**
+ * Runs the DrawScope operation.
+ */
 private fun DrawScope.drawMovingAttitudeLayer(
     center: Offset,
     innerRadius: Float,
@@ -326,6 +374,9 @@ private fun DrawScope.drawMovingAttitudeLayer(
     }
 }
 
+/**
+ * Runs the DrawScope operation.
+ */
 private fun DrawScope.drawPitchLadder(
     center: Offset,
     innerRadius: Float,
@@ -375,6 +426,9 @@ private fun DrawScope.drawPitchLadder(
     }
 }
 
+/**
+ * Runs the DrawScope operation.
+ */
 private fun DrawScope.drawAircraftSymbol(center: Offset, radius: Float, alpha: Float) {
     val aircraftPath = Path().apply {
         moveTo(center.x - radius * 0.57f, center.y)
@@ -409,6 +463,9 @@ private fun DrawScope.drawAircraftSymbol(center: Offset, radius: Float, alpha: F
     )
 }
 
+/**
+ * Runs the DrawScope operation.
+ */
 private fun DrawScope.drawTopMarker(center: Offset, diameter: Float, alpha: Float) {
     val markerBaseY = center.y - diameter * TOP_MARKER_BASE_RADIUS_RATIO
     val markerTipY = center.y - diameter * TOP_MARKER_TIP_RADIUS_RATIO
@@ -424,6 +481,9 @@ private fun DrawScope.drawTopMarker(center: Offset, diameter: Float, alpha: Floa
     )
 }
 
+/**
+ * Runs the DrawScope operation.
+ */
 private fun DrawScope.drawSideMarkers(center: Offset, diameter: Float, alpha: Float) {
     val markerHalfHeight = diameter * SIDE_MARKER_HALF_HEIGHT_RATIO
     val markerBaseRadius = diameter * SIDE_MARKER_BASE_RADIUS_RATIO
@@ -449,17 +509,41 @@ private fun DrawScope.drawSideMarkers(center: Offset, diameter: Float, alpha: Fl
     )
 }
 
+/**
+ * Runs the rememberAnimatedAttitude operation.
+ */
 @Composable
 private fun rememberAnimatedAttitude(
     pitchDegrees: Float?,
     rollDegrees: Float?,
 ): AnimatedAttitude {
+    /**
+     * Exposes the constrainedPitch value.
+     */
     val constrainedPitch = pitchDegrees?.coerceIn(-MAX_PITCH_DEGREES, MAX_PITCH_DEGREES)
+    /**
+     * Exposes the normalizedRoll value.
+     */
     val normalizedRoll = rollDegrees?.let(::normalizeSignedAttitudeAngle)
+    /**
+     * Exposes the animatedPitch value.
+     */
     val animatedPitch = remember { Animatable(constrainedPitch ?: 0f) }
+    /**
+     * Exposes the animatedRoll value.
+     */
     val animatedRoll = remember { Animatable(normalizedRoll ?: 0f) }
+    /**
+     * Stores the mutable previousPitch value.
+     */
     var previousPitch by remember { mutableStateOf(constrainedPitch) }
+    /**
+     * Stores the mutable previousRoll value.
+     */
     var previousRoll by remember { mutableStateOf(normalizedRoll) }
+    /**
+     * Stores the mutable continuousRollTarget value.
+     */
     var continuousRollTarget by remember { mutableFloatStateOf(normalizedRoll ?: 0f) }
 
     LaunchedEffect(constrainedPitch) {
@@ -532,6 +616,9 @@ internal fun rollScaleLabel(clockwiseDegrees: Int): String {
     }
 }
 
+/**
+ * Runs the DrawScope operation.
+ */
 private fun DrawScope.drawCenteredText(
     textMeasurer: TextMeasurer,
     text: String,
@@ -550,6 +637,9 @@ private fun DrawScope.drawCenteredText(
     )
 }
 
+/**
+ * Runs the pointAt operation.
+ */
 private fun pointAt(center: Offset, radius: Float, degrees: Float): Offset {
     val radians = degrees * PI / HALF_TURN_DEGREES
     return Offset(
@@ -558,50 +648,173 @@ private fun pointAt(center: Offset, radius: Float, degrees: Float): Offset {
     )
 }
 
+/**
+ * Documents the AnimatedAttitude type and the role it plays in this module.
+ */
 private data class AnimatedAttitude(
+    /**
+     * Exposes the pitch value.
+     */
     val pitch: State<Float>,
+    /**
+     * Exposes the roll value.
+     */
     val roll: State<Float>,
 )
 
+/**
+ * Exposes the FULL_TURN_DEGREES value.
+ */
 private const val FULL_TURN_DEGREES = 360f
+/**
+ * Exposes the HALF_TURN_DEGREES value.
+ */
 private const val HALF_TURN_DEGREES = 180f
+/**
+ * Exposes the MAX_PITCH_DEGREES value.
+ */
 private const val MAX_PITCH_DEGREES = 90f
+/**
+ * Exposes the ATTITUDE_ANIMATION_MILLIS value.
+ */
 private const val ATTITUDE_ANIMATION_MILLIS = 120
+/**
+ * Exposes the INACTIVE_ALPHA value.
+ */
 private const val INACTIVE_ALPHA = 0.38f
 
+/**
+ * Exposes the INNER_RADIUS_RATIO value.
+ */
 private const val INNER_RADIUS_RATIO = 0.315f
+/**
+ * Exposes the BEZEL_RADIUS_RATIO value.
+ */
 private const val BEZEL_RADIUS_RATIO = 0.328f
+/**
+ * Exposes the TICK_OUTER_RADIUS_RATIO value.
+ */
 private const val TICK_OUTER_RADIUS_RATIO = 0.355f
+/**
+ * Exposes the ROLL_LABEL_RADIUS_RATIO value.
+ */
 private const val ROLL_LABEL_RADIUS_RATIO = 0.414f
+/**
+ * Exposes the BEZEL_OUTLINE_WIDTH_RATIO value.
+ */
 private const val BEZEL_OUTLINE_WIDTH_RATIO = 0.004f
+/**
+ * Exposes the INNER_BORDER_WIDTH_RATIO value.
+ */
 private const val INNER_BORDER_WIDTH_RATIO = 0.010f
+/**
+ * Exposes the HORIZON_WIDTH_RATIO value.
+ */
 private const val HORIZON_WIDTH_RATIO = 0.0035f
 
+/**
+ * Exposes the ROLL_TEXT_SIZE_RATIO value.
+ */
 private const val ROLL_TEXT_SIZE_RATIO = 0.031f
+/**
+ * Exposes the PITCH_TEXT_SIZE_RATIO value.
+ */
 private const val PITCH_TEXT_SIZE_RATIO = 0.029f
+/**
+ * Exposes the ROLL_TICK_STEP_DEGREES value.
+ */
 private const val ROLL_TICK_STEP_DEGREES = 5
+/**
+ * Exposes the ROLL_MEDIUM_TICK_STEP_DEGREES value.
+ */
 private const val ROLL_MEDIUM_TICK_STEP_DEGREES = 10
+/**
+ * Exposes the ROLL_LABEL_STEP_DEGREES value.
+ */
 private const val ROLL_LABEL_STEP_DEGREES = 30
+/**
+ * Exposes the MAJOR_ROLL_TICK_LENGTH_RATIO value.
+ */
 private const val MAJOR_ROLL_TICK_LENGTH_RATIO = 0.031f
+/**
+ * Exposes the MEDIUM_ROLL_TICK_LENGTH_RATIO value.
+ */
 private const val MEDIUM_ROLL_TICK_LENGTH_RATIO = 0.022f
+/**
+ * Exposes the MINOR_ROLL_TICK_LENGTH_RATIO value.
+ */
 private const val MINOR_ROLL_TICK_LENGTH_RATIO = 0.015f
+/**
+ * Exposes the MAJOR_ROLL_TICK_WIDTH_RATIO value.
+ */
 private const val MAJOR_ROLL_TICK_WIDTH_RATIO = 0.006f
+/**
+ * Exposes the MINOR_ROLL_TICK_WIDTH_RATIO value.
+ */
 private const val MINOR_ROLL_TICK_WIDTH_RATIO = 0.0022f
 
+/**
+ * Exposes the PITCH_RANGE_RADIUS_DEGREES value.
+ */
 private const val PITCH_RANGE_RADIUS_DEGREES = 32f
+/**
+ * Exposes the MIN_LADDER_PITCH value.
+ */
 private const val MIN_LADDER_PITCH = -20
+/**
+ * Exposes the MAX_LADDER_PITCH value.
+ */
 private const val MAX_LADDER_PITCH = 20
+/**
+ * Exposes the PITCH_LADDER_STEP_DEGREES value.
+ */
 private const val PITCH_LADDER_STEP_DEGREES = 5
+/**
+ * Exposes the MAJOR_PITCH_STEP_DEGREES value.
+ */
 private const val MAJOR_PITCH_STEP_DEGREES = 10
+/**
+ * Exposes the MAJOR_PITCH_HALF_LENGTH_RATIO value.
+ */
 private const val MAJOR_PITCH_HALF_LENGTH_RATIO = 0.30f
+/**
+ * Exposes the MINOR_PITCH_HALF_LENGTH_RATIO value.
+ */
 private const val MINOR_PITCH_HALF_LENGTH_RATIO = 0.052f
+/**
+ * Exposes the PITCH_LABEL_OFFSET_RATIO value.
+ */
 private const val PITCH_LABEL_OFFSET_RATIO = 0.40f
+/**
+ * Exposes the PITCH_LINE_WIDTH_RATIO value.
+ */
 private const val PITCH_LINE_WIDTH_RATIO = 0.0025f
+/**
+ * Exposes the ATTITUDE_LAYER_EXTENT_MULTIPLIER value.
+ */
 private const val ATTITUDE_LAYER_EXTENT_MULTIPLIER = 4f
 
+/**
+ * Exposes the TOP_MARKER_BASE_RADIUS_RATIO value.
+ */
 private const val TOP_MARKER_BASE_RADIUS_RATIO = 0.385f
+/**
+ * Exposes the TOP_MARKER_TIP_RADIUS_RATIO value.
+ */
 private const val TOP_MARKER_TIP_RADIUS_RATIO = 0.352f
+/**
+ * Exposes the TOP_MARKER_HALF_WIDTH_RATIO value.
+ */
 private const val TOP_MARKER_HALF_WIDTH_RATIO = 0.019f
+/**
+ * Exposes the SIDE_MARKER_BASE_RADIUS_RATIO value.
+ */
 private const val SIDE_MARKER_BASE_RADIUS_RATIO = 0.370f
+/**
+ * Exposes the SIDE_MARKER_TIP_RADIUS_RATIO value.
+ */
 private const val SIDE_MARKER_TIP_RADIUS_RATIO = 0.340f
+/**
+ * Exposes the SIDE_MARKER_HALF_HEIGHT_RATIO value.
+ */
 private const val SIDE_MARKER_HALF_HEIGHT_RATIO = 0.012f

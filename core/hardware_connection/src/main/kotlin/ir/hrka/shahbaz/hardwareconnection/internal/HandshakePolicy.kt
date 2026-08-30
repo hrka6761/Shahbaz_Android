@@ -1,6 +1,9 @@
 /** Pure policies for the staged, fail-closed board handshake. */
 package ir.hrka.shahbaz.hardwareconnection.internal
 
+/**
+ * Documents the ValidatedHandshakeAction type and the role it plays in this module.
+ */
 internal enum class ValidatedHandshakeAction {
     WAIT_FOR_HEARTBEAT,
     START_TELEMETRY,
@@ -28,12 +31,18 @@ internal fun validatedHandshakeAction(
     }
 }
 
+/**
+ * Documents the InitialTimeSyncAction type and the role it plays in this module.
+ */
 internal enum class InitialTimeSyncAction {
     WAIT,
     RETRY,
     FAIL,
 }
 
+/**
+ * Documents the AcceptedTimeSyncAction type and the role it plays in this module.
+ */
 internal enum class AcceptedTimeSyncAction {
     REQUEST_DEVICE_INFO,
     REFRESH_MAPPING_ONLY,

@@ -4,7 +4,13 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertThrows
 import org.junit.Test
 
+/**
+ * Documents the ReceiverRegistrationTest type and the role it plays in this module.
+ */
 class ReceiverRegistrationTest {
+    /**
+     * Runs the firstRegistrationFailureStillAttemptsCompleteRollback operation.
+     */
     @Test
     fun firstRegistrationFailureStillAttemptsCompleteRollback() {
         val events = mutableListOf<String>()
@@ -27,6 +33,9 @@ class ReceiverRegistrationTest {
         )
     }
 
+    /**
+     * Runs the secondRegistrationFailureRollsBackBothReceiversAndRethrows operation.
+     */
     @Test
     fun secondRegistrationFailureRollsBackBothReceiversAndRethrows() {
         val events = mutableListOf<String>()
@@ -54,6 +63,9 @@ class ReceiverRegistrationTest {
         )
     }
 
+    /**
+     * Runs the successfulRegistrationDoesNotInvokeRollback operation.
+     */
     @Test
     fun successfulRegistrationDoesNotInvokeRollback() {
         val events = mutableListOf<String>()

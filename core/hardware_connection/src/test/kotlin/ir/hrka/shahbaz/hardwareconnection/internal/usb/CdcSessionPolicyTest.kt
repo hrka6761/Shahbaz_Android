@@ -5,7 +5,13 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
+/**
+ * Documents the CdcSessionPolicyTest type and the role it plays in this module.
+ */
 class CdcSessionPolicyTest {
+    /**
+     * Runs the logical session drops DTR then sets coding then asserts DTR operation.
+     */
     @Test
     fun `logical session drops DTR then sets coding then asserts DTR`() {
         assertEquals(
@@ -19,11 +25,17 @@ class CdcSessionPolicyTest {
         assertEquals(0x0001, CDC_CONTROL_LINE_ACTIVE)
     }
 
+    /**
+     * Runs the logical session close drops DTR operation.
+     */
     @Test
     fun `logical session close drops DTR`() {
         assertEquals(0, CDC_CONTROL_LINE_IDLE)
     }
 
+    /**
+     * Runs the control transfers require exact successful byte counts operation.
+     */
     @Test
     fun `control transfers require exact successful byte counts`() {
         assertTrue(cdcControlLineTransferSucceeded(0))

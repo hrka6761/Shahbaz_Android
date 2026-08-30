@@ -14,9 +14,21 @@ package ir.hrka.compass
  * @throws IllegalArgumentException when a numeric value is non-finite or outside its valid range.
  */
 data class GeomagneticPosition(
+    /**
+     * Exposes the latitudeDegrees value.
+     */
     val latitudeDegrees: Double,
+    /**
+     * Exposes the longitudeDegrees value.
+     */
     val longitudeDegrees: Double,
+    /**
+     * Exposes the altitudeMeters value.
+     */
     val altitudeMeters: Double = 0.0,
+    /**
+     * Exposes the timestampEpochMillis value.
+     */
     val timestampEpochMillis: Long,
 ) {
     /** Validates that every value can be passed safely to Android's geomagnetic model. */

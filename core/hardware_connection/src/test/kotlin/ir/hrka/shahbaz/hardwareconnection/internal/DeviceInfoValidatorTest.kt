@@ -6,7 +6,13 @@ import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Test
 
+/**
+ * Documents the DeviceInfoValidatorTest type and the role it plays in this module.
+ */
 class DeviceInfoValidatorTest {
+    /**
+     * Exposes the safe value.
+     */
     private val safe = BoardDeviceInfo(
         protocolVersion = 2,
         target = BoardTarget.ESP32_S3,
@@ -21,11 +27,17 @@ class DeviceInfoValidatorTest {
         actuatorsEnabledByConfiguration = false,
     )
 
+    /**
+     * Runs the safeProductionSensorProfileIsAccepted operation.
+     */
     @Test
     fun safeProductionSensorProfileIsAccepted() {
         assertNull(safe.validationError())
     }
 
+    /**
+     * Runs the knownAdvisoryEvidenceIsAcceptedAndRetained operation.
+     */
     @Test
     fun knownAdvisoryEvidenceIsAcceptedAndRetained() {
         val defaultEvidence = safe.copy(boardValidationIssueMask = 0x2FF0)
@@ -38,6 +50,9 @@ class DeviceInfoValidatorTest {
         org.junit.Assert.assertEquals(0x2FF0L, defaultEvidence.boardValidationIssueMask)
     }
 
+    /**
+     * Runs the everyKnownFatalValidationIssueIsRejected operation.
+     */
     @Test
     fun everyKnownFatalValidationIssueIsRejected() {
         (0 until 64).forEach { bit ->
@@ -48,16 +63,25 @@ class DeviceInfoValidatorTest {
         }
     }
 
+    /**
+     * Runs the unknownFutureValidationIssuesAreRejected operation.
+     */
     @Test
     fun unknownFutureValidationIssuesAreRejected() {
         assertNotNull(safe.copy(boardValidationIssueMask = 0x1_0000).validationError())
     }
 
+    /**
+     * Runs the actuatorAvailabilityIsRejectedEvenWhenChannelsAreInactive operation.
+     */
     @Test
     fun actuatorAvailabilityIsRejectedEvenWhenChannelsAreInactive() {
         assertNotNull(safe.copy(actuatorAvailable = true).validationError())
     }
 
+    /**
+     * Runs the validationEvidenceAndActuatorConfigurationAreFailClosed operation.
+     */
     @Test
     fun validationEvidenceAndActuatorConfigurationAreFailClosed() {
         assertNotNull(safe.copy(boardValidationIssueMask = 1).validationError())

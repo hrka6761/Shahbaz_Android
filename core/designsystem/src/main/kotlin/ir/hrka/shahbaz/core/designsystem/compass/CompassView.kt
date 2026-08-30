@@ -37,13 +37,37 @@ import kotlin.math.cos
 import kotlin.math.min
 import kotlin.math.sin
 
+/**
+ * Exposes the CompassBlack value.
+ */
 private val CompassBlack = Color.Black
+/**
+ * Exposes the CompassWhite value.
+ */
 private val CompassWhite = Color(0xFFF7F7F7)
+/**
+ * Exposes the CompassGrey value.
+ */
 private val CompassGrey = Color(0xFF777777)
+/**
+ * Exposes the CompassRed value.
+ */
 private val CompassRed = Color(0xFFFF1010)
+/**
+ * Exposes the CompassDarkRed value.
+ */
 private val CompassDarkRed = Color(0xFFB00000)
+/**
+ * Exposes the RoseLight value.
+ */
 private val RoseLight = Color(0xFF242424)
+/**
+ * Exposes the RoseDark value.
+ */
 private val RoseDark = Color(0xFF101010)
+/**
+ * Exposes the RoseOutline value.
+ */
 private val RoseOutline = Color(0xFF292929)
 
 /**
@@ -291,6 +315,9 @@ internal fun shortestHeadingDelta(fromDegrees: Float, toDegrees: Float): Float {
     return normalizeHeadingDegrees(to - from + HALF_TURN_DEGREES) - HALF_TURN_DEGREES
 }
 
+/**
+ * Runs the DrawScope operation.
+ */
 private fun DrawScope.drawCompassRose(
     center: Offset,
     diameter: Float,
@@ -319,6 +346,9 @@ private fun DrawScope.drawCompassRose(
     }
 }
 
+/**
+ * Runs the DrawScope operation.
+ */
 private fun DrawScope.drawSplitNeedleHalf(
     center: Offset,
     tip: Offset,
@@ -347,6 +377,9 @@ private fun DrawScope.drawSplitNeedleHalf(
     )
 }
 
+/**
+ * Runs the DrawScope operation.
+ */
 private fun DrawScope.drawNorthMarker(center: Offset, diameter: Float, alpha: Float) {
     val markerBaseY = center.y - diameter * 0.395f
     val markerTipY = center.y - diameter * 0.335f
@@ -362,6 +395,9 @@ private fun DrawScope.drawNorthMarker(center: Offset, diameter: Float, alpha: Fl
     )
 }
 
+/**
+ * Runs the DrawScope operation.
+ */
 private fun DrawScope.drawCenteredText(
     textMeasurer: androidx.compose.ui.text.TextMeasurer,
     text: String,
@@ -380,6 +416,9 @@ private fun DrawScope.drawCenteredText(
     )
 }
 
+/**
+ * Runs the pointAt operation.
+ */
 private fun pointAt(center: Offset, radius: Float, degrees: Float): Offset {
     val radians = degrees * PI / HALF_TURN_DEGREES
     return Offset(
@@ -388,15 +427,42 @@ private fun pointAt(center: Offset, radius: Float, degrees: Float): Offset {
     )
 }
 
+/**
+ * Documents the DirectionLabel type and the role it plays in this module.
+ */
 private data class DirectionLabel(
+    /**
+     * Exposes the degrees value.
+     */
     val degrees: Float,
+    /**
+     * Exposes the label value.
+     */
     val label: String,
+    /**
+     * Exposes the style value.
+     */
     val style: TextStyle,
 )
 
+/**
+ * Exposes the FULL_TURN_DEGREES value.
+ */
 private const val FULL_TURN_DEGREES = 360f
+/**
+ * Exposes the HALF_TURN_DEGREES value.
+ */
 private const val HALF_TURN_DEGREES = 180f
+/**
+ * Exposes the HEADING_ANIMATION_MILLIS value.
+ */
 private const val HEADING_ANIMATION_MILLIS = 160
 // Keeps the original 9sp and 20sp label proportions at the 184dp reference size.
+/**
+ * Exposes the DEGREE_TEXT_SIZE_RATIO value.
+ */
 private const val DEGREE_TEXT_SIZE_RATIO = 9f / 184f
+/**
+ * Exposes the CARDINAL_TEXT_SIZE_RATIO value.
+ */
 private const val CARDINAL_TEXT_SIZE_RATIO = 20f / 184f

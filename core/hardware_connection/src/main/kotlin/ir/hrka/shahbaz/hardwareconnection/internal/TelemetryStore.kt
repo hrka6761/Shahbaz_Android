@@ -21,8 +21,14 @@ import ir.hrka.shahbaz.hardwareconnection.internal.protocol.ProtocolException
 import ir.hrka.shahbaz.hardwareconnection.internal.protocol.RawWireSensorSample
 import ir.hrka.shahbaz.hardwareconnection.internal.protocol.altitudeMeters
 
+/**
+ * Documents the TelemetryStore type and the role it plays in this module.
+ */
 internal class TelemetryStore(
     initialQnhHectopascal: Double,
+    /**
+     * Exposes the maximumUnknownSensors value.
+     */
     private val maximumUnknownSensors: Int = 32,
 ) {
     init {
@@ -37,6 +43,9 @@ internal class TelemetryStore(
     var snapshot = BoardTelemetrySnapshot()
         private set
 
+    /**
+     * Runs the awaitingTelemetry operation.
+     */
     fun awaitingTelemetry(startedAtMillis: Long) {
         require(startedAtMillis >= 0) { "Telemetry start time must be non-negative" }
         snapshot = BoardTelemetrySnapshot(
@@ -49,6 +58,9 @@ internal class TelemetryStore(
         awaitingFirstSampleSinceMillis = startedAtMillis
     }
 
+    /**
+     * Runs the disconnected operation.
+     */
     fun disconnected() {
         snapshot = BoardTelemetrySnapshot(
             diagnostics = snapshot.diagnostics,
@@ -58,11 +70,17 @@ internal class TelemetryStore(
         awaitingFirstSampleSinceMillis = null
     }
 
+    /**
+     * Runs the setQnh operation.
+     */
     fun setQnh(value: Double) {
         qnhHectopascal = validateQnh(value)
         snapshot = snapshot.copy(ms5611 = snapshot.ms5611.mapLatest(::withCurrentQnh))
     }
 
+    /**
+     * Runs the onFrameAccepted operation.
+     */
     fun onFrameAccepted() {
         snapshot = snapshot.copy(
             diagnostics = snapshot.diagnostics.copy(
@@ -71,6 +89,9 @@ internal class TelemetryStore(
         )
     }
 
+    /**
+     * Runs the onFrameRejected operation.
+     */
     fun onFrameRejected(message: String, crcOrFraming: Boolean = true) {
         val diagnostics = snapshot.diagnostics
         snapshot = snapshot.copy(
@@ -95,6 +116,9 @@ internal class TelemetryStore(
         }
     }
 
+    /**
+     * Runs the acceptStatus operation.
+     */
     fun acceptStatus(status: DeviceStatusPayload, receivedAtMillis: Long) {
         var sht = snapshot.sht30
         var ms = snapshot.ms5611
@@ -129,6 +153,9 @@ internal class TelemetryStore(
         )
     }
 
+    /**
+     * Runs the updateSensorHealth operation.
+     */
     fun updateSensorHealth(
         nowMillis: Long,
         staleAfterMillis: Long,
@@ -155,6 +182,9 @@ internal class TelemetryStore(
         )
     }
 
+    /**
+     * Runs the acceptSht30 operation.
+     */
     private fun acceptSht30(sample: RawWireSensorSample, now: Long): SensorError? =
         try {
             requireForwardSequence(lastShtSequence, sample.sequence, "SHT30")
@@ -193,6 +223,9 @@ internal class TelemetryStore(
             sensorError
         }
 
+    /**
+     * Runs the acceptMs5611 operation.
+     */
     private fun acceptMs5611(sample: RawWireSensorSample, now: Long): SensorError? =
         try {
             requireForwardSequence(lastMsSequence, sample.sequence, "MS5611")
@@ -236,6 +269,9 @@ internal class TelemetryStore(
             sensorError
         }
 
+    /**
+     * Runs the acceptUnknown operation.
+     */
     private fun acceptUnknown(sample: RawWireSensorSample, now: Long) {
         val raw = RawSensorSample(
             sensorId = sample.sensorId,
@@ -266,6 +302,9 @@ internal class TelemetryStore(
         )
     }
 
+    /**
+     * Runs the requireFlags operation.
+     */
     private fun requireFlags(sample: RawWireSensorSample, requiredValidity: UInt) {
         if ((sample.validityFlags and requiredValidity) != requiredValidity) {
             throw SensorSampleException(
@@ -284,6 +323,9 @@ internal class TelemetryStore(
         }
     }
 
+    /**
+     * Runs the requireForwardSequence operation.
+     */
     private fun requireForwardSequence(previous: UInt?, current: UInt, sensor: String) {
         if (previous == null) return
         val distance = current - previous
@@ -295,6 +337,9 @@ internal class TelemetryStore(
         }
     }
 
+    /**
+     * Runs the RawWireSensorSample operation.
+     */
     private fun RawWireSensorSample.quality() = SensorSampleQuality(
         recoveredAfterError = (qualityFlags and 0x02u) != 0u,
         rateLimited = (qualityFlags and 0x04u) != 0u,
@@ -303,22 +348,37 @@ internal class TelemetryStore(
         rawHealthFlags = healthFlags.toLong(),
     )
 
+    /**
+     * Runs the withCurrentQnh operation.
+     */
     private fun withCurrentQnh(value: Ms5611Telemetry): Ms5611Telemetry = value.copy(
         altitudeAboveMeanSeaLevelMeters = altitudeMeters(value.pressurePascal, qnhHectopascal),
         qnhHectopascal = qnhHectopascal,
     )
 
+    /**
+     * Runs the invalid operation.
+     */
     private fun invalid(message: String): Nothing =
         throw SensorSampleException(SensorErrorCode.INVALID_PAYLOAD, message)
 
+    /**
+     * Runs the range operation.
+     */
     private fun range(message: String): Nothing =
         throw SensorSampleException(SensorErrorCode.OUT_OF_RANGE, "$message is outside physical range")
 
+    /**
+     * Documents the SensorSampleException type and the role it plays in this module.
+     */
     private class SensorSampleException(
         val code: SensorErrorCode,
         override val message: String,
     ) : IllegalArgumentException(message)
 
+    /**
+     * Runs the validateQnh operation.
+     */
     private fun validateQnh(value: Double): Double {
         if (!value.isFinite() || value !in 800.0..1100.0) {
             throw IllegalArgumentException("QNH must be a finite value in 800..1100 hPa")
@@ -327,6 +387,9 @@ internal class TelemetryStore(
     }
 }
 
+/**
+ * Runs the fun operation.
+ */
 private fun <T> failed(
     last: SensorSample<T>?,
     code: SensorErrorCode,
@@ -334,6 +397,9 @@ private fun <T> failed(
     now: Long,
 ): SensorState<T> = SensorState.Failed(last, SensorError(code, message, now))
 
+/**
+ * Runs the fun operation.
+ */
 private fun <T> SensorState<T>.latest(): SensorSample<T>? = when (this) {
     is SensorState.Available -> sample
     is SensorState.Stale -> lastSample
@@ -342,12 +408,18 @@ private fun <T> SensorState<T>.latest(): SensorSample<T>? = when (this) {
     is SensorState.Unavailable -> null
 }
 
+/**
+ * Runs the fun operation.
+ */
 private fun <T> SensorState<T>.toStaleIfNeeded(now: Long, threshold: Long): SensorState<T> {
     val current = this as? SensorState.Available ?: return this
     if (now - current.sample.receivedAtElapsedRealtimeMillis <= threshold) return this
     return SensorState.Stale(current.sample, current.sample.receivedAtElapsedRealtimeMillis + threshold)
 }
 
+/**
+ * Runs the fun operation.
+ */
 private fun <T> SensorState<T>.toNoResponseIfNeeded(
     sensorName: String,
     now: Long,
@@ -364,6 +436,9 @@ private fun <T> SensorState<T>.toNoResponseIfNeeded(
     )
 }
 
+/**
+ * Runs the fun operation.
+ */
 private fun <T> SensorState<T>.mapLatest(transform: (T) -> T): SensorState<T> = when (this) {
     is SensorState.Available -> copy(sample = sample.copy(value = transform(sample.value)))
     is SensorState.Stale -> copy(lastSample = lastSample?.let { it.copy(value = transform(it.value)) })

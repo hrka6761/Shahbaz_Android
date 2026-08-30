@@ -5,9 +5,21 @@ import ir.hrka.shahbaz.core.model.GeoCoordinate
 
 /** Geographic extent used to frame the fixed route and an optional current tracked position. */
 internal data class FlightMapBounds(
+    /**
+     * Exposes the west value.
+     */
     val west: Double,
+    /**
+     * Exposes the south value.
+     */
     val south: Double,
+    /**
+     * Exposes the east value.
+     */
     val east: Double,
+    /**
+     * Exposes the north value.
+     */
     val north: Double,
 ) {
     init {
@@ -50,6 +62,9 @@ internal fun calculateFlightMapBounds(
     destination: GeoCoordinate,
     currentPosition: GeoCoordinate?,
 ): FlightMapBounds {
+    /**
+     * Exposes the coordinates value.
+     */
     val coordinates = listOfNotNull(origin, destination, currentPosition)
     return FlightMapBounds(
         west = coordinates.minOf(GeoCoordinate::longitude),
