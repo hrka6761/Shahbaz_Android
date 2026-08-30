@@ -33,26 +33,78 @@ class WireProtocolTest {
     }
 
     @Test
-    fun sensorOnlyPolicyCannotEncodeAnyActuatorCommand() {
-        val forbidden = listOf(
-            MessageType.ARM_REQUEST,
-            MessageType.ARM_CONFIRM,
-            MessageType.ACTUATOR_COMMAND,
-            MessageType.MOTOR_COMMAND,
-            MessageType.SERVO_COMMAND,
-            MessageType.SET_CONTROL_MODE,
+    fun guardedPolicyEncodesActuatorCommandsWithSessionToken() {
+        val token = 0x0102030405060708uL
+        val motor = FrameCodec.decodeBody(
+            FrameCodec.encode(
+                SafeRequests.motorCommand(channel = 3, pulseMicros = 1_500),
+                sequence = 7u,
+                senderMonotonicUs = 1_000uL,
+                sessionToken = token,
+            ).dropLast(1).toByteArray(),
         )
-        forbidden.forEach { type ->
-            val error = assertThrows(ProtocolException::class.java) {
-                FrameCodec.encode(
-                    OutboundRequest(type, MessagePriority.CRITICAL, byteArrayOf(), true),
-                    sequence = 1u,
-                    senderMonotonicUs = 1uL,
-                    sessionToken = 2uL,
-                )
-            }
-            assertEquals(ProtocolErrorKind.POLICY_REJECTED, error.kind)
+
+        assertEquals(MessageType.MOTOR_COMMAND, motor.header.messageType)
+        assertEquals(11, motor.payload.size)
+        assertEquals(token, readU64(motor.payload, 0))
+        assertEquals(3, readU8(motor.payload, 8))
+        assertEquals(1_500, readU16(motor.payload, 9))
+
+        val arm = FrameCodec.decodeBody(
+            FrameCodec.encode(
+                SafeRequests.armRequest(),
+                sequence = 8u,
+                senderMonotonicUs = 1_100uL,
+                sessionToken = token,
+            ).dropLast(1).toByteArray(),
+        )
+        assertEquals(MessageType.ARM_REQUEST, arm.header.messageType)
+        assertEquals(8, arm.payload.size)
+        assertEquals(token, readU64(arm.payload, 0))
+    }
+
+    @Test
+    fun guardedPolicyRejectsOutboundOnlyFramesThatTheHostMustNotSend() {
+        val error = assertThrows(ProtocolException::class.java) {
+            FrameCodec.encode(
+                OutboundRequest(MessageType.PROTOCOL_ERROR, MessagePriority.HIGH, byteArrayOf(), false),
+                sequence = 1u,
+                senderMonotonicUs = 1uL,
+                sessionToken = null,
+            )
         }
+        assertEquals(ProtocolErrorKind.POLICY_REJECTED, error.kind)
+    }
+
+    @Test
+    fun motorCommandPreservesFlightControllerGenerationTimestamp() {
+        var now = 1_000uL
+        val session = BoardProtocolSession { now }
+        session.attach()
+        val timeSync = session.buildTimeSync()
+        val requestHostUs = now
+        now = 1_100uL
+        val response = deviceFrame(
+            MessageType.TIME_SYNC_RESPONSE,
+            sequence = 1u,
+            senderUs = 2_000uL,
+            payload = u64(requestHostUs) + u64(1_001uL) + u64(1_002uL) + u64(0x1122uL),
+        )
+        val frame = (session.feed(response).single() as BoardProtocolSession.Event.FrameReceived).frame
+        session.requireFreshInboundSequence(frame.header.sequence, frame.header.priority)
+        session.acceptTimeSync(frame, now)
+        session.commitInboundSequence(frame.header.sequence, frame.header.priority)
+
+        now = 5_000uL
+        val command = session.buildMotorCommand(
+            channel = 0,
+            pulseMicros = 1_500,
+            generatedAtHostMicros = 1_250uL,
+        )
+        val decoded = FrameCodec.decodeBody(command.bytes.dropLast(1).toByteArray())
+
+        assertEquals(MessageType.TIME_SYNC_REQUEST, timeSync.type)
+        assertEquals(1_250uL, decoded.header.senderMonotonicUs)
     }
 
     @Test
@@ -243,6 +295,7 @@ class WireProtocolTest {
         MessageType.COMMAND_ACK.requireAllowedInboundAt(
             InboundSessionStage.STARTING_TELEMETRY,
         )
+        MessageType.COMMAND_ACK.requireAllowedInboundAt(InboundSessionStage.READY)
         MessageType.DEVICE_STATUS_RESPONSE.requireAllowedInboundAt(
             InboundSessionStage.STARTING_TELEMETRY,
         )

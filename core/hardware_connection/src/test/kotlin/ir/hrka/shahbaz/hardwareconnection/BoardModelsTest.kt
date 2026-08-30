@@ -36,5 +36,24 @@ class BoardModelsTest {
         assertThrows(IllegalArgumentException::class.java) {
             HardwareConnectionConfig(initialTimeSyncRetryIntervalMillis = 0)
         }
+        assertThrows(IllegalArgumentException::class.java) {
+            HardwareConnectionConfig(maximumMotorCommandBatch = 0)
+        }
+    }
+
+    @Test
+    fun actuatorPulseBoundsAreValidated() {
+        val bounds = BoardPulseBounds(900, 2_100)
+        assertEquals(true, bounds.contains(1_500))
+        assertEquals(false, bounds.contains(2_500))
+        assertThrows(IllegalArgumentException::class.java) {
+            BoardPulseBounds(2_100, 900)
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            BoardMotorPulse(channel = 256, pulseMicros = 1_500)
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            BoardServoPulse(channel = 0, pulseMicros = 0)
+        }
     }
 }

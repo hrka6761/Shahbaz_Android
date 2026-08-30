@@ -48,8 +48,11 @@ graph TD
   dashboard[":feature:dashboard:impl"]
   flightmap[":core:map"]
   hardware[":core:hardware_connection"]
+  flightcontroller[":core:flight_controller"]
+  autopilot[":core:autopilot"]
+  remotepilot[":core:remote_pilot"]
   designsystem[":core:designsystem"]
-  compass[":compass"]
+  compass[":core:compass"]
   domain[":core:domain"]
   model[":core:model"]
 
@@ -63,6 +66,8 @@ graph TD
   dashboard -->|api| model
   dashboard -->|api| hardware
   dashboard -.->|implementation| flightmap
+  autopilot -.->|implementation| flightcontroller
+  remotepilot -.->|implementation| flightcontroller
   flightmap -->|api| model
   domain -->|api| model
 ```
@@ -75,8 +80,11 @@ Solid arrows are `api` dependencies whose public types are visible to consumers.
 | [`:feature:map:impl`](feature/map/impl/README.md) | Complete map journey, UI state, MapLibre rendering, device location, geocoding, and connectivity behavior. |
 | [`:feature:dashboard:impl`](feature/dashboard/impl/README.md) | Post-setup dashboard, connection gate, external/internal sensor presentation, and 70/30 instrument/map layout. |
 | [`:core:hardware_connection`](core/hardware_connection/README.md) | Transferable, UI-free Android USB-host/Protocol v2 library; owns USB permission, link lifecycle, session validation, and typed board telemetry. |
+| [`:core:flight_controller`](core/flight_controller/README.md) | Independent Kotlin flight-controller engine; fuses phone/board sensor input, gates arming, runs PX4-inspired multicopter control loops, and emits neutral actuator commands. |
+| [`:core:autopilot`](core/autopilot/README.md) | Reserved future autopilot module for autonomous flight policy and conversion of high-level goals into flight-controller targets. |
+| [`:core:remote_pilot`](core/remote_pilot/README.md) | Reserved future remote-pilot module for operator input handling and conversion of pilot intent into flight-controller targets. |
 | [`:core:map`](core/map/README.md) | Reusable compact route map for fixed endpoints and an optional current-position marker. |
-| [`:compass`](compass/README.md) | Standalone, UI-free Android library for display-corrected orientation, magnetic/true-north headings, direction/deviation calculations, accuracy, and calibration state. |
+| [`:core:compass`](core/compass/README.md) | Standalone, UI-free Android library for display-corrected orientation, magnetic/true-north headings, direction/deviation calculations, accuracy, and calibration state. |
 | [`:core:model`](core/model/README.md) | Android-free geographic value objects shared across layers. |
 | [`:core:domain`](core/domain/README.md) | Android-free geodesy, coordinate parsing, and distance-formatting rules. |
 | [`:core:designsystem`](core/designsystem/README.md) | Shahbaz Compose theme, color tokens, and typography. |
@@ -85,9 +93,17 @@ Solid arrows are `api` dependencies whose public types are visible to consumers.
 
 - `:app` is the composition root and may depend on feature and core modules.
 - Feature modules may depend on core modules, but core modules never depend on features or `:app`.
-- `:compass` is a standalone Android library and does not depend on Shahbaz feature, app, model, domain, or design-system modules.
-- `:core:hardware_connection` is a standalone Android library with no dependency on any Shahbaz app,
-  feature, or core module. It contains no UI and owns all board USB mechanics.
+- `:core:compass` is a standalone Android library and does not depend on Shahbaz feature, app, model, domain, or design-system modules.
+- `:core:hardware_connection` is a standalone Android library with no dependency on any Shahbaz app
+  or feature module. It contains no UI, owns all board USB mechanics, and records through
+  `:core:flight_black_box`.
+- `:core:flight_controller` is a standalone Android library with no dependency on the app,
+  feature modules, or hardware connection. It consumes neutral sensor snapshots, records through
+  `:core:flight_black_box`, and emits neutral actuator actions.
+- `:core:autopilot` and `:core:remote_pilot` are reserved standalone Android libraries. Their
+  implementations are postponed. Their only flight-path dependency is
+  `implementation(projects.core.flightController)`; neither depends on
+  `:core:hardware_connection`, so future pilot control cannot bypass the flight-controller boundary.
 - `:core:domain` and `:core:model` remain plain Kotlin/JVM modules so their rules can be tested without Android.
 - `api` is reserved for types present in a module's public contract; implementation details use `implementation`.
 - The map remains a single `impl` module because Shahbaz has one feature and no cross-feature navigation contract.
@@ -96,9 +112,9 @@ Each module README documents its public surface, resource ownership, usage, and 
 
 ### Compass integration
 
-`:feature:map:impl` creates and controls the `Compass` instance, publishes `CompassReading` in `MapUiState`, and supplies accepted location fixes as geomagnetic positions so the library can calculate true-north values. The feature owns the Compose compass presentation and localized direction labels; `:compass` contains no UI or localized resources.
+`:feature:map:impl` creates and controls the `Compass` instance, publishes `CompassReading` in `MapUiState`, and supplies accepted location fixes as geomagnetic positions so the library can calculate true-north values. The feature owns the Compose compass presentation and localized direction labels; `:core:compass` contains no UI or localized resources.
 
-The compass library owns its optional compass/accelerometer hardware declarations and requires no runtime permission. A different Android module can consume it directly with `implementation(projects.compass)`; see the [`:compass` guide](compass/README.md) for its lifecycle and public API.
+The compass library owns its optional compass/accelerometer hardware declarations and requires no runtime permission. A different Android module can consume it directly with `implementation(projects.core.compass)`; see the [`:core:compass` guide](core/compass/README.md) for its lifecycle and public API.
 
 ## Build and verification
 
@@ -108,8 +124,9 @@ project.
 Build and run all local JVM and Android checks from the repository root:
 
 ```powershell
-.\gradlew.bat clean :compass:testDebugUnitTest :core:model:test :core:domain:test `
+.\gradlew.bat clean :core:compass:testDebugUnitTest :core:model:test :core:domain:test `
   :core:map:testDebugUnitTest :core:hardware_connection:testDebugUnitTest `
+  :core:flight_controller:testDebugUnitTest `
   :feature:map:impl:testDebugUnitTest :feature:dashboard:impl:testDebugUnitTest `
   :app:testDebugUnitTest lintDebug assembleDebug --no-daemon
 ```
@@ -117,7 +134,7 @@ Build and run all local JVM and Android checks from the repository root:
 Verify and package the reusable compass release independently:
 
 ```powershell
-.\gradlew.bat :compass:testDebugUnitTest :compass:lintDebug :compass:assembleRelease --no-daemon
+.\gradlew.bat :core:compass:testDebugUnitTest :core:compass:lintDebug :core:compass:assembleRelease --no-daemon
 ```
 
 Verify and package the independent hardware connection library:
@@ -125,6 +142,13 @@ Verify and package the independent hardware connection library:
 ```powershell
 .\gradlew.bat :core:hardware_connection:testDebugUnitTest :core:hardware_connection:lintDebug `
   :core:hardware_connection:assembleRelease --no-daemon
+```
+
+Verify and package the independent flight-controller library:
+
+```powershell
+.\gradlew.bat :core:flight_controller:testDebugUnitTest :core:flight_controller:lintDebug `
+  :core:flight_controller:assembleRelease --no-daemon
 ```
 
 Install the debug application on a connected device or running emulator:

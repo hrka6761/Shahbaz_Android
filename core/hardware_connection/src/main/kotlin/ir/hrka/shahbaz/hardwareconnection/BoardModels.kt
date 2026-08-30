@@ -23,6 +23,16 @@ data class HardwareConnectionConfig(
     val handshakeTimeoutMillis: Long = 2_000,
     val heartbeatIntervalMillis: Long = 350,
     val heartbeatTimeoutMillis: Long = 1_000,
+    /**
+     * Enables public actuator transmission methods. The default keeps the board link telemetry-only.
+     */
+    val allowActuatorCommands: Boolean = false,
+    val motorPulseBounds: BoardPulseBounds = BoardPulseBounds(900, 2_100),
+    val servoPulseBounds: BoardPulseBounds = BoardPulseBounds(500, 2_500),
+    val maximumMotorCommandBatch: Int = 4,
+    val maximumServoCommandBatch: Int = 8,
+    /** Rejects actuator frames that were generated too long before submission. */
+    val maximumActuatorCommandAgeMillis: Long = 100,
 ) {
     init {
         require(initialQnhHectopascal.isFinite() && initialQnhHectopascal in 800.0..1100.0)
@@ -35,7 +45,66 @@ data class HardwareConnectionConfig(
         require(handshakeTimeoutMillis > 0)
         require(heartbeatIntervalMillis in 100..heartbeatTimeoutMillis)
         require(heartbeatTimeoutMillis > 0)
+        require(maximumMotorCommandBatch in 1..256)
+        require(maximumServoCommandBatch in 1..256)
+        require(maximumActuatorCommandAgeMillis in 1..1_000)
     }
+}
+
+/** Inclusive PWM pulse bounds in microseconds for one actuator output family. */
+data class BoardPulseBounds(
+    val minimumMicros: Int,
+    val maximumMicros: Int,
+) {
+    init {
+        require(minimumMicros in 1..65_535)
+        require(maximumMicros in minimumMicros..65_535)
+    }
+
+    fun contains(pulseMicros: Int): Boolean = pulseMicros in minimumMicros..maximumMicros
+}
+
+data class BoardMotorPulse(
+    val channel: Int,
+    val pulseMicros: Int,
+) {
+    init {
+        require(channel in 0..255)
+        require(pulseMicros in 1..65_535)
+    }
+}
+
+data class BoardServoPulse(
+    val channel: Int,
+    val pulseMicros: Int,
+) {
+    init {
+        require(channel in 0..255)
+        require(pulseMicros in 1..65_535)
+    }
+}
+
+sealed interface BoardActuatorCommandResult {
+    data class Queued(val commandCount: Int) : BoardActuatorCommandResult
+    data class Rejected(
+        val reason: BoardActuatorRejection,
+        val message: String,
+    ) : BoardActuatorCommandResult
+}
+
+enum class BoardActuatorRejection {
+    CLOSED,
+    DISABLED_BY_CONFIG,
+    NOT_READY,
+    ACTUATOR_UNAVAILABLE,
+    EMPTY_BATCH,
+    BATCH_TOO_LARGE,
+    INCOMPLETE_MOTOR_FRAME,
+    INVALID_CHANNEL,
+    INVALID_PULSE,
+    STALE_COMMAND,
+    FUTURE_COMMAND,
+    INTERNAL_ERROR,
 }
 
 /** Safe descriptor data that does not expose Android USB handles to consumers. */

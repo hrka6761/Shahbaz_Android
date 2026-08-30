@@ -64,6 +64,22 @@ internal class BoardProtocolSession(
     fun buildStopTelemetry() = encodeAttached(SafeRequests.stopTelemetry())
     fun buildHeartbeat() = encodeAttached(SafeRequests.heartbeat())
     fun buildDisarm() = encodeAttached(SafeRequests.disarm())
+    fun buildEmergencyStop() = encodeAttached(SafeRequests.emergencyStop())
+    fun buildArmRequest() = encodeAttached(SafeRequests.armRequest())
+    fun buildArmConfirm() = encodeAttached(SafeRequests.armConfirm())
+    fun buildMotorCommand(
+        channel: Int,
+        pulseMicros: Int,
+        generatedAtHostMicros: ULong = monotonicMicros(),
+    ) = encodeAttached(SafeRequests.motorCommand(channel, pulseMicros), generatedAtHostMicros)
+
+    fun buildServoCommand(channel: Int, pulseMicros: Int) =
+        encodeAttached(SafeRequests.servoCommand(channel, pulseMicros))
+
+    fun buildActuatorCommand(kind: ActuatorKind, channel: Int, pulseMicros: Int) =
+        encodeAttached(SafeRequests.actuatorCommand(kind, channel, pulseMicros))
+
+    fun buildSetControlMode(mode: Int) = encodeAttached(SafeRequests.setControlMode(mode))
 
     fun timeSyncRefreshDue(nowUs: ULong = monotonicMicros()): Boolean {
         val last = lastSuccessfulTimeSyncHostUs ?: return true
@@ -255,12 +271,18 @@ internal class BoardProtocolSession(
         return output
     }
 
-    private fun encodeAttached(request: OutboundRequest): EncodedCommand {
+    private fun encodeAttached(
+        request: OutboundRequest,
+        senderMonotonicUs: ULong = monotonicMicros(),
+    ): EncodedCommand {
         requireAttached()
-        return encode(request)
+        return encode(request, senderMonotonicUs)
     }
 
-    private fun encode(request: OutboundRequest): EncodedCommand {
+    private fun encode(
+        request: OutboundRequest,
+        senderMonotonicUs: ULong = monotonicMicros(),
+    ): EncodedCommand {
         val sequence = nextSequence
         nextSequence += 1u
         return EncodedCommand(
@@ -269,7 +291,7 @@ internal class BoardProtocolSession(
             bytes = FrameCodec.encode(
                 request = request,
                 sequence = sequence,
-                senderMonotonicUs = monotonicMicros(),
+                senderMonotonicUs = senderMonotonicUs,
                 sessionToken = if (request.sessionBound) sessionToken else null,
             ),
         )

@@ -1,4 +1,4 @@
-/** Bounded Shahbaz Protocol v2 framing, safe requests, and response decoders. */
+/** Bounded Shahbaz Protocol v2 framing, guarded host requests, and response decoders. */
 package ir.hrka.shahbaz.hardwareconnection.internal.protocol
 
 import ir.hrka.shahbaz.hardwareconnection.BoardDeviceInfo
@@ -77,7 +77,9 @@ internal fun MessageType.requireAllowedInboundAt(stage: InboundSessionStage) {
             stage == InboundSessionStage.AWAITING_HEARTBEAT ||
                 stage == InboundSessionStage.STARTING_TELEMETRY ||
                 stage == InboundSessionStage.READY
-        MessageType.COMMAND_ACK -> stage == InboundSessionStage.STARTING_TELEMETRY
+        MessageType.COMMAND_ACK ->
+            stage == InboundSessionStage.STARTING_TELEMETRY ||
+                stage == InboundSessionStage.READY
         MessageType.COMMAND_NACK -> stage != InboundSessionStage.NOT_SYNCHRONIZED
         MessageType.SENSOR_SAMPLE -> stage == InboundSessionStage.READY
         MessageType.DEVICE_STATUS_RESPONSE ->
@@ -249,10 +251,10 @@ internal object FrameCodec {
         senderMonotonicUs: ULong,
         sessionToken: ULong?,
     ): ByteArray {
-        if (request.messageType !in SAFE_HOST_REQUEST_TYPES) {
+        if (request.messageType !in GUARDED_HOST_REQUEST_TYPES) {
             throw ProtocolException(
                 ProtocolErrorKind.POLICY_REJECTED,
-                "${request.messageType} is not exposed by the sensor-only client",
+                "${request.messageType} is not exposed by the guarded host client",
             )
         }
         val payload = if (request.sessionBound) {
@@ -399,8 +401,43 @@ internal object SafeRequests {
     fun stopTelemetry() = request(MessageType.STOP_TELEMETRY, sessionBound = true)
     fun heartbeat() = request(MessageType.HEARTBEAT, MessagePriority.CRITICAL, sessionBound = true)
 
-    /** Tokenless safety override used only while closing; no arming/control builders exist. */
+    /** Tokenless safety override used while closing or explicitly disarming. */
     fun disarm() = request(MessageType.DISARM, MessagePriority.CRITICAL)
+    fun emergencyStop() = request(MessageType.EMERGENCY_STOP, MessagePriority.CRITICAL)
+    fun armRequest() = request(MessageType.ARM_REQUEST, MessagePriority.CRITICAL, sessionBound = true)
+    fun armConfirm() = request(MessageType.ARM_CONFIRM, MessagePriority.CRITICAL, sessionBound = true)
+
+    fun motorCommand(channel: Int, pulseMicros: Int) = request(
+        type = MessageType.MOTOR_COMMAND,
+        priority = MessagePriority.CRITICAL,
+        payload = directPulsePayload(channel, pulseMicros),
+        sessionBound = true,
+    )
+
+    fun servoCommand(channel: Int, pulseMicros: Int) = request(
+        type = MessageType.SERVO_COMMAND,
+        priority = MessagePriority.CRITICAL,
+        payload = directPulsePayload(channel, pulseMicros),
+        sessionBound = true,
+    )
+
+    fun actuatorCommand(kind: ActuatorKind, channel: Int, pulseMicros: Int) = request(
+        type = MessageType.ACTUATOR_COMMAND,
+        priority = MessagePriority.CRITICAL,
+        payload = ByteArray(4).also {
+            it[0] = kind.wireValue.toByte()
+            it[1] = channelByte(channel)
+            writeU16(it, 2, pulseMicros)
+        },
+        sessionBound = true,
+    )
+
+    fun setControlMode(mode: Int) = request(
+        type = MessageType.SET_CONTROL_MODE,
+        priority = MessagePriority.HIGH,
+        payload = byteArrayOf(channelByte(mode)),
+        sessionBound = true,
+    )
 
     private fun request(
         type: MessageType,
@@ -408,16 +445,39 @@ internal object SafeRequests {
         payload: ByteArray = byteArrayOf(),
         sessionBound: Boolean = false,
     ) = OutboundRequest(type, priority, payload, sessionBound)
+
+    private fun directPulsePayload(channel: Int, pulseMicros: Int): ByteArray =
+        ByteArray(3).also {
+            it[0] = channelByte(channel)
+            writeU16(it, 1, pulseMicros)
+        }
+
+    private fun channelByte(value: Int): Byte {
+        require(value in 0..255) { "value must fit in uint8" }
+        return value.toByte()
+    }
 }
 
-private val SAFE_HOST_REQUEST_TYPES = setOf(
+internal enum class ActuatorKind(val wireValue: Int) {
+    MOTOR(1),
+    SERVO(2),
+}
+
+private val GUARDED_HOST_REQUEST_TYPES = setOf(
     MessageType.TIME_SYNC_REQUEST,
     MessageType.DEVICE_INFO_REQUEST,
     MessageType.DEVICE_STATUS_REQUEST,
     MessageType.START_TELEMETRY,
     MessageType.STOP_TELEMETRY,
     MessageType.HEARTBEAT,
+    MessageType.EMERGENCY_STOP,
     MessageType.DISARM,
+    MessageType.ARM_REQUEST,
+    MessageType.ARM_CONFIRM,
+    MessageType.ACTUATOR_COMMAND,
+    MessageType.MOTOR_COMMAND,
+    MessageType.SERVO_COMMAND,
+    MessageType.SET_CONTROL_MODE,
 )
 
 internal data class TimeSyncResponse(

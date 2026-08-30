@@ -3,9 +3,14 @@
 A standalone, UI-free Android USB-host library for the production
 `shahbaz_interface_board`. It discovers only the board's native TinyUSB CDC identity
 (`VID 0x303A`, `PID 0x4001`), owns USB permission and attach/detach handling, performs Shahbaz
-Protocol v2 setup, and publishes typed link and sensor state. It has no dependency on any other
-Shahbaz project module, AndroidX, Compose, activity, fragment, or view API. Its only public runtime
-dependency is Kotlin coroutines because the simple API exposes `StateFlow`.
+Protocol v2 setup, and publishes typed link and sensor state. It has no dependency on the Shahbaz
+app, feature modules, AndroidX, Compose, activity, fragment, or view API. It depends on
+`:core:flight_black_box` for audit events and exposes Kotlin coroutines `StateFlow` in its public
+contract.
+
+The library remains telemetry-only by default. Actuator commands are available only when
+`HardwareConnectionConfig.allowActuatorCommands=true`, the Protocol v2 session is Ready, and the
+board reports an actuator-capable runtime profile.
 
 ## Public contract
 
@@ -26,13 +31,46 @@ board.stop()
 board.close()
 ```
 
+Bench/HIL builds that intentionally need PWM output can opt in:
+
+```kotlin
+val board = HardwareConnection(
+    applicationContext,
+    HardwareConnectionConfig(
+        allowActuatorCommands = true,
+        motorPulseBounds = BoardPulseBounds(900, 2100),
+    ),
+)
+
+board.armActuators()
+board.sendMotorPulses(
+    listOf(
+        BoardMotorPulse(channel = 0, pulseMicros = 1500),
+        BoardMotorPulse(channel = 1, pulseMicros = 1500),
+        BoardMotorPulse(channel = 2, pulseMicros = 1500),
+        BoardMotorPulse(channel = 3, pulseMicros = 1500),
+    ),
+    generatedAtElapsedRealtimeNanos = controllerOutput.generatedAtNanos,
+)
+board.disarmActuators()
+board.emergencyStopActuators()
+```
+
+Every actuator method returns `BoardActuatorCommandResult.Queued` or
+`BoardActuatorCommandResult.Rejected`. Rejections cover closed links, disabled actuator mode,
+non-Ready sessions, unavailable board actuators, invalid channels, empty/oversized batches, and
+out-of-range pulse widths. A motor submission must contain every active channel exactly once. Its
+monotonic source timestamp is preserved on the wire, and future or over-age output is rejected
+instead of being made to look fresh after queue delay. Command ACK/NACK frames are matched to
+pending command sequences and recorded in the flight black box.
+
 `BoardConnectionState.Ready` is deliberately strict. It is emitted only after all of the following:
 
 1. exact native-USB discovery and Android permission;
 2. CDC bulk IN/OUT open;
 3. Protocol v2 TimeSync with a non-zero, echoed session token (using bounded initial retries);
-4. DeviceInfo validation for Protocol v2, ESP32-S3, accepted advisory evidence, no fatal or
-   unknown validation bits, and disabled actuators;
+4. DeviceInfo validation for Protocol v2, ESP32-S3, accepted advisory evidence, and no fatal or
+   unknown validation bits;
 5. a current HeartbeatAck; and
 6. StartTelemetry acknowledgement.
 
@@ -61,9 +99,17 @@ strictly capped by `HardwareConnectionConfig.maximumUnknownSensors`.
 
 ## Safety boundary
 
-The public API has no arm, motor, servo, actuator, or control-mode operation. The internal outbound
-policy also rejects those message types if invoked accidentally. Safe shutdown may send
-`StopTelemetry` followed by the tokenless `Disarm` safety override before closing USB.
+Arming and motor/servo PWM commands are deliberately opt-in and protocol-specific. The facade does
+not expose raw byte writes. It validates configuration, current connection state, runtime board
+actuator availability, complete motor frames, active channel counts, duplicate channels, batch
+sizes, source freshness, and PWM ranges before queueing commands on the serial USB dispatcher. Safe
+shutdown may send `StopTelemetry` followed by the tokenless `Disarm` safety override before closing
+USB.
+
+If actuator commands are not enabled in `HardwareConnectionConfig`, the library treats a board
+reporting `actuatorArmed=true` as a critical protocol violation and closes the link. When actuator
+commands are enabled, armed status is accepted as part of the explicit control session and remains
+observable through `BoardTelemetrySnapshot.deviceStatus`.
 
 The library dynamically registers scoped receivers for permission and USB attach/detach while
 started, scans for a board that was connected before the app or dashboard, and can idempotently
@@ -95,7 +141,7 @@ keeps TimeSync/session, CRC, freshness, heartbeat, and fail-closed actuator rule
 
 Unit tests cover CRC-32C, COBS, the shared golden frame, bounded resynchronization, session reset,
 TimeSync rejection and bounded retry, advisory/fatal/unknown DeviceInfo masks,
-actuator-policy exclusion, typed sensor validation, sequence regression,
+guarded actuator encoding and public pulse-bound models, typed sensor validation, sequence regression,
 inbound priority/replay/reorder/wrap behavior, strict heartbeat/command acknowledgements, independent
 first-sample timeout and recovery, staleness/offline behavior, QNH recalculation, atomic receiver
 rollback, mutable permission-result policy, staged handshake decisions, CDC logical-session
