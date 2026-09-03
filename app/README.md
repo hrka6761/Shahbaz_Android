@@ -8,9 +8,13 @@ features, applies the shared design system, and owns application-level resources
 
 - Declare the application ID, launcher activity, and application-level metadata.
 - Request coarse and fine location permission and open app or device location settings when requested by the feature UI.
-- Create `MapViewModel`, collect its `StateFlow`, and pass destination, altitude-workflow, and system event callbacks to `MapScreen`.
-- Create `DashboardViewModel`, bridge explicitly typed phone position/orientation state, and render
-  `DashboardScreen` after setup confirmation.
+- Create `MapViewModel`, collect its `StateFlow`, and pass destination, cruise-altitude,
+  destination-ground-elevation, and system event callbacks to `MapScreen`.
+- Create `DashboardViewModel`, which owns the dashboard runtime composition, bridge explicitly
+  typed phone position/orientation state plus the GPS fix's original monotonic timestamp and
+  accuracy, and render `DashboardScreen` after setup confirmation.
+- Route dashboard Start/Abort/E-STOP callbacks to `DashboardViewModel`; the view model submits them
+  to its runtime, and no UI callback arms motors directly.
 - Own top-level Back behavior between dashboard and setup while preserving the route draft.
 - Give each map-bearing destination its own lifecycle and destroy the outgoing lifecycle before
   navigation so MapLibre releases its native renderer before the next map is created.
@@ -57,7 +61,11 @@ graph LR
 
 ## Using this module
 
-Developers run this module to exercise the complete product. New app-wide Android integration belongs here; map-specific behavior should be added to `:feature:map:impl` instead.
+Developers run this module to exercise the complete product. New app-wide Android integration
+belongs here; map-specific behavior should be added to `:feature:map:impl` instead. Selecting
+Start is forwarded to the dashboard-owned serialized mission runtime. A statically valid plan then
+enters preflight; an invalid plan remains in Standby with its policy blocker. Neither path bypasses
+the autopilot or flight-controller arming gates.
 
 ```powershell
 .\gradlew.bat :app:installDebug
@@ -81,4 +89,8 @@ Run connected tests with a device or emulator:
 .\gradlew.bat :app:connectedDebugAndroidTest
 ```
 
-Permission, settings, activity lifecycle, GPS, network, destination-to-altitude navigation, and sensor flows should also be exercised on a physical device.
+Permission, settings, activity lifecycle, GPS, network, destination-to-altitude-profile navigation,
+signed destination-ground input, mission-intent dispatch, and sensor flows should also be exercised
+on a physical device. The present sensor-only interface-board firmware and unavailable production
+landing/safety providers intentionally keep autonomous arming blocked; an installed APK is not a
+physical-flight-ready system.

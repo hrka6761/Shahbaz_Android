@@ -48,6 +48,15 @@ class BoardModelsTest {
         assertThrows(IllegalArgumentException::class.java) {
             HardwareConnectionConfig(maximumMotorCommandBatch = 0)
         }
+        assertThrows(IllegalArgumentException::class.java) {
+            HardwareConnectionConfig(actuatorAcknowledgementTimeoutMillis = 0)
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            HardwareConnectionConfig(maximumPendingActuatorAcknowledgements = 0)
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            HardwareConnectionConfig(maximumQueuedActuatorSubmissions = 0)
+        }
     }
 
     /**
@@ -67,5 +76,20 @@ class BoardModelsTest {
         assertThrows(IllegalArgumentException::class.java) {
             BoardServoPulse(channel = 0, pulseMicros = 0)
         }
+    }
+
+    @Test
+    fun rangefinderLifecycleStatusUsesTheStablePhysicalRoleMapping() {
+        val status = RangefinderLifecycleStatus(
+            ground = RangefinderLifecycle.DISABLED_OR_ABSENT,
+            up = RangefinderLifecycle.INITIALIZING,
+            frontLeft = RangefinderLifecycle.LIVE,
+            frontRight = RangefinderLifecycle.DEGRADED,
+        )
+
+        assertEquals(RangefinderLifecycle.DISABLED_OR_ABSENT, status[RangefinderRole.GROUND])
+        assertEquals(RangefinderLifecycle.INITIALIZING, status[RangefinderRole.UP])
+        assertEquals(RangefinderLifecycle.LIVE, status[RangefinderRole.FRONT_LEFT])
+        assertEquals(RangefinderLifecycle.DEGRADED, status[RangefinderRole.FRONT_RIGHT])
     }
 }

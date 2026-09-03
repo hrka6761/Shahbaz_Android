@@ -9,9 +9,10 @@
  *
  * A two-vertex route is drawn directly between origin and destination. Its label and summary
  * use the WGS-84 geodesic distance, while the label is placed at the spherical midpoint for
- * map presentation. A guided second step collects the drone's positive flight-start altitude
- * above the takeoff surface. The remaining overlays provide actionable loading/error states,
- * camera recentering, and a compass whose dial is interpreted relative to the device heading.
+ * map presentation. A guided second step collects the drone's positive cruise altitude above
+ * takeoff and the signed destination-ground elevation relative to takeoff. The remaining overlays
+ * provide actionable loading/error states, camera recentering, and a compass whose dial is
+ * interpreted relative to the device heading.
  */
 package ir.hrka.shahbaz.feature.map
 
@@ -166,7 +167,7 @@ private val DynamicGeoJsonOptions = GeoJsonOptions(synchronousUpdate = true)
  * destination in domain order (`latitude`, `longitude`); manual entry is handled by the top
  * panel's coordinate dialog. Selecting a destination adds the marker, direct line, WGS-84
  * distance label, and bounds-framing camera animation. The panel then advances to validated
- * takeoff-altitude entry while preserving a Previous path back to destination editing. Bottom
+ * altitude-profile entry while preserving a Previous path back to destination editing. Bottom
  * controls expose the device-heading compass and an animated return to the latest origin.
  *
  * @param state Immutable state containing location readiness, origin and destination points,
@@ -175,10 +176,12 @@ private val DynamicGeoJsonOptions = GeoJsonOptions(synchronousUpdate = true)
  * @param onDestinationSelected Called with a validated latitude/longitude domain coordinate
  * after either a map long-press or successful dialog submission.
  * @param onClearDestination Called when the user removes the selected destination.
- * @param onAdvanceToTakeoffAltitude Called when the destination-step Next action is activated.
+ * @param onAdvanceToCruiseAltitude Called when the destination-step Next action is activated.
  * @param onReturnToDestinationSelection Called when Previous returns to destination editing.
- * @param onTakeoffAltitudeChanged Called whenever the raw altitude text changes.
- * @param onConfirmTakeoffAltitude Called by the altitude-step Next action after validation.
+ * @param onCruiseAltitudeChanged Called whenever the raw cruise-altitude text changes.
+ * @param onDestinationGroundAltitudeChanged Called whenever the signed destination-ground
+ * elevation text changes.
+ * @param onConfirmCruiseAltitude Called by the altitude-profile Next action after validation.
  * @param onRequestPermission Called to launch the runtime location-permission request.
  * @param onOpenAppSettings Called when permission must be changed in system app settings.
  * @param onOpenLocationSettings Called when device location/GPS must be enabled.
@@ -189,10 +192,11 @@ fun MapScreen(
     state: MapUiState,
     onDestinationSelected: (GeoCoordinate) -> Unit,
     onClearDestination: () -> Unit,
-    onAdvanceToTakeoffAltitude: () -> Unit,
+    onAdvanceToCruiseAltitude: () -> Unit,
     onReturnToDestinationSelection: () -> Unit,
-    onTakeoffAltitudeChanged: (String) -> Unit,
-    onConfirmTakeoffAltitude: () -> Unit,
+    onCruiseAltitudeChanged: (String) -> Unit,
+    onDestinationGroundAltitudeChanged: (String) -> Unit,
+    onConfirmCruiseAltitude: () -> Unit,
     onRequestPermission: () -> Unit,
     onOpenAppSettings: () -> Unit,
     onOpenLocationSettings: () -> Unit,
@@ -467,10 +471,11 @@ fun MapScreen(
             mapLoadFailed = !mapReady && (mapLoadTimedOut || mapLoadFailed),
             onDestinationSelected = onDestinationSelected,
             onClearDestination = onClearDestination,
-            onAdvanceToTakeoffAltitude = onAdvanceToTakeoffAltitude,
+            onAdvanceToCruiseAltitude = onAdvanceToCruiseAltitude,
             onReturnToDestinationSelection = onReturnToDestinationSelection,
-            onTakeoffAltitudeChanged = onTakeoffAltitudeChanged,
-            onConfirmTakeoffAltitude = onConfirmTakeoffAltitude,
+            onCruiseAltitudeChanged = onCruiseAltitudeChanged,
+            onDestinationGroundAltitudeChanged = onDestinationGroundAltitudeChanged,
+            onConfirmCruiseAltitude = onConfirmCruiseAltitude,
             onRetryMap = retryMapLoad,
             modifier = Modifier
                 .align(Alignment.TopCenter)
@@ -622,14 +627,14 @@ private fun lineData(start: Position?, end: Position?): GeoJsonData {
 }
 
 /**
- * Renders the measured, scrollable destination and takeoff-altitude workflow panel.
+ * Renders the measured, scrollable destination and altitude-profile workflow panel.
  *
  * The destination step shows read-only origin and destination coordinates, manual edit and clear
  * actions, and the WGS-84 route distance. Its Next action appears after a destination exists. The
- * altitude step explains that height is relative to the takeoff surface, accepts a positive meter
- * value, offers Previous without discarding the route or draft, and keeps Next visibly disabled
- * with an explanation whenever the live takeoff origin is unavailable. Inline network and map
- * failure notices remain visible in either step.
+ * altitude step collects a positive cruise height above takeoff and a signed landing-surface
+ * elevation relative to takeoff. It offers Previous without discarding either draft and keeps
+ * Next visibly disabled until both values form a valid profile and a live takeoff origin remains
+ * available. Inline network and map failure notices remain visible in either step.
  *
  * @param state Current screen state used to populate route and flight-setup content.
  * @param mapReady Whether MapLibre has attached or finished loading a usable current style.
@@ -637,10 +642,12 @@ private fun lineData(start: Position?, end: Position?): GeoJsonData {
  * @param onDestinationSelected Called with the validated manual destination in latitude/longitude
  * order.
  * @param onClearDestination Called when the destination-clear action is activated.
- * @param onAdvanceToTakeoffAltitude Called by Next after a destination has been selected.
+ * @param onAdvanceToCruiseAltitude Called by Next after a destination has been selected.
  * @param onReturnToDestinationSelection Called by Previous from altitude entry.
- * @param onTakeoffAltitudeChanged Called whenever the raw altitude input changes.
- * @param onConfirmTakeoffAltitude Called by Next when the altitude input is valid.
+ * @param onCruiseAltitudeChanged Called whenever the raw cruise-altitude input changes.
+ * @param onDestinationGroundAltitudeChanged Called whenever the raw destination-ground elevation
+ * input changes.
+ * @param onConfirmCruiseAltitude Called by Next when both altitude inputs are valid.
  * @param onRetryMap Called by the inline error action to recreate and reload the MapLibre map.
  * @param modifier Modifier applied to the panel surface; callers use it for placement, insets,
  * measurement, and width constraints.
@@ -653,40 +660,51 @@ private fun TopLocationPanel(
     mapLoadFailed: Boolean,
     onDestinationSelected: (GeoCoordinate) -> Unit,
     onClearDestination: () -> Unit,
-    onAdvanceToTakeoffAltitude: () -> Unit,
+    onAdvanceToCruiseAltitude: () -> Unit,
     onReturnToDestinationSelection: () -> Unit,
-    onTakeoffAltitudeChanged: (String) -> Unit,
-    onConfirmTakeoffAltitude: () -> Unit,
+    onCruiseAltitudeChanged: (String) -> Unit,
+    onDestinationGroundAltitudeChanged: (String) -> Unit,
+    onConfirmCruiseAltitude: () -> Unit,
     onRetryMap: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     var showDestinationDialog by rememberSaveable { mutableStateOf(false) }
     val density = LocalDensity.current
     val keyboardController = LocalSoftwareKeyboardController.current
-    val altitudeFocusRequester = remember { FocusRequester() }
+    val cruiseAltitudeFocusRequester = remember { FocusRequester() }
+    val destinationGroundFocusRequester = remember { FocusRequester() }
     val windowHeight = with(density) { LocalWindowInfo.current.containerSize.height.toDp() }
-    val maxPanelHeight = (windowHeight * 0.52f)
-        .coerceIn(160.dp, 328.dp)
+    val maxPanelHeight = (windowHeight * 0.62f)
+        .coerceIn(160.dp, 440.dp)
     val fieldsEnabled = state.locationStatus == LocationStatus.READY && mapReady
     val originCoordinates = state.origin?.coordinate?.let(::formatCoordinate).orEmpty()
     val destinationCoordinates = state.destination?.coordinate?.let(::formatCoordinate).orEmpty()
-    val takeoffAltitudeMeters = state.takeoffAltitudeMeters
-    val altitudeInputIsInvalid = state.takeoffAltitudeInput.isNotBlank() &&
-        takeoffAltitudeMeters == null
-    val takeoffConfirmationBlockerMessage = when (state.takeoffConfirmationBlocker) {
-        TakeoffConfirmationBlocker.LIVE_ORIGIN_UNAVAILABLE ->
+    val cruiseAltitudeMeters = state.cruiseAltitudeMeters
+    val cruiseAltitudeInputIsInvalid = state.cruiseAltitudeInput.isNotBlank() &&
+        cruiseAltitudeMeters == null
+    val destinationGroundAltitude = state.destinationGroundAltitudeAboveOriginMeters
+    val destinationGroundInputIsInvalid =
+        state.destinationGroundAltitudeInput.isNotBlank() &&
+            (
+                destinationGroundAltitude == null ||
+                    cruiseAltitudeMeters != null &&
+                    destinationGroundAltitude >= cruiseAltitudeMeters
+                )
+    val flightPlanConfirmationBlockerMessage = when (state.flightPlanConfirmationBlocker) {
+        FlightPlanConfirmationBlocker.LIVE_ORIGIN_UNAVAILABLE ->
             stringResource(R.string.takeoff_origin_unavailable)
-        TakeoffConfirmationBlocker.DESTINATION_UNAVAILABLE ->
+        FlightPlanConfirmationBlocker.DESTINATION_UNAVAILABLE ->
             stringResource(R.string.takeoff_destination_unavailable)
-        TakeoffConfirmationBlocker.NOT_ALTITUDE_STEP,
-        TakeoffConfirmationBlocker.INVALID_ALTITUDE,
+        FlightPlanConfirmationBlocker.NOT_ALTITUDE_STEP,
+        FlightPlanConfirmationBlocker.INVALID_ALTITUDE,
+        FlightPlanConfirmationBlocker.INVALID_DESTINATION_GROUND_ALTITUDE,
         null -> null
     }
     val panelTitle = stringResource(
         if (state.flightSetupStep == FlightSetupStep.DESTINATION) {
             R.string.route_details_step
         } else {
-            R.string.flight_start_altitude
+            R.string.flight_altitude_profile
         }
     )
     val selectedDistance = state.origin?.coordinate?.let { origin ->
@@ -710,8 +728,8 @@ private fun TopLocationPanel(
         }
 
     LaunchedEffect(state.flightSetupStep) {
-        if (state.flightSetupStep == FlightSetupStep.TAKEOFF_ALTITUDE) {
-            altitudeFocusRequester.requestFocus()
+        if (state.flightSetupStep == FlightSetupStep.CRUISE_ALTITUDE) {
+            cruiseAltitudeFocusRequester.requestFocus()
         }
     }
 
@@ -811,7 +829,7 @@ private fun TopLocationPanel(
 
                     if (state.destination != null) {
                         Button(
-                            onClick = onAdvanceToTakeoffAltitude,
+                            onClick = onAdvanceToCruiseAltitude,
                             modifier = Modifier.fillMaxWidth(),
                             enabled = fieldsEnabled,
                         ) {
@@ -820,49 +838,85 @@ private fun TopLocationPanel(
                     }
                 }
 
-                FlightSetupStep.TAKEOFF_ALTITUDE -> {
+                FlightSetupStep.CRUISE_ALTITUDE -> {
                     Text(
-                        text = stringResource(R.string.flight_start_altitude),
+                        text = stringResource(R.string.flight_altitude_profile),
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold,
                     )
                     Text(
-                        text = stringResource(R.string.flight_start_altitude_help),
+                        text = stringResource(R.string.flight_altitude_profile_help),
                         style = MaterialTheme.typography.bodyMedium,
                     )
                     OutlinedTextField(
-                        value = state.takeoffAltitudeInput,
-                        onValueChange = onTakeoffAltitudeChanged,
+                        value = state.cruiseAltitudeInput,
+                        onValueChange = onCruiseAltitudeChanged,
                         modifier = Modifier
                             .fillMaxWidth()
-                            .focusRequester(altitudeFocusRequester),
+                            .focusRequester(cruiseAltitudeFocusRequester),
                         singleLine = true,
-                        isError = altitudeInputIsInvalid,
-                        label = { Text(stringResource(R.string.flight_start_altitude)) },
-                        placeholder = { Text(stringResource(R.string.altitude_meters_hint)) },
+                        isError = cruiseAltitudeInputIsInvalid,
+                        label = { Text(stringResource(R.string.cruise_altitude_above_takeoff)) },
+                        placeholder = { Text(stringResource(R.string.cruise_altitude_hint)) },
                         suffix = { Text(stringResource(R.string.meters_abbreviation)) },
-                        supportingText = if (altitudeInputIsInvalid) {
-                            {
-                                Text(stringResource(R.string.invalid_takeoff_altitude))
-                            }
-                        } else {
-                            null
+                        supportingText = {
+                            Text(
+                                stringResource(
+                                    if (cruiseAltitudeInputIsInvalid) {
+                                        R.string.invalid_cruise_altitude
+                                    } else {
+                                        R.string.cruise_altitude_help
+                                    }
+                                )
+                            )
                         },
                         keyboardOptions = KeyboardOptions(
                             keyboardType = KeyboardType.Decimal,
+                            imeAction = ImeAction.Next,
+                        ),
+                        keyboardActions = KeyboardActions(
+                            onNext = { destinationGroundFocusRequester.requestFocus() },
+                        ),
+                    )
+                    OutlinedTextField(
+                        value = state.destinationGroundAltitudeInput,
+                        onValueChange = onDestinationGroundAltitudeChanged,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .focusRequester(destinationGroundFocusRequester),
+                        singleLine = true,
+                        isError = destinationGroundInputIsInvalid,
+                        label = { Text(stringResource(R.string.destination_ground_altitude)) },
+                        placeholder = {
+                            Text(stringResource(R.string.destination_ground_altitude_hint))
+                        },
+                        suffix = { Text(stringResource(R.string.meters_abbreviation)) },
+                        supportingText = {
+                            Text(
+                                stringResource(
+                                    if (destinationGroundInputIsInvalid) {
+                                        R.string.invalid_destination_ground_altitude
+                                    } else {
+                                        R.string.destination_ground_altitude_help
+                                    }
+                                )
+                            )
+                        },
+                        keyboardOptions = KeyboardOptions(
+                            keyboardType = KeyboardType.Text,
                             imeAction = ImeAction.Done,
                         ),
                         keyboardActions = KeyboardActions(
                             onDone = {
-                                if (state.canConfirmTakeoffAltitude) {
-                                    onConfirmTakeoffAltitude()
+                                if (state.canConfirmCruiseAltitude) {
+                                    onConfirmCruiseAltitude()
                                     keyboardController?.hide()
                                 }
                             }
                         ),
                     )
 
-                    if (takeoffConfirmationBlockerMessage != null) {
+                    if (flightPlanConfirmationBlockerMessage != null) {
                         Surface(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -872,7 +926,7 @@ private fun TopLocationPanel(
                             shape = RoundedCornerShape(12.dp),
                         ) {
                             Text(
-                                text = takeoffConfirmationBlockerMessage,
+                                text = flightPlanConfirmationBlockerMessage,
                                 modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
                                 style = MaterialTheme.typography.bodySmall,
                                 fontWeight = FontWeight.SemiBold,
@@ -895,19 +949,19 @@ private fun TopLocationPanel(
                         }
                         Button(
                             onClick = {
-                                onConfirmTakeoffAltitude()
+                                onConfirmCruiseAltitude()
                                 keyboardController?.hide()
                             },
                             modifier = Modifier.weight(1f),
-                            enabled = state.canConfirmTakeoffAltitude,
+                            enabled = state.canConfirmCruiseAltitude,
                         ) {
                             Text(stringResource(R.string.next))
                         }
                     }
 
-                    if (state.isTakeoffAltitudeConfirmed) {
+                    if (state.isCruiseAltitudeConfirmed) {
                         Text(
-                            text = stringResource(R.string.takeoff_altitude_confirmed),
+                            text = stringResource(R.string.flight_altitude_profile_confirmed),
                             modifier = Modifier.semantics {
                                 liveRegion = LiveRegionMode.Polite
                             },

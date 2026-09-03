@@ -1,5 +1,7 @@
 package ir.hrka.shahbaz.hardwareconnection.internal.protocol
 
+import ir.hrka.shahbaz.hardwareconnection.BoardMotorPulse
+import ir.hrka.shahbaz.hardwareconnection.RangefinderLifecycle
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertThrows
@@ -45,22 +47,33 @@ class WireProtocolTest {
      * Runs the guardedPolicyEncodesActuatorCommandsWithSessionToken operation.
      */
     @Test
-    fun guardedPolicyEncodesActuatorCommandsWithSessionToken() {
+    fun guardedPolicyEncodesCoherentMotorFrameWithSessionToken() {
         val token = 0x0102030405060708uL
-        val motor = FrameCodec.decodeBody(
+        val motorFrame = FrameCodec.decodeBody(
             FrameCodec.encode(
-                SafeRequests.motorCommand(channel = 3, pulseMicros = 1_500),
+                SafeRequests.motorFrameCommand(
+                    listOf(
+                        BoardMotorPulse(channel = 3, pulseMicros = 1_603),
+                        BoardMotorPulse(channel = 1, pulseMicros = 1_401),
+                        BoardMotorPulse(channel = 0, pulseMicros = 1_300),
+                        BoardMotorPulse(channel = 2, pulseMicros = 1_502),
+                    ),
+                ),
                 sequence = 7u,
                 senderMonotonicUs = 1_000uL,
                 sessionToken = token,
             ).dropLast(1).toByteArray(),
         )
 
-        assertEquals(MessageType.MOTOR_COMMAND, motor.header.messageType)
-        assertEquals(11, motor.payload.size)
-        assertEquals(token, readU64(motor.payload, 0))
-        assertEquals(3, readU8(motor.payload, 8))
-        assertEquals(1_500, readU16(motor.payload, 9))
+        assertEquals(MessageType.MOTOR_FRAME_COMMAND, motorFrame.header.messageType)
+        assertEquals(MessagePriority.CRITICAL, motorFrame.header.priority)
+        assertEquals(21, motorFrame.payload.size)
+        assertEquals(token, readU64(motorFrame.payload, 0))
+        assertEquals(4, readU8(motorFrame.payload, 8))
+        assertMotorEntry(motorFrame.payload, entry = 0, channel = 0, pulseMicros = 1_300)
+        assertMotorEntry(motorFrame.payload, entry = 1, channel = 1, pulseMicros = 1_401)
+        assertMotorEntry(motorFrame.payload, entry = 2, channel = 2, pulseMicros = 1_502)
+        assertMotorEntry(motorFrame.payload, entry = 3, channel = 3, pulseMicros = 1_603)
 
         val arm = FrameCodec.decodeBody(
             FrameCodec.encode(
@@ -73,6 +86,49 @@ class WireProtocolTest {
         assertEquals(MessageType.ARM_REQUEST, arm.header.messageType)
         assertEquals(8, arm.payload.size)
         assertEquals(token, readU64(arm.payload, 0))
+    }
+
+    @Test
+    fun motorFrameEncoderRejectsEveryIncompleteOrAmbiguousChannelSet() {
+        val valid = listOf(
+            BoardMotorPulse(0, 1_000),
+            BoardMotorPulse(1, 1_100),
+            BoardMotorPulse(2, 1_200),
+            BoardMotorPulse(3, 1_300),
+        )
+        val invalidFrames = listOf(
+            emptyList(),
+            valid.take(3),
+            valid + BoardMotorPulse(4, 1_400),
+            listOf(valid[0], valid[1], valid[2], BoardMotorPulse(2, 1_300)),
+            listOf(valid[0], valid[1], valid[2], BoardMotorPulse(4, 1_300)),
+        )
+
+        invalidFrames.forEach { pulses ->
+            assertThrows(IllegalArgumentException::class.java) {
+                SafeRequests.motorFrameCommand(pulses)
+            }
+        }
+    }
+
+    @Test
+    fun guardedPolicyRejectsLegacySingleMotorAndGenericActuatorRequests() {
+        listOf(MessageType.MOTOR_COMMAND, MessageType.ACTUATOR_COMMAND).forEach { type ->
+            val error = assertThrows(ProtocolException::class.java) {
+                FrameCodec.encode(
+                    OutboundRequest(
+                        messageType = type,
+                        priority = MessagePriority.CRITICAL,
+                        payload = byteArrayOf(0, 0xDC.toByte(), 0x05),
+                        sessionBound = true,
+                    ),
+                    sequence = 1u,
+                    senderMonotonicUs = 1uL,
+                    sessionToken = 1uL,
+                )
+            }
+            assertEquals(ProtocolErrorKind.POLICY_REJECTED, error.kind)
+        }
     }
 
     /**
@@ -95,7 +151,7 @@ class WireProtocolTest {
      * Runs the motorCommandPreservesFlightControllerGenerationTimestamp operation.
      */
     @Test
-    fun motorCommandPreservesFlightControllerGenerationTimestamp() {
+    fun motorFramePreservesFlightControllerGenerationTimestampAndConsumesOneSequence() {
         var now = 1_000uL
         val session = BoardProtocolSession { now }
         session.attach()
@@ -114,15 +170,22 @@ class WireProtocolTest {
         session.commitInboundSequence(frame.header.sequence, frame.header.priority)
 
         now = 5_000uL
-        val command = session.buildMotorCommand(
-            channel = 0,
-            pulseMicros = 1_500,
+        val command = session.buildMotorFrameCommand(
+            pulses = listOf(
+                BoardMotorPulse(0, 1_500),
+                BoardMotorPulse(1, 1_501),
+                BoardMotorPulse(2, 1_502),
+                BoardMotorPulse(3, 1_503),
+            ),
             generatedAtHostMicros = 1_250uL,
         )
         val decoded = FrameCodec.decodeBody(command.bytes.dropLast(1).toByteArray())
+        val nextCommand = session.buildServoCommand(channel = 0, pulseMicros = 1_500)
 
         assertEquals(MessageType.TIME_SYNC_REQUEST, timeSync.type)
+        assertEquals(MessageType.MOTOR_FRAME_COMMAND, command.type)
         assertEquals(1_250uL, decoded.header.senderMonotonicUs)
+        assertEquals(command.sequence + 1u, nextCommand.sequence)
     }
 
     /**
@@ -296,6 +359,62 @@ class WireProtocolTest {
             u32(77u) + byteArrayOf(0x7F),
         )
         assertThrows(ProtocolException::class.java) { unknownAction.decodeCommandAck() }
+
+        val motorFrameAck = DecodedFrame(
+            FrameHeader(MessageType.COMMAND_ACK, MessagePriority.HIGH, 3u, 3uL, 5),
+            u32(88u) + byteArrayOf(ApplicationAction.MOTOR_FRAME_COMMAND.wireValue.toByte()),
+        ).decodeCommandAck()
+        assertEquals(ApplicationAction.MOTOR_FRAME_COMMAND, motorFrameAck?.applicationAction)
+        motorFrameAck?.requireAcknowledges(88u, ApplicationAction.MOTOR_FRAME_COMMAND)
+    }
+
+    @Test
+    fun deviceStatusDecoderAcceptsOnlyLegacyOrExtendedPayloadAndMapsEveryRole() {
+        val legacy = deviceStatusFrame(byteArrayOf(1, 4, 1, 0, 1, 0)).decodeDeviceStatus()
+        assertEquals(1, legacy?.safetyState)
+        assertEquals(4, legacy?.communicationState)
+        assertEquals(true, legacy?.telemetryEnabled)
+        assertEquals(false, legacy?.actuatorArmed)
+        assertEquals(true, legacy?.sht30Online)
+        assertEquals(false, legacy?.ms5611Online)
+        assertEquals(null, legacy?.rangefinders)
+
+        val extended = deviceStatusFrame(
+            byteArrayOf(6, 0, 0, 1, 0, 1, 0, 1, 2, 3),
+        ).decodeDeviceStatus()
+        assertEquals(RangefinderLifecycle.DISABLED_OR_ABSENT, extended?.rangefinders?.ground)
+        assertEquals(RangefinderLifecycle.INITIALIZING, extended?.rangefinders?.up)
+        assertEquals(RangefinderLifecycle.LIVE, extended?.rangefinders?.frontLeft)
+        assertEquals(RangefinderLifecycle.DEGRADED, extended?.rangefinders?.frontRight)
+
+        (0..12).filterNot { it == 6 || it == 10 }.forEach { payloadSize ->
+            val error = assertThrows(ProtocolException::class.java) {
+                deviceStatusFrame(ByteArray(payloadSize)).decodeDeviceStatus()
+            }
+            assertEquals(ProtocolErrorKind.PAYLOAD_INVALID, error.kind)
+        }
+    }
+
+    @Test
+    fun deviceStatusDecoderRejectsUnknownEnumsAndNonBooleanFlags() {
+        val valid = byteArrayOf(1, 4, 1, 0, 1, 0, 0, 1, 2, 3)
+        val invalidPayloads = buildList {
+            add(valid.copyOf().also { it[0] = 7 })
+            add(valid.copyOf().also { it[1] = 5 })
+            (2..5).forEach { offset ->
+                add(valid.copyOf().also { it[offset] = 2 })
+            }
+            (6..9).forEach { offset ->
+                add(valid.copyOf().also { it[offset] = 4 })
+            }
+        }
+
+        invalidPayloads.forEach { payload ->
+            val error = assertThrows(ProtocolException::class.java) {
+                deviceStatusFrame(payload).decodeDeviceStatus()
+            }
+            assertEquals(ProtocolErrorKind.PAYLOAD_INVALID, error.kind)
+        }
     }
 
     /**
@@ -406,13 +525,14 @@ class WireProtocolTest {
         session.acceptTimeSync(timeSyncFrame, now)
         session.commitInboundSequence(timeSyncFrame.header.sequence, timeSyncFrame.header.priority)
 
-        session.requireFreshTelemetryTimestamp(
+        val mappedMeasurementHostUs = session.requireFreshTelemetryTimestamp(
             frameSenderUs = 1_120uL,
             sampleDeviceUs = 1_100uL,
             receivedHostUs = 10_250uL,
             maximumAgeUs = 1_000uL,
             maximumFutureSkewUs = 100uL,
         )
+        assertEquals(10_100uL, mappedMeasurementHostUs)
 
         assertThrows(ProtocolException::class.java) {
             session.requireFreshTelemetryTimestamp(
@@ -732,6 +852,28 @@ class WireProtocolTest {
         payload.copyInto(body, WireContract.HEADER_LENGTH)
         val crc = ByteArray(4).also { writeU32(it, 0, Crc32c.calculate(body).toUInt()) }
         return Cobs.encode(body + crc) + byteArrayOf(0)
+    }
+
+    private fun deviceStatusFrame(payload: ByteArray) = DecodedFrame(
+        FrameHeader(
+            MessageType.DEVICE_STATUS_RESPONSE,
+            MessagePriority.HIGH,
+            1u,
+            1uL,
+            payload.size,
+        ),
+        payload,
+    )
+
+    private fun assertMotorEntry(
+        payload: ByteArray,
+        entry: Int,
+        channel: Int,
+        pulseMicros: Int,
+    ) {
+        val offset = 9 + entry * 3
+        assertEquals(channel, readU8(payload, offset))
+        assertEquals(pulseMicros, readU16(payload, offset + 1))
     }
 
     /**

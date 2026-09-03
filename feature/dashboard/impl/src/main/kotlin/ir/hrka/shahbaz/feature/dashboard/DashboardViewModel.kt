@@ -8,9 +8,16 @@ import com.shahbaz.flightblackbox.FbbEventRef
 import com.shahbaz.flightblackbox.FbbEventType
 import com.shahbaz.flightblackbox.FbbPersistence
 import com.shahbaz.flightblackbox.FlightBlackBox
+import ir.hrka.shahbaz.autopilot.AutopilotLandingObservation
+import ir.hrka.shahbaz.autopilot.AutopilotNavigationFix
+import ir.hrka.shahbaz.autopilot.AutopilotPhase
+import ir.hrka.shahbaz.autopilot.AutopilotSafetyStatus
 import ir.hrka.shahbaz.core.model.FlightPlan
+import ir.hrka.shahbaz.feature.dashboard.impl.BuildConfig
 import ir.hrka.shahbaz.hardwareconnection.BoardConnectionState
+import ir.hrka.shahbaz.hardwareconnection.BoardPulseBounds
 import ir.hrka.shahbaz.hardwareconnection.HardwareConnection
+import ir.hrka.shahbaz.hardwareconnection.HardwareConnectionConfig
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -29,7 +36,13 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
     /**
      * Exposes the board value.
      */
-    private val board = HardwareConnection(appContext)
+    private val board = HardwareConnection(
+        appContext,
+        HardwareConnectionConfig(
+            allowActuatorCommands = BuildConfig.EXPERIMENTAL_PHYSICAL_ACTUATORS,
+            motorPulseBounds = BoardPulseBounds(1_000, 2_000),
+        ),
+    )
     /**
      * Exposes the mutableUiState value.
      */
@@ -38,6 +51,18 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
      * Exposes the uiState value.
      */
     val uiState: StateFlow<DashboardUiState> = mutableUiState.asStateFlow()
+
+    /** Inputs supplied by independent navigation, landing, power, route, geofence, and wind owners. */
+    private val missionInputs = MutableStateFlow(FlightMissionInputs())
+
+    /** Current dashboard composition runtime; it borrows [board] and never owns its lifecycle. */
+    private var missionRuntime: FlightMissionRuntime? = null
+
+    /** Mirrors runtime state into the immutable dashboard presentation state. */
+    private var missionStateJob: Job? = null
+
+    /** Prevents Activity recreation/foregrounding from silently resetting a terminal mission. */
+    private var missionRestartBlocked = false
 
     /**
      * Stores the mutable hostForeground value.
@@ -170,9 +195,31 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
             persistence = FbbPersistence.IMPORTANT,
         )
         val changed = mutableUiState.value.flightPlan != plan
+        if (changed && mutableUiState.value.mission?.phase.requiresControlledShutdown()) {
+            FlightBlackBox.record(
+                type = FbbEventType.WARNING,
+                description = "Flight plan replacement rejected while mission is active",
+                cause = event,
+                metadata = mapOf("phase" to mutableUiState.value.mission?.phase),
+                persistence = FbbPersistence.CRITICAL,
+            )
+            return
+        }
+        if (changed) {
+            releaseMissionRuntime()
+            missionRestartBlocked = false
+            missionInputs.update { current ->
+                FlightMissionInputs(
+                    navigationFix = current.navigationFix,
+                    navigationAltitudeAboveMeanSeaLevelMeters =
+                        current.navigationAltitudeAboveMeanSeaLevelMeters,
+                )
+            }
+        }
         mutableUiState.update {
             it.copy(
                 flightPlan = plan,
+                mission = if (changed) null else it.mission,
                 baselinePressurePascal = if (changed) null else it.baselinePressurePascal,
             )
         }
@@ -201,17 +248,31 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
     }
 
     /** Clears the plan when returning to setup and releases the external board connection. */
-    fun clearFlightPlan() {
+    fun clearFlightPlan(): Boolean {
         val clear = FlightBlackBox.record(
             type = FbbEventType.CALL,
             description = "DashboardViewModel.clearFlightPlan()",
             persistence = FbbPersistence.IMPORTANT,
         )
+        if (mutableUiState.value.mission?.phase.requiresControlledShutdown()) {
+            FlightBlackBox.record(
+                type = FbbEventType.DECISION,
+                description = "Active mission -> request controlled abort before clearing plan",
+                cause = clear,
+                metadata = mapOf("phase" to mutableUiState.value.mission?.phase),
+                persistence = FbbPersistence.CRITICAL,
+            )
+            abortFlight()
+            return false
+        }
         cancelPermissionResultBackgroundStop()
         boardStopDeferredForPermission = false
         usbPermissionRequestPending = false
         usbPermissionRequestReturnedToHost = false
         baselineCaptureGate = null
+        releaseMissionRuntime()
+        missionRestartBlocked = false
+        missionInputs.value = FlightMissionInputs()
         mutableUiState.update {
             DashboardUiState(
                 phoneSensors = it.phoneSensors,
@@ -225,11 +286,68 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
             persistence = FbbPersistence.IMPORTANT,
         )
         stopSources(clear)
+        return true
     }
 
     /** Updates phone GPS/orientation data owned by the existing app-level location pipeline. */
     fun updatePhoneSensors(sensors: DashboardPhoneSensors, isOnline: Boolean) {
         mutableUiState.update { it.copy(phoneSensors = sensors, isOnline = isOnline) }
+    }
+
+    /** Supplies a real acquisition-timestamped navigation fix; null immediately removes it. */
+    fun updateNavigationFix(
+        fix: AutopilotNavigationFix?,
+        altitudeAboveMeanSeaLevelMeters: Double? = null,
+    ) {
+        missionInputs.update {
+            it.copy(
+                navigationFix = fix,
+                navigationAltitudeAboveMeanSeaLevelMeters =
+                    if (fix == null) null else altitudeAboveMeanSeaLevelMeters,
+            )
+        }
+    }
+
+    /** Supplies independent touchdown state. Pressure altitude is never converted into this input. */
+    fun updateLandingObservation(observation: AutopilotLandingObservation) {
+        missionInputs.update { it.copy(landingObservation = observation) }
+    }
+
+    /** Supplies current decisions from route, landing-zone, energy, geofence, and wind owners. */
+    fun updateSafetyStatus(status: AutopilotSafetyStatus) {
+        missionInputs.update { it.copy(safetyStatus = status) }
+    }
+
+    /** Dispatches operator intent to policy; the UI never arms the board directly. */
+    fun startFlight() {
+        FlightBlackBox.record(
+            type = FbbEventType.USER,
+            description = "DashboardScreen.StartFlight clicked -> autopilot preflight",
+            persistence = FbbPersistence.IMPORTANT,
+        )
+        if (!missionRestartBlocked) missionRuntime?.startMission()
+    }
+
+    /** Requests the autopilot's controlled return/landing path. */
+    fun abortFlight() {
+        FlightBlackBox.record(
+            type = FbbEventType.USER,
+            description = "DashboardScreen.AbortFlight clicked",
+            persistence = FbbPersistence.CRITICAL,
+        )
+        missionRuntime?.abortMission()
+    }
+
+    /** Sends the immediate hardware override and latches emergency stop in policy/control. */
+    fun emergencyStop() {
+        FlightBlackBox.record(
+            type = FbbEventType.USER,
+            description = "DashboardScreen.EmergencyStop clicked",
+            persistence = FbbPersistence.CRITICAL,
+        )
+        if (missionRuntime?.emergencyStop() != true) {
+            board.emergencyStopActuators()
+        }
     }
 
     /** Marks the activity visible; sources start only after a valid flight plan exists. */
@@ -306,6 +424,25 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
             description = "DashboardViewModel.hostForeground: true -> false",
             cause = event,
         )
+        val phaseBeforeBackground = mutableUiState.value.mission?.phase
+        if (phaseBeforeBackground.requiresControlledShutdown()) {
+            missionRestartBlocked = true
+            missionRuntime?.emergencyStop()
+            mutableUiState.update { current ->
+                current.copy(
+                    mission = current.mission?.copy(phase = AutopilotPhase.EMERGENCY_STOPPED),
+                )
+            }
+            FlightBlackBox.record(
+                type = FbbEventType.WARNING,
+                description = "Active mission lost foreground -> emergency stop and block restart",
+                cause = event,
+                metadata = mapOf("phase" to phaseBeforeBackground),
+                persistence = FbbPersistence.CRITICAL,
+            )
+        } else if (phaseBeforeBackground.isTerminalMissionPhase()) {
+            missionRestartBlocked = true
+        }
         val connection = mutableUiState.value.boardConnection
         if (
             usbPermissionRequestResolved(
@@ -399,8 +536,8 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
             description = "DashboardViewModel.onCleared()",
             persistence = FbbPersistence.IMPORTANT,
         )
+        releaseMissionRuntime()
         board.close()
-        super.onCleared()
     }
 
     /**
@@ -413,6 +550,7 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
             cause = cause,
         )
         board.start()
+        ensureMissionRuntime()
     }
 
     /**
@@ -424,7 +562,44 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
             description = "HardwareConnection.stop()",
             cause = cause,
         )
+        releaseMissionRuntime()
         board.stop()
+    }
+
+    /** Creates exactly one serialized mission runtime for the installed plan and starts preflight sampling. */
+    private fun ensureMissionRuntime() {
+        if (missionRuntime != null || missionRestartBlocked) return
+        val plan = mutableUiState.value.flightPlan ?: return
+        val runtime = FlightMissionRuntime(
+            context = appContext,
+            flightPlan = plan,
+            board = board,
+            inputs = missionInputs,
+        )
+        missionRuntime = runtime
+        mutableUiState.update { it.copy(mission = runtime.state.value.autopilot) }
+        missionStateJob = viewModelScope.launch {
+            runtime.state.collect { runtimeState ->
+                if (missionRuntime === runtime) {
+                    mutableUiState.update { it.copy(mission = runtimeState.autopilot) }
+                }
+            }
+        }
+        if (!runtime.prepare()) {
+            FlightBlackBox.record(
+                type = FbbEventType.ERROR,
+                description = "FlightMissionRuntime.prepare() failed",
+                persistence = FbbPersistence.CRITICAL,
+            )
+        }
+    }
+
+    /** Stops the owned controller/sensor composition without closing the borrowed board. */
+    private fun releaseMissionRuntime() {
+        missionStateJob?.cancel()
+        missionStateJob = null
+        missionRuntime?.close()
+        missionRuntime = null
     }
 
     /**
@@ -460,6 +635,34 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
  * Exposes the PERMISSION_RESULT_FOREGROUND_GRACE_MILLIS value.
  */
 private const val PERMISSION_RESULT_FOREGROUND_GRACE_MILLIS = 3_000L
+
+/** Phases in which replacing or discarding the plan must first complete a safe shutdown path. */
+internal fun AutopilotPhase?.requiresControlledShutdown(): Boolean = when (this) {
+    AutopilotPhase.ARMING,
+    AutopilotPhase.TAKEOFF,
+    AutopilotPhase.CRUISE,
+    AutopilotPhase.LANDING,
+    AutopilotPhase.RETURN_CLIMB,
+    AutopilotPhase.RETURNING,
+    AutopilotPhase.DISARMING,
+    -> true
+    AutopilotPhase.STANDBY,
+    AutopilotPhase.PREFLIGHT,
+    AutopilotPhase.COMPLETED,
+    AutopilotPhase.ABORTED,
+    AutopilotPhase.FAILED,
+    AutopilotPhase.EMERGENCY_STOPPED,
+    null,
+    -> false
+}
+
+/** A terminal result remains visible until the operator explicitly clears the plan. */
+internal fun AutopilotPhase?.isTerminalMissionPhase(): Boolean = this in setOf(
+    AutopilotPhase.COMPLETED,
+    AutopilotPhase.ABORTED,
+    AutopilotPhase.FAILED,
+    AutopilotPhase.EMERGENCY_STOPPED,
+)
 
 /** A USB permission PendingIntent must remain observable while Android's system prompt is active. */
 internal fun shouldKeepBoardStartedForPermissionResult(

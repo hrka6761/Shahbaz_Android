@@ -69,9 +69,10 @@ import kotlinx.coroutines.withContext
  *
  * Call [onForeground] and [onBackground] from the hosting activity's corresponding lifecycle
  * callbacks. Permission results are forwarded through [onPermissionResult], while destination
- * and takeoff-altitude actions are handled by [setDestination], [clearDestination],
- * [advanceToTakeoffAltitude], [returnToDestinationSelection], [updateTakeoffAltitude], and
- * [confirmTakeoffAltitude], and [clearConfirmedFlightPlan]. Consumers observe [uiState].
+ * and altitude-profile actions are handled by [setDestination], [clearDestination],
+ * [advanceToCruiseAltitude], [returnToDestinationSelection], [updateCruiseAltitude],
+ * [updateDestinationGroundAltitude], [confirmCruiseAltitude], and [clearConfirmedFlightPlan].
+ * Consumers observe [uiState].
  *
  * @param application Application used to obtain process-scoped Android services and resources.
  */
@@ -285,6 +286,7 @@ class MapViewModel(application: Application) : AndroidViewModel(application) {
             _uiState.update {
                 it.copy(
                     origin = null,
+                    phoneLocationFix = null,
                     locationStatus = LocationStatus.LOCATING,
                     phoneSpeedStatus = PhoneSpeedStatus.AwaitingLocation,
                 )
@@ -485,16 +487,16 @@ class MapViewModel(application: Application) : AndroidViewModel(application) {
         )
     }
 
-    /** Advances from route selection to takeoff-altitude entry when a destination exists. */
-    fun advanceToTakeoffAltitude() {
+    /** Advances from route selection to altitude-profile entry when a destination exists. */
+    fun advanceToCruiseAltitude() {
         val before = _uiState.value
         val decision = FlightBlackBox.record(
             type = FbbEventType.DECISION,
             description = "destinationPresent=${before.destination != null} -> " +
-                if (before.destination != null) "TAKEOFF_ALTITUDE" else "stay DESTINATION",
+                if (before.destination != null) "CRUISE_ALTITUDE" else "stay DESTINATION",
             persistence = FbbPersistence.IMPORTANT,
         )
-        _uiState.update { state -> state.advanceToTakeoffAltitude() }
+        _uiState.update { state -> state.advanceToCruiseAltitude() }
         FlightBlackBox.record(
             type = FbbEventType.STATE,
             description = "flightSetupStep: ${before.flightSetupStep} -> ${_uiState.value.flightSetupStep}",
@@ -502,7 +504,7 @@ class MapViewModel(application: Application) : AndroidViewModel(application) {
         )
     }
 
-    /** Returns to destination selection without discarding the selected route or altitude draft. */
+    /** Returns to destination selection without discarding the route or altitude drafts. */
     fun returnToDestinationSelection() {
         val before = _uiState.value.flightSetupStep
         _uiState.update { state -> state.returnToDestinationSelection() }
@@ -514,35 +516,56 @@ class MapViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     /**
-     * Stores the latest takeoff-altitude draft and clears any earlier confirmation.
+     * Stores the latest cruise-altitude draft and clears any earlier confirmation.
      *
      * @param input User-entered altitude text expressed in meters.
      */
-    fun updateTakeoffAltitude(input: String) {
-        val beforeValid = _uiState.value.takeoffAltitudeMeters != null
-        _uiState.update { state -> state.updateTakeoffAltitude(input) }
+    fun updateCruiseAltitude(input: String) {
+        val beforeValid = _uiState.value.cruiseAltitudeMeters != null
+        _uiState.update { state -> state.updateCruiseAltitude(input) }
         FlightBlackBox.record(
             type = FbbEventType.VALUE,
-            description = "takeoff altitude draft updated",
+            description = "cruise altitude above takeoff draft updated",
             metadata = mapOf(
                 "inputLength" to input.length,
                 "wasValid" to beforeValid,
-                "isValid" to (_uiState.value.takeoffAltitudeMeters != null),
+                "isValid" to (_uiState.value.cruiseAltitudeMeters != null),
             ),
         )
     }
 
-    /** Confirms the current valid altitude while the takeoff-altitude step is active. */
-    fun confirmTakeoffAltitude() {
+    /**
+     * Stores the signed destination-ground elevation draft and clears any earlier confirmation.
+     *
+     * @param input User-entered landing-surface elevation relative to takeoff, in meters.
+     */
+    fun updateDestinationGroundAltitude(input: String) {
+        val beforeValid =
+            _uiState.value.destinationGroundAltitudeAboveOriginMeters != null
+        _uiState.update { state -> state.updateDestinationGroundAltitude(input) }
+        FlightBlackBox.record(
+            type = FbbEventType.VALUE,
+            description = "destination ground altitude above origin draft updated",
+            metadata = mapOf(
+                "inputLength" to input.length,
+                "wasValid" to beforeValid,
+                "isValid" to
+                    (_uiState.value.destinationGroundAltitudeAboveOriginMeters != null),
+            ),
+        )
+    }
+
+    /** Confirms both valid altitude inputs while the altitude-profile step is active. */
+    fun confirmCruiseAltitude() {
         val before = _uiState.value
-        val blocker = before.takeoffConfirmationBlocker
+        val blocker = before.flightPlanConfirmationBlocker
         val decision = FlightBlackBox.record(
             type = FbbEventType.DECISION,
-            description = "takeoffConfirmationBlocker=$blocker -> " +
+            description = "flightPlanConfirmationBlocker=$blocker -> " +
                 if (blocker == null) "confirm flight plan" else "reject confirmation",
             persistence = FbbPersistence.IMPORTANT,
         )
-        _uiState.update { state -> state.confirmTakeoffAltitude() }
+        _uiState.update { state -> state.confirmCruiseAltitude() }
         FlightBlackBox.record(
             type = FbbEventType.STATE,
             description = "confirmedFlightPlan: ${before.confirmedFlightPlan != null} -> " +
@@ -606,6 +629,7 @@ class MapViewModel(application: Application) : AndroidViewModel(application) {
                 _uiState.update {
                     it.copy(
                         origin = null,
+                        phoneLocationFix = null,
                         locationStatus = LocationStatus.PERMISSION_REQUIRED,
                         phoneSpeedStatus = PhoneSpeedStatus.Unavailable(
                             PhoneSpeedUnavailableReason.LOCATION_PERMISSION_REQUIRED
@@ -632,6 +656,7 @@ class MapViewModel(application: Application) : AndroidViewModel(application) {
                 _uiState.update {
                     it.copy(
                         origin = null,
+                        phoneLocationFix = null,
                         locationStatus = LocationStatus.PRECISE_PERMISSION_REQUIRED,
                         phoneSpeedStatus = PhoneSpeedStatus.Unavailable(
                             PhoneSpeedUnavailableReason.PRECISE_LOCATION_PERMISSION_REQUIRED
@@ -663,6 +688,7 @@ class MapViewModel(application: Application) : AndroidViewModel(application) {
                 _uiState.update {
                     it.copy(
                         origin = null,
+                        phoneLocationFix = null,
                         locationStatus = LocationStatus.LOCATION_DISABLED,
                         phoneSpeedStatus = PhoneSpeedStatus.Unavailable(
                             PhoneSpeedUnavailableReason.LOCATION_DISABLED
@@ -771,6 +797,7 @@ class MapViewModel(application: Application) : AndroidViewModel(application) {
             _uiState.update {
                 it.copy(
                     origin = null,
+                    phoneLocationFix = null,
                     locationStatus = LocationStatus.PERMISSION_REQUIRED,
                     phoneSpeedStatus = PhoneSpeedStatus.Unavailable(
                         PhoneSpeedUnavailableReason.LOCATION_PERMISSION_REQUIRED
@@ -804,6 +831,7 @@ class MapViewModel(application: Application) : AndroidViewModel(application) {
             _uiState.update {
                 it.copy(
                     origin = null,
+                    phoneLocationFix = null,
                     locationStatus = LocationStatus.PERMISSION_REQUIRED,
                     phoneSpeedStatus = PhoneSpeedStatus.Unavailable(
                         PhoneSpeedUnavailableReason.LOCATION_PERMISSION_REQUIRED
@@ -875,6 +903,19 @@ class MapViewModel(application: Application) : AndroidViewModel(application) {
             haversineDistanceMeters(existing.coordinate, coordinate) < ADDRESS_REFRESH_DISTANCE_METERS
         val fallbackName = appContext.getString(R.string.current_location)
         val phoneSpeedStatus = phoneSpeedStatus(location)
+        val locationFix = location.elapsedRealtimeNanos
+            .takeIf { it > 0L }
+            ?.let { observedAtNanos ->
+                PhoneLocationFix(
+                    coordinate = coordinate,
+                    horizontalAccuracyMeters = if (location.hasAccuracy()) {
+                        location.accuracy.toDouble().takeIf { it.isFinite() && it >= 0.0 }
+                    } else {
+                        null
+                    },
+                    observedAtElapsedRealtimeNanos = observedAtNanos,
+                )
+            }
 
         _uiState.update {
             it.copy(
@@ -884,6 +925,7 @@ class MapViewModel(application: Application) : AndroidViewModel(application) {
                     name = if (keepExistingName) existing.name else fallbackName,
                     hasResolvedName = keepExistingName && existing.hasResolvedName,
                 ),
+                phoneLocationFix = locationFix,
                 hasPrecisePermission = hasFineLocationPermission(),
                 phoneSpeedStatus = phoneSpeedStatus,
             )
@@ -991,6 +1033,7 @@ class MapViewModel(application: Application) : AndroidViewModel(application) {
             _uiState.update {
                 it.copy(
                     origin = if (clearExistingOrigin) null else it.origin,
+                    phoneLocationFix = if (clearExistingOrigin) null else it.phoneLocationFix,
                     locationStatus = LocationStatus.UNAVAILABLE,
                     phoneSpeedStatus = PhoneSpeedStatus.Unavailable(
                         PhoneSpeedUnavailableReason.LOCATION_UNAVAILABLE
@@ -1049,6 +1092,7 @@ class MapViewModel(application: Application) : AndroidViewModel(application) {
                 _uiState.update {
                     it.copy(
                         origin = null,
+                        phoneLocationFix = null,
                         locationStatus = status,
                         phoneSpeedStatus = PhoneSpeedStatus.Unavailable(speedReason),
                     )
@@ -1372,7 +1416,6 @@ class MapViewModel(application: Application) : AndroidViewModel(application) {
         if (networkCallbackRegistered) {
             runCatching { connectivityManager.unregisterNetworkCallback(networkCallback) }
         }
-        super.onCleared()
     }
 
     /** Timing, distance, and output bounds used by map state orchestration. */

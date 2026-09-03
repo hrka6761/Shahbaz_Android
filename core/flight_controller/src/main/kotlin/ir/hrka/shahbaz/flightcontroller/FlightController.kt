@@ -11,7 +11,7 @@ import kotlinx.coroutines.flow.asStateFlow
 /**
  * Public synchronous flight-controller contract.
  *
- * A future Autopilot or Remote Pilot supplies [FlightControlCommand] values. The controller owns
+ * Autopilot, or a future Remote Pilot, supplies [FlightControlCommand] values. The controller owns
  * state estimation, safety gates, feedback control, and actuator allocation; it never chooses the
  * next command. The caller owns single-loop scheduling and sends returned
  * [FlightControllerActuatorAction] values through `:core:hardware_connection`.
@@ -29,7 +29,8 @@ interface FlightController {
      * A null, expired, future, or out-of-order [command] blocks arming and causes an armed
      * controller to fail safe. [DISARM][FlightControllerLifecycleRequest.DISARM] and
      * [EMERGENCY_STOP][FlightControllerLifecycleRequest.EMERGENCY_STOP] remain effective without a
-     * valid command.
+     * valid command. Disarm suppresses motor output immediately but is not reported complete until
+     * a fresh, newer board actuator-state observation confirms it.
      *
      * @param input Current monotonic time plus independently timestamped sensors and board state.
      * @param command Current externally supplied control primitive, or null when none is available.
@@ -45,8 +46,9 @@ interface FlightController {
     /**
      * Clears estimator references, accepted command, controller state, and safety state.
      *
-     * Reset is rejected while arming or armed because this method cannot itself transmit a hardware
-     * disarm. Callers must disarm through [step] first.
+     * Reset is rejected while arming, armed, or awaiting disarm confirmation because this method
+     * cannot itself transmit a hardware disarm. Callers must complete disarming through [step]
+     * first.
      */
     fun reset()
 
@@ -98,6 +100,10 @@ private class DefaultFlightController(
      * Stores the mutable armingRequestedAtNanos value.
      */
     private var armingRequestedAtNanos: Long? = null
+    /** Monotonic time at which the current disarm-confirmation wait began. */
+    private var disarmingRequestedAtNanos: Long? = null
+    /** Actuator observation present when disarming began; confirmation must advance beyond it. */
+    private var disarmingObservationBaselineNanos: Long? = null
     /**
      * Stores the mutable lastInputNanos value.
      */
@@ -242,13 +248,15 @@ private class DefaultFlightController(
     override fun reset() {
         check(
             armingState != FlightControllerArmingState.ARMED &&
-                armingState != FlightControllerArmingState.ARMING,
+                armingState != FlightControllerArmingState.ARMING &&
+                armingState != FlightControllerArmingState.DISARMING,
         ) { "Disarm the flight controller before reset" }
         val prior = armingState
         estimator.reset()
         resetControlLoops()
         armingState = FlightControllerArmingState.DISARMED
         armingRequestedAtNanos = null
+        clearDisarmingConfirmation()
         lastInputNanos = null
         lastEstimate = VehicleStateEstimate()
         latestAcceptedCommand = null
@@ -489,9 +497,6 @@ private class DefaultFlightController(
         val additionalIssues = mutableListOf<FlightControllerHealthIssue>()
 
         if (prior == FlightControllerArmingState.EMERGENCY_STOPPED) {
-            if (request == FlightControllerLifecycleRequest.EMERGENCY_STOP) {
-                actions += FlightControllerActuatorAction.EmergencyStop
-            }
             return ArmingDecision(actions, additionalIssues)
         }
 
@@ -499,19 +504,23 @@ private class DefaultFlightController(
             FlightControllerLifecycleRequest.EMERGENCY_STOP -> {
                 armingState = FlightControllerArmingState.EMERGENCY_STOPPED
                 armingRequestedAtNanos = null
+                clearDisarmingConfirmation()
                 actions += FlightControllerActuatorAction.EmergencyStop
             }
-            FlightControllerLifecycleRequest.DISARM -> {
-                armingState = FlightControllerArmingState.DISARMED
-                armingRequestedAtNanos = null
-                actions += FlightControllerActuatorAction.Disarm
-            }
-            FlightControllerLifecycleRequest.HOLD_DISARMED -> {
-                armingState = FlightControllerArmingState.DISARMED
-                armingRequestedAtNanos = null
-                if (prior != FlightControllerArmingState.DISARMED) {
-                    actions += FlightControllerActuatorAction.Disarm
-                }
+            FlightControllerLifecycleRequest.DISARM -> beginOrContinueDisarming(
+                input,
+                health,
+                actions,
+                additionalIssues,
+            )
+            FlightControllerLifecycleRequest.HOLD_DISARMED -> when {
+                prior == FlightControllerArmingState.DISARMED && !input.board.actuatorArmed -> Unit
+                else -> beginOrContinueDisarming(
+                    input,
+                    health,
+                    actions,
+                    additionalIssues,
+                )
             }
             FlightControllerLifecycleRequest.ARM -> when (prior) {
                 FlightControllerArmingState.DISARMED -> if (health.canArm) {
@@ -534,6 +543,12 @@ private class DefaultFlightController(
                     actions,
                     additionalIssues,
                 )
+                FlightControllerArmingState.DISARMING -> continueDisarmingOrEscalate(
+                    input,
+                    health,
+                    actions,
+                    additionalIssues,
+                )
                 FlightControllerArmingState.FAILSAFE,
                 FlightControllerArmingState.EMERGENCY_STOPPED,
                 -> Unit
@@ -551,6 +566,12 @@ private class DefaultFlightController(
                     actions,
                     additionalIssues,
                 )
+                FlightControllerArmingState.DISARMING -> continueDisarmingOrEscalate(
+                    input,
+                    health,
+                    actions,
+                    additionalIssues,
+                )
                 FlightControllerArmingState.DISARMED,
                 FlightControllerArmingState.FAILSAFE,
                 FlightControllerArmingState.EMERGENCY_STOPPED,
@@ -561,6 +582,60 @@ private class DefaultFlightController(
             recordStateTransition(prior, armingState, request.name)
         }
         return ArmingDecision(actions, additionalIssues)
+    }
+
+    /** Starts an irreversible disarm-confirmation wait, or advances the existing one. */
+    private fun beginOrContinueDisarming(
+        input: FlightControllerInput,
+        health: FlightControllerHealth,
+        actions: MutableList<FlightControllerActuatorAction>,
+        additionalIssues: MutableList<FlightControllerHealthIssue>,
+    ) {
+        if (armingState != FlightControllerArmingState.DISARMING) {
+            armingState = FlightControllerArmingState.DISARMING
+            armingRequestedAtNanos = null
+            disarmingRequestedAtNanos = input.timestampNanos
+            disarmingObservationBaselineNanos = input.board.actuatorStateObservedAtNanos
+            resetControlLoops()
+        }
+        continueDisarmingOrEscalate(input, health, actions, additionalIssues)
+    }
+
+    /** Retries disarm until a newer fresh negative status arrives, then fails closed on timeout. */
+    private fun continueDisarmingOrEscalate(
+        input: FlightControllerInput,
+        health: FlightControllerHealth,
+        actions: MutableList<FlightControllerActuatorAction>,
+        additionalIssues: MutableList<FlightControllerHealthIssue>,
+    ) {
+        if (boardDisarmingConfirmed(input)) {
+            armingState = FlightControllerArmingState.DISARMED
+            clearDisarmingConfirmation()
+            actions += FlightControllerActuatorAction.Disarm
+            return
+        }
+
+        if (health.issues.any { it.code == FlightControllerHealthIssueCode.INPUT_TIMESTAMP_NOT_MONOTONIC }) {
+            enterEmergencyStopped(actions)
+            return
+        }
+
+        val requestedAt = disarmingRequestedAtNanos ?: input.timestampNanos
+        if (
+            input.timestampNanos >= requestedAt &&
+            input.timestampNanos - requestedAt >
+            millisToNanos(config.disarmingConfirmationTimeoutMillis)
+        ) {
+            additionalIssues += issue(
+                FlightControllerHealthIssueCode.DISARMING_CONFIRMATION_TIMEOUT,
+                "Board did not confirm disarming within " +
+                    "${config.disarmingConfirmationTimeoutMillis}ms",
+            )
+            enterEmergencyStopped(actions)
+            return
+        }
+
+        actions += FlightControllerActuatorAction.Disarm
     }
 
     /** Waits for a fresh board status confirmation and fails closed on timeout or health loss. */
@@ -620,14 +695,47 @@ private class DefaultFlightController(
                 millisToNanos(config.boardStateMaxAgeMillis),
             )
 
+    /** Requires a fresh negative actuator observation created after the disarm request began. */
+    private fun boardDisarmingConfirmed(input: FlightControllerInput): Boolean {
+        val requestedAt = disarmingRequestedAtNanos ?: return false
+        val observedAt = input.board.actuatorStateObservedAtNanos ?: return false
+        val confirmationFloor = maxOf(
+            requestedAt,
+            disarmingObservationBaselineNanos ?: requestedAt,
+        )
+        return !input.board.actuatorArmed &&
+            observedAt > confirmationFloor &&
+            observedAt.isFreshAt(
+                input.timestampNanos,
+                millisToNanos(config.boardStateMaxAgeMillis),
+            )
+    }
+
     /** Enters latched low-level failsafe and emits one immediate disarm action. */
     private fun enterFailsafe(actions: MutableList<FlightControllerActuatorAction>) {
         if (armingState != FlightControllerArmingState.FAILSAFE) {
             armingState = FlightControllerArmingState.FAILSAFE
             armingRequestedAtNanos = null
+            clearDisarmingConfirmation()
             resetControlLoops()
             actions += FlightControllerActuatorAction.Disarm
         }
+    }
+
+    /** Latches emergency stop and ensures it is the only action emitted for this iteration. */
+    private fun enterEmergencyStopped(actions: MutableList<FlightControllerActuatorAction>) {
+        armingState = FlightControllerArmingState.EMERGENCY_STOPPED
+        armingRequestedAtNanos = null
+        clearDisarmingConfirmation()
+        resetControlLoops()
+        actions.clear()
+        actions += FlightControllerActuatorAction.EmergencyStop
+    }
+
+    /** Clears timestamps that belong only to an in-progress disarm handshake. */
+    private fun clearDisarmingConfirmation() {
+        disarmingRequestedAtNanos = null
+        disarmingObservationBaselineNanos = null
     }
 
     /** Runs the feedback cascade selected by the externally supplied target type. */

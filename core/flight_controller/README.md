@@ -49,7 +49,7 @@ Autopilot / Remote Pilot
    Motors / future actuators
 ```
 
-The future `:core:autopilot` decides what the aircraft should do and decomposes missions into
+`:core:autopilot` decides what the aircraft should do and decomposes a point-to-point mission into
 control primitives. The future `:core:remote_pilot` converts human/network/joystick intent into the
 same primitives. Neither module may depend on `:core:hardware_connection` or send motor commands.
 
@@ -87,8 +87,8 @@ One complete control session works as follows:
     even while USB heartbeat remains healthy.
 12. The caller observes `health`, `tracking`, and `armingState`. On `REACHED`, only the pilot decides
     whether to refresh the target, replace it, or issue a different primitive.
-13. The caller explicitly disarms before stopping/resetting the controller and closes phone/USB
-    sources during host lifecycle shutdown.
+13. The caller explicitly disarms, waits for a newer fresh board status confirming unarmed, and only
+    then resets the controller; host shutdown uses the emergency path while confirmation is pending.
 
 No blocking I/O occurs in `step`. The caller should run it on one dedicated high-priority loop and
 execute returned hardware actions outside the control calculation.
@@ -109,7 +109,11 @@ val output = controller.step(
 
 `step` is synchronous and serialized. `snapshot: StateFlow<FlightControllerSnapshot>` exposes the
 latest result to monitoring code. `reset()` clears estimator references, command sequence, and
-integrators, but is rejected while `ARMING` or `ARMED`; disarm first.
+integrators, but is rejected while `ARMING`, `ARMED`, or `DISARMING`; complete confirmed disarm first.
+
+`VehicleStateEstimate.localReference` publishes the exact immutable horizontal and vertical
+origins captured by the estimator. Geographic autonomous targets must be converted from that
+reference, not from an earlier UI fix. The references clear only on `reset()`.
 
 ### Pilot command
 
@@ -142,10 +146,10 @@ Command semantics are strict:
 
 | Request | Meaning |
 |---|---|
-| `HOLD_DISARMED` | Remain logically disarmed; emit a disarm action only when leaving a non-disarmed state. |
+| `HOLD_DISARMED` | Remain disarmed, or continue a pending board-confirmed disarm handshake. |
 | `ARM` | Request arming. Safety may reject it; successful request first enters `ARMING`. |
 | `RUN` | Track the supplied command without changing a disarmed controller into armed. |
-| `DISARM` | Immediately stop control output and emit a hardware disarm action. |
+| `DISARM` | Immediately suppress PWM, enter `DISARMING`, retry hardware Disarm, and wait for a newer fresh unarmed board status. |
 | `EMERGENCY_STOP` | Latch `EMERGENCY_STOPPED` and emit the board safety override. |
 
 `FAILSAFE` remains latched until an explicit `DISARM`. `EMERGENCY_STOPPED` ignores `DISARM` and
@@ -161,8 +165,8 @@ remains latched until `reset()`; the board may additionally require its own reco
 | `VelocityControlTarget` | Local NED velocity and optional NED yaw | Velocity PID -> attitude/rate -> allocation | Complete local NED velocity |
 | `PositionControlTarget` | Local NED position, velocity feed-forward, optional NED yaw | Position P -> velocity PID -> attitude/rate -> allocation | Complete local NED position and velocity |
 
-There is currently no takeoff, land, waypoint, relative-displacement, bounded-distance, route, or
-mission command. A future pilot can implement climb `+50 m` by reading the reported local altitude,
+There is intentionally no takeoff, land, waypoint, relative-displacement, bounded-distance, route,
+or mission command at this layer. A pilot can implement climb `+50 m` by reading the reported local altitude,
 issuing an absolute `AltitudeControlTarget(current + 50)`, observing `REACHED`, and then choosing the
 next command. It can implement bounded travel by issuing position/velocity primitives and tracking
 progress above this boundary.
@@ -246,6 +250,11 @@ Loss of any required condition, stale command, stale critical sensor, board disa
 arming timeout forces `FAILSAFE` and a `Disarm` action. Emergency stop takes priority even when
 command/sensors are invalid.
 
+Disarm is also confirmation-based. PWM is suppressed as soon as `DISARM` is requested, but the
+controller remains `DISARMING` and retries until a strictly newer fresh board observation reports
+`actuatorArmed=false`. Confirmation timeout or invalid monotonic time escalates to the board
+EmergencyStop override; the controller never reports `DISARMED` merely because it emitted intent.
+
 The interface-board firmware adds an independent actuator-command watchdog (production default
 250 ms). USB heartbeat alone cannot keep stale PWM active. Physical actuators remain disabled in
 the production board configuration until the reviewed GPIO/evidence gates are deliberately enabled.
@@ -322,7 +331,7 @@ class FlightRuntime(context: Context) : AutoCloseable {
         hardware.start()
     }
 
-    // A future Autopilot/Remote Pilot owns when and why this target is selected.
+    // Autopilot, or a future Remote Pilot, owns when and why this target is selected.
     fun newLevelAttitudeCommand(nowNanos: Long): FlightControlCommand =
         FlightControlCommand.validFor(
             sequence = ++commandSequence,
@@ -408,19 +417,20 @@ be reflected into the next board state and treated as a failed flight start or i
 The example omits scheduling, lifecycle cancellation, and pilot-source arbitration because those
 belong to the composition/pilot layers.
 
-## Future Autopilot Sequence
+## Autopilot Sequence
 
-A future Autopilot can perform this mission without moving mission logic into Flight Controller:
+`:core:autopilot` performs the supported point-to-point mission without moving mission logic into
+Flight Controller:
 
 ```text
-Autopilot reads estimate.altitudeAboveOriginMeters
-  -> sends AltitudeControlTarget(current + 50 m)
-  -> waits for REACHED
-  -> sends attitude/heading target yaw = 10 degrees magnetic NED
-  -> waits for REACHED
-  -> sends velocity/position primitives representing 50 km/h over 2 km
-  -> observes progress and REACHED
-  -> chooses the next primitive
+Autopilot validates the plan, live origin, controller reference, and external safety status
+  -> refreshes a PositionControlTarget above the origin and requests ARM
+  -> waits for sustained REACHED at cruise altitude
+  -> targets the destination in the controller's captured local NED frame
+  -> waits for sustained REACHED
+  -> lowers the target using a bounded two-rate descent profile
+  -> requires independent sustained touchdown evidence
+  -> requests DISARM and confirms the controller is disarmed
 ```
 
 Every arrow is a new externally selected command sequence. Flight Controller only tracks the
@@ -440,7 +450,8 @@ Tests cover disarmed output, explicit/confirmed/rejected arming, confirmation ti
 board disarm, attitude/rate correction direction, altitude and heading tracking, NED
 position/velocity direction, primitive completion, command replacement/order/expiry, stale sensors,
 monotonic time, saturation, anti-windup, Quad-X signs, invalid numbers, reset, emergency stop,
-sample-time velocity estimation, and phone mounting transforms. Tests require no USB device.
+sample-time velocity estimation, immutable local-reference publication, antimeridian continuity,
+and phone mounting transforms. Tests require no USB device.
 
 Before physical flight, also run interface-board host tests and firmware safety checks, then perform
 propeller-free integration and hardware-in-the-loop validation. Passing unit tests is not evidence

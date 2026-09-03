@@ -84,6 +84,12 @@ data class HardwareConnectionConfig(
     val maximumServoCommandBatch: Int = 8,
     /** Rejects actuator frames that were generated too long before submission. */
     val maximumActuatorCommandAgeMillis: Long = 100,
+    /** Maximum time a transmitted actuator command may remain without an explicit board ACK. */
+    val actuatorAcknowledgementTimeoutMillis: Long = 250,
+    /** Hard bound for commands already written to USB but not yet acknowledged by the board. */
+    val maximumPendingActuatorAcknowledgements: Int = 32,
+    /** Hard bound for ordinary actuator submissions waiting on the serialized USB dispatcher. */
+    val maximumQueuedActuatorSubmissions: Int = 2,
 ) {
     init {
         require(initialQnhHectopascal.isFinite() && initialQnhHectopascal in 800.0..1100.0)
@@ -99,6 +105,9 @@ data class HardwareConnectionConfig(
         require(maximumMotorCommandBatch in 1..256)
         require(maximumServoCommandBatch in 1..256)
         require(maximumActuatorCommandAgeMillis in 1..1_000)
+        require(actuatorAcknowledgementTimeoutMillis in 20..2_000)
+        require(maximumPendingActuatorAcknowledgements in 1..256)
+        require(maximumQueuedActuatorSubmissions in 1..16)
     }
 }
 
@@ -166,10 +175,12 @@ data class BoardServoPulse(
  * Defines the BoardActuatorCommandResult contract used by this module.
  */
 sealed interface BoardActuatorCommandResult {
-    /**
-     * Documents the Queued type and the role it plays in this module.
-     */
-    data class Queued(val commandCount: Int) : BoardActuatorCommandResult
+    /** Admitted wire-command count; this is not board application or ACK. A motor frame counts once. */
+    data class Queued(val commandCount: Int) : BoardActuatorCommandResult {
+        init {
+            require(commandCount > 0)
+        }
+    }
     /**
      * Documents the Rejected type and the role it plays in this module.
      */
@@ -200,6 +211,7 @@ enum class BoardActuatorRejection {
     INVALID_PULSE,
     STALE_COMMAND,
     FUTURE_COMMAND,
+    QUEUE_SATURATED,
     INTERNAL_ERROR,
 }
 
@@ -404,6 +416,9 @@ enum class BoardLinkErrorCode {
     HEARTBEAT_TIMEOUT,
     TELEMETRY_START_TIMEOUT,
     SESSION_REJECTED,
+    ACTUATOR_COMMAND_REJECTED,
+    ACTUATOR_ACK_TIMEOUT,
+    ACTUATOR_BACKPRESSURE,
     PROTOCOL_ERROR,
     INTERNAL_ERROR,
     RECEIVER_REGISTRATION_FAILED,
@@ -459,6 +474,8 @@ enum class SensorUnavailableReason {
     BOARD_DISCONNECTED,
     TELEMETRY_NOT_STARTED,
     SENSOR_REPORTED_OFFLINE,
+    RANGEFINDER_DISABLED_OR_ABSENT,
+    RANGEFINDER_INITIALIZING,
 }
 
 /**
@@ -489,6 +506,13 @@ enum class SensorErrorCode {
     NOT_FRESH,
     HEALTH_FAULT,
     OUT_OF_RANGE,
+    RANGE_SIGMA_FAILURE,
+    RANGE_SIGNAL_FAILURE,
+    RANGE_MINIMUM_FAILURE,
+    RANGE_PHASE_FAILURE,
+    RANGE_HARDWARE_FAILURE,
+    RANGE_STATUS_UNKNOWN,
+    RANGEFINDER_DEGRADED,
     SENSOR_OFFLINE,
 }
 
@@ -516,6 +540,8 @@ data class SensorSample<out T>(
      * Exposes the quality value.
      */
     val quality: SensorSampleQuality,
+    /** TimeSync-mapped host time at which the board acquired this measurement. */
+    val observedAtElapsedRealtimeMillis: Long = receivedAtElapsedRealtimeMillis,
 )
 
 /**
@@ -579,6 +605,66 @@ data class Ms5611Telemetry(
      */
     val qnhHectopascal: Double,
 )
+
+/** Stable physical role allocated to each of the four VL53L0X instances. */
+enum class RangefinderRole(val instanceId: Int) {
+    GROUND(0),
+    UP(1),
+    FRONT_LEFT(2),
+    FRONT_RIGHT(3),
+    ;
+
+    companion object {
+        fun fromInstanceId(instanceId: Int): RangefinderRole? =
+            entries.firstOrNull { it.instanceId == instanceId }
+    }
+}
+
+/** Board-reported lifecycle for one fixed physical VL53L0X role. */
+enum class RangefinderLifecycle {
+    DISABLED_OR_ABSENT,
+    INITIALIZING,
+    LIVE,
+    DEGRADED,
+}
+
+/** One coherent DeviceStatus lifecycle snapshot for all four fixed rangefinder roles. */
+data class RangefinderLifecycleStatus(
+    val ground: RangefinderLifecycle,
+    val up: RangefinderLifecycle,
+    val frontLeft: RangefinderLifecycle,
+    val frontRight: RangefinderLifecycle,
+) {
+    operator fun get(role: RangefinderRole): RangefinderLifecycle = when (role) {
+        RangefinderRole.GROUND -> ground
+        RangefinderRole.UP -> up
+        RangefinderRole.FRONT_LEFT -> frontLeft
+        RangefinderRole.FRONT_RIGHT -> frontRight
+    }
+}
+
+/** One schema-valid and optically valid VL53L0X observation. */
+data class Vl53l0xTelemetry(
+    val role: RangefinderRole,
+    val distanceMillimeters: Int,
+    val rawRangeStatus: Int,
+    val signalQualityPercent: Int,
+    val minimumControlDistanceMillimeters: Int = 30,
+    val maximumControlDistanceMillimeters: Int = 2_000,
+    val fieldOfViewDegrees: Int = 25,
+) {
+    init {
+        require(distanceMillimeters in minimumControlDistanceMillimeters..maximumControlDistanceMillimeters)
+        require(rawRangeStatus == 0 || rawRangeStatus == 11)
+        require(signalQualityPercent in 0..100)
+        require(minimumControlDistanceMillimeters > 0)
+        require(maximumControlDistanceMillimeters >= minimumControlDistanceMillimeters)
+        require(fieldOfViewDegrees in 1..180)
+    }
+
+    val distanceMeters: Double
+        get() = distanceMillimeters / 1_000.0
+}
 
 /** Forward-compatible raw representation for sensor IDs not yet known by this library. */
 data class RawSensorSample(
@@ -687,6 +773,8 @@ data class BoardDeviceStatus(
      * Exposes the receivedAtElapsedRealtimeMillis value.
      */
     val receivedAtElapsedRealtimeMillis: Long,
+    /** Null only when an older board emitted the exact six-byte legacy DeviceStatus payload. */
+    val rangefinders: RangefinderLifecycleStatus? = null,
 )
 
 /**
@@ -729,6 +817,18 @@ data class BoardTelemetrySnapshot(
     val ms5611: SensorState<Ms5611Telemetry> = SensorState.Unavailable(
         SensorUnavailableReason.BOARD_DISCONNECTED,
     ),
+    val groundRange: SensorState<Vl53l0xTelemetry> = SensorState.Unavailable(
+        SensorUnavailableReason.BOARD_DISCONNECTED,
+    ),
+    val upRange: SensorState<Vl53l0xTelemetry> = SensorState.Unavailable(
+        SensorUnavailableReason.BOARD_DISCONNECTED,
+    ),
+    val frontLeftRange: SensorState<Vl53l0xTelemetry> = SensorState.Unavailable(
+        SensorUnavailableReason.BOARD_DISCONNECTED,
+    ),
+    val frontRightRange: SensorState<Vl53l0xTelemetry> = SensorState.Unavailable(
+        SensorUnavailableReason.BOARD_DISCONNECTED,
+    ),
     /**
      * Exposes the unknownSensors value.
      */
@@ -741,4 +841,11 @@ data class BoardTelemetrySnapshot(
      * Exposes the diagnostics value.
      */
     val diagnostics: BoardLinkDiagnostics = BoardLinkDiagnostics(),
-)
+) {
+    fun rangefinder(role: RangefinderRole): SensorState<Vl53l0xTelemetry> = when (role) {
+        RangefinderRole.GROUND -> groundRange
+        RangefinderRole.UP -> upRange
+        RangefinderRole.FRONT_LEFT -> frontLeftRange
+        RangefinderRole.FRONT_RIGHT -> frontRightRange
+    }
+}

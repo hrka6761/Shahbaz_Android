@@ -1013,6 +1013,7 @@ data class QuadXMotorLayout(
  * @property maximumCommandLifetimeMillis Longest accepted pilot-command validity interval.
  * @property commandFutureToleranceMillis Allowed positive timestamp skew for a command.
  * @property armingConfirmationTimeoutMillis Maximum wait for board-confirmed actuator arming.
+ * @property disarmingConfirmationTimeoutMillis Maximum wait for board-confirmed actuator disarming.
  * @property motorLayout Quad-X motor geometry and board-channel mapping.
  * @property minimumMotorPulseMicros PWM pulse at normalized motor output 0.0.
  * @property maximumMotorPulseMicros PWM pulse at normalized motor output 1.0.
@@ -1084,6 +1085,10 @@ data class FlightControllerConfig(
      * Exposes the armingConfirmationTimeoutMillis value.
      */
     val armingConfirmationTimeoutMillis: Long = 2_000,
+    /**
+     * Exposes the disarmingConfirmationTimeoutMillis value.
+     */
+    val disarmingConfirmationTimeoutMillis: Long = 2_000,
     /**
      * Exposes the motorLayout value.
      */
@@ -1185,6 +1190,7 @@ data class FlightControllerConfig(
         require(maximumCommandLifetimeMillis > 0)
         require(commandFutureToleranceMillis >= 0)
         require(armingConfirmationTimeoutMillis > 0)
+        require(disarmingConfirmationTimeoutMillis > 0)
         require(minimumMotorPulseMicros in 1..65_535)
         require(maximumMotorPulseMicros in minimumMotorPulseMicros..65_535)
         require(disarmedMotorPulseMicros in minimumMotorPulseMicros..maximumMotorPulseMicros)
@@ -1216,6 +1222,9 @@ enum class FlightControllerArmingState {
     /** The board confirmed arming and the controller may emit motor PWM commands. */
     ARMED,
 
+    /** A disarm request was emitted and motor PWM is suppressed pending fresh board confirmation. */
+    DISARMING,
+
     /** Controller detected a health loss after arming and commands disarm. */
     FAILSAFE,
 
@@ -1224,8 +1233,37 @@ enum class FlightControllerArmingState {
 }
 
 /**
+ * Immutable local-NED reference captured by the estimator from its first accepted observations.
+ *
+ * Autonomous callers must calculate geographic targets from this reference rather than from an
+ * earlier UI location fix. Horizontal and vertical references are independent because GPS and
+ * barometric samples can become available at different times.
+ */
+data class LocalNavigationReference(
+    val horizontalOrigin: GeoPoint? = null,
+    val horizontalOriginObservedAtNanos: Long? = null,
+    val altitudeOriginAboveMeanSeaLevelMeters: Double? = null,
+    val altitudeOriginObservedAtNanos: Long? = null,
+) {
+    init {
+        require(horizontalOriginObservedAtNanos == null || horizontalOriginObservedAtNanos >= 0L)
+        require(altitudeOriginObservedAtNanos == null || altitudeOriginObservedAtNanos >= 0L)
+        require(
+            altitudeOriginAboveMeanSeaLevelMeters == null ||
+                altitudeOriginAboveMeanSeaLevelMeters.isFinite(),
+        )
+        require((horizontalOrigin == null) == (horizontalOriginObservedAtNanos == null))
+        require(
+            (altitudeOriginAboveMeanSeaLevelMeters == null) ==
+                (altitudeOriginObservedAtNanos == null),
+        )
+    }
+}
+
+/**
  * Estimated vehicle state after one estimator update.
  *
+ * @property localReference Immutable horizontal/vertical origins captured by this estimator run.
  * @property attitudeBodyToNed Estimated body-FRD-to-local-NED attitude quaternion.
  * @property angularVelocityBodyRadPerSecond Measured body-FRD angular rates in radians per second.
  * @property localPositionNedMeters Estimated local NED position in meters, when available.
@@ -1241,6 +1279,8 @@ enum class FlightControllerArmingState {
  * @property velocityObservedAtNanos Timestamp of the newest sample contributing to local velocity.
  */
 data class VehicleStateEstimate(
+    /** Local coordinate/altitude references captured by the estimator. */
+    val localReference: LocalNavigationReference = LocalNavigationReference(),
     /**
      * Exposes the attitudeBodyToNed value.
      */
@@ -1372,6 +1412,9 @@ enum class FlightControllerHealthIssueCode {
     /** Board did not confirm arming within the configured timeout. */
     ARMING_CONFIRMATION_TIMEOUT,
 
+    /** Board did not confirm disarming within the configured timeout. */
+    DISARMING_CONFIRMATION_TIMEOUT,
+
     /** Board unexpectedly reported disarmed while the controller was armed. */
     ACTUATOR_DISARMED_UNEXPECTEDLY,
 }
@@ -1502,7 +1545,7 @@ enum class ControlTargetStatus {
 /**
  * Tracking diagnostics produced by one controller step.
  *
- * These values let a pilot UI, recorder, or future autopilot observe how well the low-level
+ * These values let Autopilot, a pilot UI, or a recorder observe how well the low-level
  * controller is following an externally supplied target without giving this module mission
  * ownership.
  *

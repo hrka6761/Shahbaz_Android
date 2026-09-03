@@ -11,7 +11,7 @@ import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/** Unit tests for takeoff-altitude parsing and [MapUiState] workflow helpers. */
+/** Unit tests for cruise-altitude parsing and [MapUiState] workflow helpers. */
 class MapUiStateTest {
     /**
      * Runs the elapsed sample freshness expires missing and silent sources at the boundary operation.
@@ -60,16 +60,16 @@ class MapUiStateTest {
 
     /** Verifies integer, decimal-point, decimal-comma, and trimmed positive inputs are accepted. */
     @Test
-    fun `takeoff altitude accepts positive decimal meters`() {
-        assertEquals(120.0, parseTakeoffAltitudeMeters("120")!!, 0.0)
-        assertEquals(12.5, parseTakeoffAltitudeMeters("12.5")!!, 0.0)
-        assertEquals(12.5, parseTakeoffAltitudeMeters("12,5")!!, 0.0)
-        assertEquals(0.5, parseTakeoffAltitudeMeters("  .5 ")!!, 0.0)
+    fun `cruise altitude accepts positive decimal meters`() {
+        assertEquals(120.0, parseCruiseAltitudeMeters("120")!!, 0.0)
+        assertEquals(12.5, parseCruiseAltitudeMeters("12.5")!!, 0.0)
+        assertEquals(12.5, parseCruiseAltitudeMeters("12,5")!!, 0.0)
+        assertEquals(0.5, parseCruiseAltitudeMeters("  .5 ")!!, 0.0)
     }
 
     /** Verifies non-positive, non-finite, exponent, and malformed inputs are rejected. */
     @Test
-    fun `takeoff altitude rejects invalid input`() {
+    fun `cruise altitude rejects invalid input`() {
         listOf(
             "",
             "   ",
@@ -82,7 +82,38 @@ class MapUiStateTest {
             "1.2.3",
             "1,2,3",
         ).forEach { input ->
-            assertNull("Expected '$input' to be rejected", parseTakeoffAltitudeMeters(input))
+            assertNull("Expected '$input' to be rejected", parseCruiseAltitudeMeters(input))
+        }
+    }
+
+    /** Verifies level, uphill, and downhill destination-ground elevations are accepted. */
+    @Test
+    fun `destination ground altitude accepts signed decimal meters`() {
+        assertEquals(0.0, parseDestinationGroundAltitudeMeters("0")!!, 0.0)
+        assertEquals(-12.5, parseDestinationGroundAltitudeMeters("-12.5")!!, 0.0)
+        assertEquals(12.5, parseDestinationGroundAltitudeMeters("+12,5")!!, 0.0)
+        assertEquals(-0.5, parseDestinationGroundAltitudeMeters("  -,5 ")!!, 0.0)
+    }
+
+    /** Verifies empty, non-finite, exponent, and malformed ground elevations are rejected. */
+    @Test
+    fun `destination ground altitude rejects invalid input`() {
+        listOf(
+            "",
+            "   ",
+            "NaN",
+            "Infinity",
+            "1e3",
+            "+",
+            "-",
+            ".",
+            "1.2.3",
+            "1,2,3",
+        ).forEach { input ->
+            assertNull(
+                "Expected '$input' to be rejected",
+                parseDestinationGroundAltitudeMeters(input),
+            )
         }
     }
 
@@ -91,10 +122,10 @@ class MapUiStateTest {
     fun `altitude step requires a destination`() {
         val state = MapUiState()
 
-        assertSame(state, state.advanceToTakeoffAltitude())
+        assertSame(state, state.advanceToCruiseAltitude())
     }
 
-    /** Verifies advancing and returning preserve the selected route and altitude draft. */
+    /** Verifies advancing and returning preserve the route and both altitude drafts. */
     @Test
     fun `previous preserves destination and altitude draft`() {
         val destination = PlacePoint(
@@ -102,14 +133,16 @@ class MapUiStateTest {
             name = "Destination",
         )
         val altitudeState = MapUiState(destination = destination)
-            .advanceToTakeoffAltitude()
-            .updateTakeoffAltitude("42.5")
+            .advanceToCruiseAltitude()
+            .updateCruiseAltitude("42.5")
+            .updateDestinationGroundAltitude("-8")
         val destinationState = altitudeState.returnToDestinationSelection()
 
-        assertEquals(FlightSetupStep.TAKEOFF_ALTITUDE, altitudeState.flightSetupStep)
+        assertEquals(FlightSetupStep.CRUISE_ALTITUDE, altitudeState.flightSetupStep)
         assertEquals(FlightSetupStep.DESTINATION, destinationState.flightSetupStep)
         assertEquals(destination, destinationState.destination)
-        assertEquals("42.5", destinationState.takeoffAltitudeInput)
+        assertEquals("42.5", destinationState.cruiseAltitudeInput)
+        assertEquals("-8", destinationState.destinationGroundAltitudeInput)
     }
 
     /** Verifies only a valid altitude on the altitude step can be confirmed. */
@@ -127,31 +160,45 @@ class MapUiStateTest {
             locationStatus = LocationStatus.READY,
             origin = origin,
             destination = destination,
-        ).updateTakeoffAltitude("50")
+        ).updateCruiseAltitude("50")
         val invalidAltitudeStep = destinationStep
-            .advanceToTakeoffAltitude()
-            .updateTakeoffAltitude("0")
-        val validAltitudeStep = invalidAltitudeStep.updateTakeoffAltitude("50")
+            .advanceToCruiseAltitude()
+            .updateCruiseAltitude("0")
+        val missingGroundAltitudeStep = invalidAltitudeStep.updateCruiseAltitude("50")
+        val invalidGroundAltitudeStep = missingGroundAltitudeStep
+            .updateDestinationGroundAltitude("50")
+        val validAltitudeStep = invalidGroundAltitudeStep
+            .updateDestinationGroundAltitude("12")
         val missingOriginStep = MapUiState(destination = destination)
-            .advanceToTakeoffAltitude()
-            .updateTakeoffAltitude("50")
+            .advanceToCruiseAltitude()
+            .updateCruiseAltitude("50")
 
         assertEquals(
-            TakeoffConfirmationBlocker.NOT_ALTITUDE_STEP,
-            destinationStep.takeoffConfirmationBlocker,
+            FlightPlanConfirmationBlocker.NOT_ALTITUDE_STEP,
+            destinationStep.flightPlanConfirmationBlocker,
         )
         assertEquals(
-            TakeoffConfirmationBlocker.INVALID_ALTITUDE,
-            invalidAltitudeStep.takeoffConfirmationBlocker,
+            FlightPlanConfirmationBlocker.INVALID_ALTITUDE,
+            invalidAltitudeStep.flightPlanConfirmationBlocker,
         )
         assertEquals(
-            TakeoffConfirmationBlocker.LIVE_ORIGIN_UNAVAILABLE,
-            missingOriginStep.takeoffConfirmationBlocker,
+            FlightPlanConfirmationBlocker.LIVE_ORIGIN_UNAVAILABLE,
+            missingOriginStep.flightPlanConfirmationBlocker,
         )
-        assertFalse(destinationStep.confirmTakeoffAltitude().isTakeoffAltitudeConfirmed)
-        assertFalse(invalidAltitudeStep.confirmTakeoffAltitude().isTakeoffAltitudeConfirmed)
-        assertFalse(missingOriginStep.confirmTakeoffAltitude().isTakeoffAltitudeConfirmed)
-        assertTrue(validAltitudeStep.confirmTakeoffAltitude().isTakeoffAltitudeConfirmed)
+        assertEquals(
+            FlightPlanConfirmationBlocker.INVALID_DESTINATION_GROUND_ALTITUDE,
+            missingGroundAltitudeStep.flightPlanConfirmationBlocker,
+        )
+        assertEquals(
+            FlightPlanConfirmationBlocker.INVALID_DESTINATION_GROUND_ALTITUDE,
+            invalidGroundAltitudeStep.flightPlanConfirmationBlocker,
+        )
+        assertFalse(destinationStep.confirmCruiseAltitude().isCruiseAltitudeConfirmed)
+        assertFalse(invalidAltitudeStep.confirmCruiseAltitude().isCruiseAltitudeConfirmed)
+        assertFalse(missingOriginStep.confirmCruiseAltitude().isCruiseAltitudeConfirmed)
+        assertFalse(missingGroundAltitudeStep.confirmCruiseAltitude().isCruiseAltitudeConfirmed)
+        assertFalse(invalidGroundAltitudeStep.confirmCruiseAltitude().isCruiseAltitudeConfirmed)
+        assertTrue(validAltitudeStep.confirmCruiseAltitude().isCruiseAltitudeConfirmed)
     }
 
     /** Verifies a lost or non-live origin disables confirmation until a fresh fix returns. */
@@ -163,41 +210,43 @@ class MapUiStateTest {
             locationStatus = LocationStatus.READY,
             origin = origin,
             destination = destination,
-        ).advanceToTakeoffAltitude().updateTakeoffAltitude("50")
+        ).advanceToCruiseAltitude()
+            .updateCruiseAltitude("50")
+            .updateDestinationGroundAltitude("0")
 
-        assertTrue(readyState.canConfirmTakeoffAltitude)
-        assertNull(readyState.takeoffConfirmationBlocker)
+        assertTrue(readyState.canConfirmCruiseAltitude)
+        assertNull(readyState.flightPlanConfirmationBlocker)
 
         val missingOrigin = readyState.copy(
             locationStatus = LocationStatus.LOCATING,
             origin = null,
         )
         assertEquals(
-            TakeoffConfirmationBlocker.LIVE_ORIGIN_UNAVAILABLE,
-            missingOrigin.takeoffConfirmationBlocker,
+            FlightPlanConfirmationBlocker.LIVE_ORIGIN_UNAVAILABLE,
+            missingOrigin.flightPlanConfirmationBlocker,
         )
-        assertFalse(missingOrigin.canConfirmTakeoffAltitude)
-        assertSame(missingOrigin, missingOrigin.confirmTakeoffAltitude())
+        assertFalse(missingOrigin.canConfirmCruiseAltitude)
+        assertSame(missingOrigin, missingOrigin.confirmCruiseAltitude())
 
         val retainedButNotLiveOrigin = readyState.copy(locationStatus = LocationStatus.UNAVAILABLE)
         assertEquals(
-            TakeoffConfirmationBlocker.LIVE_ORIGIN_UNAVAILABLE,
-            retainedButNotLiveOrigin.takeoffConfirmationBlocker,
+            FlightPlanConfirmationBlocker.LIVE_ORIGIN_UNAVAILABLE,
+            retainedButNotLiveOrigin.flightPlanConfirmationBlocker,
         )
-        assertFalse(retainedButNotLiveOrigin.canConfirmTakeoffAltitude)
+        assertFalse(retainedButNotLiveOrigin.canConfirmCruiseAltitude)
 
         val missingDestination = readyState.copy(destination = null)
         assertEquals(
-            TakeoffConfirmationBlocker.DESTINATION_UNAVAILABLE,
-            missingDestination.takeoffConfirmationBlocker,
+            FlightPlanConfirmationBlocker.DESTINATION_UNAVAILABLE,
+            missingDestination.flightPlanConfirmationBlocker,
         )
-        assertFalse(missingDestination.canConfirmTakeoffAltitude)
+        assertFalse(missingDestination.canConfirmCruiseAltitude)
 
         val restored = missingOrigin.copy(
             locationStatus = LocationStatus.READY,
             origin = origin,
         )
-        assertTrue(restored.confirmTakeoffAltitude().isTakeoffAltitudeConfirmed)
+        assertTrue(restored.confirmCruiseAltitude().isCruiseAltitudeConfirmed)
     }
 
     /** Verifies editing a confirmed altitude clears confirmation and caps retained input length. */
@@ -216,13 +265,20 @@ class MapUiStateTest {
             origin = origin,
             destination = destination,
         )
-            .advanceToTakeoffAltitude()
-            .updateTakeoffAltitude("50")
-            .confirmTakeoffAltitude()
-        val editedState = confirmedState.updateTakeoffAltitude("1".repeat(40))
+            .advanceToCruiseAltitude()
+            .updateCruiseAltitude("50")
+            .updateDestinationGroundAltitude("0")
+            .confirmCruiseAltitude()
+        val editedState = confirmedState.updateCruiseAltitude("1".repeat(40))
+        val editedGroundState = confirmedState.updateDestinationGroundAltitude("-".repeat(40))
 
-        assertFalse(editedState.isTakeoffAltitudeConfirmed)
-        assertEquals(MAX_TAKEOFF_ALTITUDE_INPUT_LENGTH, editedState.takeoffAltitudeInput.length)
+        assertFalse(editedState.isCruiseAltitudeConfirmed)
+        assertEquals(MAX_CRUISE_ALTITUDE_INPUT_LENGTH, editedState.cruiseAltitudeInput.length)
+        assertFalse(editedGroundState.isCruiseAltitudeConfirmed)
+        assertEquals(
+            MAX_DESTINATION_GROUND_ALTITUDE_INPUT_LENGTH,
+            editedGroundState.destinationGroundAltitudeInput.length,
+        )
     }
 
     /** Verifies confirmation snapshots the route while the live phone origin remains independent. */
@@ -241,9 +297,10 @@ class MapUiStateTest {
             origin = takeoffOrigin,
             destination = destination,
         )
-            .advanceToTakeoffAltitude()
-            .updateTakeoffAltitude("42.5")
-            .confirmTakeoffAltitude()
+            .advanceToCruiseAltitude()
+            .updateCruiseAltitude("42.5")
+            .updateDestinationGroundAltitude("-3.25")
+            .confirmCruiseAltitude()
         val movedOrigin = PlacePoint(
             coordinate = GeoCoordinate(35.61, 51.31),
             name = "Current location",
@@ -254,6 +311,7 @@ class MapUiStateTest {
         assertEquals(takeoffOrigin.coordinate, plan.origin)
         assertEquals(destination.coordinate, plan.destination)
         assertEquals(42.5, plan.targetAltitudeAboveOriginMeters, 0.0)
+        assertEquals(-3.25, plan.destinationGroundAltitudeAboveOriginMeters, 0.0)
         assertEquals(movedOrigin, movedState.origin)
     }
 
@@ -267,9 +325,10 @@ class MapUiStateTest {
             origin = origin,
             destination = destination,
         )
-            .advanceToTakeoffAltitude()
-            .updateTakeoffAltitude("50")
-            .confirmTakeoffAltitude()
+            .advanceToCruiseAltitude()
+            .updateCruiseAltitude("50")
+            .updateDestinationGroundAltitude("5")
+            .confirmCruiseAltitude()
 
         val changedRoute = confirmedState.selectDestination(
             PlacePoint(GeoCoordinate(35.8, 51.5), "New destination")
@@ -278,12 +337,47 @@ class MapUiStateTest {
 
         assertNull(changedRoute.confirmedFlightPlan)
         assertNull(returnedFromDashboard.confirmedFlightPlan)
-        assertEquals(FlightSetupStep.TAKEOFF_ALTITUDE, returnedFromDashboard.flightSetupStep)
+        assertEquals(FlightSetupStep.CRUISE_ALTITUDE, returnedFromDashboard.flightSetupStep)
         assertEquals(origin, returnedFromDashboard.origin)
         assertEquals(destination, returnedFromDashboard.destination)
-        assertEquals("50", returnedFromDashboard.takeoffAltitudeInput)
-        assertEquals(50.0, returnedFromDashboard.takeoffAltitudeMeters!!, 0.0)
-        assertTrue(returnedFromDashboard.canConfirmTakeoffAltitude)
+        assertEquals("50", returnedFromDashboard.cruiseAltitudeInput)
+        assertEquals("5", returnedFromDashboard.destinationGroundAltitudeInput)
+        assertEquals(50.0, returnedFromDashboard.cruiseAltitudeMeters!!, 0.0)
+        assertEquals(
+            5.0,
+            returnedFromDashboard.destinationGroundAltitudeAboveOriginMeters!!,
+            0.0,
+        )
+        assertTrue(returnedFromDashboard.canConfirmCruiseAltitude)
+    }
+
+    /** Verifies a destination change clears only its elevation while a full clear resets both. */
+    @Test
+    fun `destination changes reset destination bound elevation safely`() {
+        val originalDestination = PlacePoint(GeoCoordinate(35.7, 51.4), "Original")
+        val replacementDestination = PlacePoint(GeoCoordinate(35.8, 51.5), "Replacement")
+        val draftState = MapUiState(destination = originalDestination)
+            .advanceToCruiseAltitude()
+            .updateCruiseAltitude("50")
+            .updateDestinationGroundAltitude("12")
+        val replacementState = draftState
+            .returnToDestinationSelection()
+            .selectDestination(replacementDestination)
+        val renamedSameDestination = draftState.selectDestination(
+            originalDestination.copy(name = "Resolved original", hasResolvedName = true)
+        )
+        val clearedState = replacementState
+            .updateDestinationGroundAltitude("6")
+            .clearSelectedDestination()
+
+        assertEquals("50", replacementState.cruiseAltitudeInput)
+        assertEquals("", replacementState.destinationGroundAltitudeInput)
+        assertEquals("12", renamedSameDestination.destinationGroundAltitudeInput)
+        assertNull(replacementState.confirmedFlightPlan)
+        assertNull(clearedState.destination)
+        assertEquals(FlightSetupStep.DESTINATION, clearedState.flightSetupStep)
+        assertEquals("", clearedState.cruiseAltitudeInput)
+        assertEquals("", clearedState.destinationGroundAltitudeInput)
     }
 
     /** Verifies malformed speed samples cannot masquerade as available dashboard data. */
@@ -304,6 +398,29 @@ class MapUiStateTest {
                 accuracyMetersPerSecond = -1f,
                 timestampEpochMillis = 1L,
             )
+        }
+    }
+
+    /** Flight consumers receive the original monotonic GPS time and fail closed on bad metadata. */
+    @Test
+    fun `phone location fix validates accuracy and monotonic acquisition time`() {
+        val coordinate = GeoCoordinate(35.6892, 51.3890)
+        val fix = PhoneLocationFix(
+            coordinate = coordinate,
+            horizontalAccuracyMeters = 2.5,
+            observedAtElapsedRealtimeNanos = 123L,
+        )
+
+        assertEquals(coordinate, fix.coordinate)
+        assertEquals(2.5, requireNotNull(fix.horizontalAccuracyMeters), 0.0)
+        assertThrows(IllegalArgumentException::class.java) {
+            fix.copy(horizontalAccuracyMeters = Double.NaN)
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            fix.copy(horizontalAccuracyMeters = -1.0)
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            fix.copy(observedAtElapsedRealtimeNanos = 0L)
         }
     }
 }

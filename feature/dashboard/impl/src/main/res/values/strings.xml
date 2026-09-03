@@ -51,6 +51,10 @@
     <string name="instrument_altitude_msl">Altitude above sea level</string>
     <string name="instrument_altitude_takeoff">Altitude from starting point</string>
     <string name="instrument_target_altitude">Target altitude</string>
+    <string name="instrument_range_ground">Ground clearance</string>
+    <string name="instrument_range_up">Obstacle above</string>
+    <string name="instrument_range_front_left">Front-left obstacle</string>
+    <string name="instrument_range_front_right">Front-right obstacle</string>
     <string name="compact_instrument_accessibility">%1$s, %2$s. Status %3$s.</string>
 
     <string name="status_live">Live</string>
@@ -61,6 +65,8 @@
     <string name="status_not_present">Not present</string>
     <string name="status_unavailable">Unavailable</string>
     <string name="status_no_response">No response</string>
+    <string name="status_out_of_range">Out of range</string>
+    <string name="status_signal_failure">Signal failure</string>
     <string name="status_invalid">Invalid data</string>
     <string name="status_error">Error</string>
     <string name="status_inactive">Inactive</string>
@@ -71,6 +77,7 @@
     <string name="value_hectopascal">%1$.2f hPa</string>
     <string name="value_meters">%1$.1f m</string>
     <string name="value_meters_signed">%1$+.1f m</string>
+    <string name="value_millimeters">%1$d mm</string>
     <string name="flight_plan_missing_map">The route map cannot be shown because the confirmed flight plan is missing.</string>
     <string name="dashboard_map_description">Flight route map with origin, destination, and direct route.</string>
     <string name="dashboard_map_loading">Loading map</string>
@@ -81,5 +88,23 @@
     <string name="dashboard_map_retry">Retry</string>
 
     <string name="start_flight">Start</string>
-    <string name="start_flight_unavailable">Start flight is unavailable and will be implemented in a future release</string>
+    <string name="abort_flight">Abort</string>
+    <string name="emergency_stop">E-STOP</string>
+    <string name="emergency_stop_flight">Emergency stop flight</string>
+    <string name="autopilot_status_missing_detail">Flight controls are waiting for autopilot status.</string>
+    <string name="autopilot_issue_with_more">%1$s (additional blockers: %2$d)</string>
+    <string name="autopilot_phase_unavailable">Autopilot unavailable</string>
+    <string name="autopilot_phase_standby">Standby</string>
+    <string name="autopilot_phase_preflight">Preflight checks</string>
+    <string name="autopilot_phase_arming">Arming</string>
+    <string name="autopilot_phase_takeoff">Taking off</string>
+    <string name="autopilot_phase_cruise">En route</string>
+    <string name="autopilot_phase_landing">Landing</string>
+    <string name="autopilot_phase_return_climb">Returning: climbing</string>
+    <string name="autopilot_phase_returning">Returning to origin</string>
+    <string name="autopilot_phase_disarming">Disarming</string>
+    <string name="autopilot_phase_completed">Mission complete</string>
+    <string name="autopilot_phase_aborted">Mission aborted</string>
+    <string name="autopilot_phase_failed">Mission failed</string>
+    <string name="autopilot_phase_emergency_stopped">Emergency stopped</string>
 </resources>

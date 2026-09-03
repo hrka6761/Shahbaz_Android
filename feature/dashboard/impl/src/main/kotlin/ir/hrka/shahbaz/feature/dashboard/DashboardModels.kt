@@ -4,6 +4,7 @@ package ir.hrka.shahbaz.feature.dashboard
 import ir.hrka.compass.CompassDirection
 import ir.hrka.compass.CompassReading
 import ir.hrka.compass.NorthReference
+import ir.hrka.shahbaz.autopilot.AutopilotSnapshot
 import ir.hrka.shahbaz.core.model.FlightPlan
 import ir.hrka.shahbaz.core.model.GeoCoordinate
 import ir.hrka.shahbaz.hardwareconnection.BoardConnectionState
@@ -197,6 +198,10 @@ data class DashboardUiState(
      * Exposes the flightPlan value.
      */
     val flightPlan: FlightPlan? = null,
+    /**
+     * Latest read-only autonomous-mission state supplied by the app composition layer.
+     */
+    val mission: AutopilotSnapshot? = null,
     /**
      * Exposes the boardConnection value.
      */

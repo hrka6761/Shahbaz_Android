@@ -81,6 +81,7 @@ internal class StateEstimator(
     private var lastGyroscopeTimestampNanos: Long? = null
 
     private var originAltitudeMslMeters: Double? = null
+    private var originAltitudeObservedAtNanos: Long? = null
     private var latestAltitudeAboveOriginMeters: Double? = null
     private var latestAltitudeTimestampNanos: Long? = null
     private var previousAltitudeMslMeters: Double? = null
@@ -89,6 +90,7 @@ internal class StateEstimator(
     private var verticalVelocityTimestampNanos: Long? = null
 
     private var originLocation: GeoPoint? = null
+    private var originLocationObservedAtNanos: Long? = null
     private var latestHorizontalPositionNedMeters: Vector3d? = null
     private var latestLocationTimestampNanos: Long? = null
     private var previousHorizontalPositionNedMeters: Vector3d? = null
@@ -102,6 +104,7 @@ internal class StateEstimator(
         attitudeObservedAtNanos = null
         lastGyroscopeTimestampNanos = null
         originAltitudeMslMeters = null
+        originAltitudeObservedAtNanos = null
         latestAltitudeAboveOriginMeters = null
         latestAltitudeTimestampNanos = null
         previousAltitudeMslMeters = null
@@ -109,6 +112,7 @@ internal class StateEstimator(
         verticalVelocityMetersPerSecond = null
         verticalVelocityTimestampNanos = null
         originLocation = null
+        originLocationObservedAtNanos = null
         latestHorizontalPositionNedMeters = null
         latestLocationTimestampNanos = null
         previousHorizontalPositionNedMeters = null
@@ -163,6 +167,12 @@ internal class StateEstimator(
             config.criticalSensorMaxAgeMillis,
         )
         return VehicleStateEstimate(
+            localReference = LocalNavigationReference(
+                horizontalOrigin = originLocation,
+                horizontalOriginObservedAtNanos = originLocationObservedAtNanos,
+                altitudeOriginAboveMeanSeaLevelMeters = originAltitudeMslMeters,
+                altitudeOriginObservedAtNanos = originAltitudeObservedAtNanos,
+            ),
             attitudeBodyToNed = attitudeBodyToNed,
             angularVelocityBodyRadPerSecond = gyro?.value,
             localPositionNedMeters = fullPosition,
@@ -256,6 +266,7 @@ internal class StateEstimator(
 
         if (originAltitudeMslMeters == null) {
             originAltitudeMslMeters = observation.value
+            originAltitudeObservedAtNanos = observation.timestampNanos
         }
         val priorAltitude = previousAltitudeMslMeters
         val priorTimestamp = previousAltitudeTimestampNanos
@@ -319,6 +330,7 @@ internal class StateEstimator(
         if (latestTimestamp != null && location.timestampNanos <= latestTimestamp) return
         if (originLocation == null) {
             originLocation = location.value
+            originLocationObservedAtNanos = location.timestampNanos
         }
         val current = localHorizontalNedFromOrigin(requireNotNull(originLocation), location.value)
         val priorPosition = previousHorizontalPositionNedMeters
@@ -343,7 +355,10 @@ internal class StateEstimator(
     private fun localHorizontalNedFromOrigin(origin: GeoPoint, location: GeoPoint): Vector3d {
         val earthRadiusMeters = 6_378_137.0
         val dLat = (location.latitudeDegrees - origin.latitudeDegrees) * PI / 180.0
-        val dLon = (location.longitudeDegrees - origin.longitudeDegrees) * PI / 180.0
+        val longitudeDeltaDegrees = normalizeLongitudeDeltaDegrees(
+            location.longitudeDegrees - origin.longitudeDegrees,
+        )
+        val dLon = longitudeDeltaDegrees * PI / 180.0
         val meanLat = (location.latitudeDegrees + origin.latitudeDegrees) * 0.5 * PI / 180.0
         return Vector3d(
             x = dLat * earthRadiusMeters,
@@ -351,6 +366,10 @@ internal class StateEstimator(
             z = 0.0,
         )
     }
+
+    /** Normalizes longitude deltas so local position remains continuous across the antimeridian. */
+    private fun normalizeLongitudeDeltaDegrees(deltaDegrees: Double): Double =
+        ((deltaDegrees + 180.0) % 360.0 + 360.0) % 360.0 - 180.0
 }
 
 /** Position/velocity controller that produces a body attitude and collective throttle. */

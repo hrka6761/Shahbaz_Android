@@ -350,7 +350,11 @@ class DashboardPresentationDecisionsTest {
             SensorUnavailableReason.BOARD_DISCONNECTED to InstrumentStatusKind.NOT_CONNECTED,
             SensorUnavailableReason.TELEMETRY_NOT_STARTED to InstrumentStatusKind.LOADING,
             SensorUnavailableReason.SENSOR_REPORTED_OFFLINE to InstrumentStatusKind.NOT_PRESENT,
+            SensorUnavailableReason.RANGEFINDER_DISABLED_OR_ABSENT to
+                InstrumentStatusKind.NOT_PRESENT,
+            SensorUnavailableReason.RANGEFINDER_INITIALIZING to InstrumentStatusKind.LOADING,
         )
+        assertEquals(SensorUnavailableReason.entries.toSet(), unavailableExpectations.keys)
         unavailableExpectations.forEach { (reason, expected) ->
             assertEquals(expected, sensorStatusKind(SensorState.Unavailable(reason)))
         }
@@ -358,12 +362,20 @@ class DashboardPresentationDecisionsTest {
         val failureExpectations = mapOf(
             SensorErrorCode.INVALID_PAYLOAD to InstrumentStatusKind.INVALID,
             SensorErrorCode.INVALID_VALIDITY to InstrumentStatusKind.INVALID,
-            SensorErrorCode.OUT_OF_RANGE to InstrumentStatusKind.INVALID,
+            SensorErrorCode.RANGE_STATUS_UNKNOWN to InstrumentStatusKind.INVALID,
+            SensorErrorCode.OUT_OF_RANGE to InstrumentStatusKind.OUT_OF_RANGE,
+            SensorErrorCode.RANGE_MINIMUM_FAILURE to InstrumentStatusKind.OUT_OF_RANGE,
+            SensorErrorCode.RANGE_SIGMA_FAILURE to InstrumentStatusKind.SIGNAL_FAILURE,
+            SensorErrorCode.RANGE_SIGNAL_FAILURE to InstrumentStatusKind.SIGNAL_FAILURE,
+            SensorErrorCode.RANGE_PHASE_FAILURE to InstrumentStatusKind.SIGNAL_FAILURE,
             SensorErrorCode.NO_RESPONSE to InstrumentStatusKind.NO_RESPONSE,
             SensorErrorCode.NOT_FRESH to InstrumentStatusKind.STALE,
             SensorErrorCode.SENSOR_OFFLINE to InstrumentStatusKind.NOT_PRESENT,
+            SensorErrorCode.RANGEFINDER_DEGRADED to InstrumentStatusKind.DEGRADED,
             SensorErrorCode.HEALTH_FAULT to InstrumentStatusKind.ERROR,
+            SensorErrorCode.RANGE_HARDWARE_FAILURE to InstrumentStatusKind.ERROR,
         )
+        assertEquals(SensorErrorCode.entries.toSet(), failureExpectations.keys)
         failureExpectations.forEach { (code, expected) ->
             assertEquals(
                 expected,

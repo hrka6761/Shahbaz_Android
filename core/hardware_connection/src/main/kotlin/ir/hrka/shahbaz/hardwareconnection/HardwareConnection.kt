@@ -18,6 +18,9 @@ import com.shahbaz.flightblackbox.FbbEventType
 import com.shahbaz.flightblackbox.FbbPersistence
 import com.shahbaz.flightblackbox.FlightBlackBox
 import ir.hrka.shahbaz.hardwareconnection.internal.AcceptedTimeSyncAction
+import ir.hrka.shahbaz.hardwareconnection.internal.ActuatorAcknowledgementTracker
+import ir.hrka.shahbaz.hardwareconnection.internal.validateQuadXMotorFrame
+import ir.hrka.shahbaz.hardwareconnection.internal.BoundedActuatorSubmissionGate
 import ir.hrka.shahbaz.hardwareconnection.internal.InitialTimeSyncAction
 import ir.hrka.shahbaz.hardwareconnection.internal.ReenumerationGraceAction
 import ir.hrka.shahbaz.hardwareconnection.internal.TelemetryStore
@@ -255,10 +258,17 @@ class HardwareConnection(
      * Stores the mutable lastCommandSentSequence value.
      */
     private var lastCommandSentSequence: UInt? = null
-    /**
-     * Exposes the pendingCommandAcks value.
-     */
-    private val pendingCommandAcks = mutableMapOf<UInt, ApplicationAction>()
+    /** Tracks sent actuator requests until the board explicitly accepts or rejects each one. */
+    private val actuatorAcknowledgements = ActuatorAcknowledgementTracker(
+        config.maximumPendingActuatorAcknowledgements,
+    )
+    /** Prevents the public control loop from accumulating an unbounded dispatcher backlog. */
+    private val actuatorSubmissionGate = BoundedActuatorSubmissionGate(
+        config.maximumQueuedActuatorSubmissions,
+    )
+    /** Disarm and E-stop each retain an independent reserved dispatcher slot. */
+    private val disarmSubmissionGate = BoundedActuatorSubmissionGate(1)
+    private val emergencyStopSubmissionGate = BoundedActuatorSubmissionGate(1)
 
     /**
      * Exposes the permissionReceiver value.
@@ -482,30 +492,28 @@ class HardwareConnection(
      *
      * Preserving [generatedAtElapsedRealtimeNanos] prevents a delayed host queue from serializing
      * old flight-controller output with a new timestamp that the board would incorrectly accept as
-     * fresh. The batch must contain every active zero-based motor channel exactly once.
+     * fresh. The frame must contain Quad-X channels 0 through 3 exactly once; it is transmitted as
+     * one Protocol v2 request and consumes one acknowledgement slot.
      */
     fun sendMotorPulses(
         pulses: List<BoardMotorPulse>,
         generatedAtElapsedRealtimeNanos: Long = SystemClock.elapsedRealtimeNanos(),
     ): BoardActuatorCommandResult {
-        val batchValidation = validateMotorBatch(pulses)
+        // Snapshot before validation: callers may supply a mutable list, while encoding happens on
+        // the asynchronous USB dispatcher. BoardMotorPulse itself is immutable.
+        val frame = pulses.toList()
+        val batchValidation = validateMotorBatch(frame)
         if (batchValidation != null) return batchValidation
         val timestampValidation = validateActuatorGenerationTime(generatedAtElapsedRealtimeNanos)
         if (timestampValidation != null) return timestampValidation
         val generatedAtHostMicros = (generatedAtElapsedRealtimeNanos / 1_000L).toULong()
         return submitActuatorRequest(
-            commandName = "MotorCommand",
-            commandCount = pulses.size,
-            expectedAction = ApplicationAction.MOTOR_COMMAND,
+            commandName = "MotorFrameCommand",
+            commandCount = 1,
+            expectedAction = ApplicationAction.MOTOR_FRAME_COMMAND,
             validateReady = { validateReadyForActuatorOutput() },
         ) {
-            pulses.map { pulse ->
-                session.buildMotorCommand(
-                    pulse.channel,
-                    pulse.pulseMicros,
-                    generatedAtHostMicros,
-                )
-            }
+            listOf(session.buildMotorFrameCommand(frame, generatedAtHostMicros))
         }
     }
 
@@ -1142,12 +1150,23 @@ class HardwareConnection(
                                 persistence = FbbPersistence.IMPORTANT,
                             )
                             recordRejectedFrame(result.exception)
-                            if (event.frame.header.messageType == MessageType.DEVICE_INFO_RESPONSE) {
-                                fail(
+                            when (event.frame.header.messageType) {
+                                MessageType.DEVICE_INFO_RESPONSE -> fail(
                                     BoardLinkErrorCode.DEVICE_INFO_INVALID,
                                     result.exception.message ?: "Invalid DeviceInfo payload",
                                     recoverable = false,
                                 )
+                                MessageType.COMMAND_ACK -> fail(
+                                    BoardLinkErrorCode.PROTOCOL_ERROR,
+                                    result.exception.message ?: "Invalid command acknowledgement",
+                                    recoverable = true,
+                                )
+                                MessageType.COMMAND_NACK -> fail(
+                                    BoardLinkErrorCode.ACTUATOR_COMMAND_REJECTED,
+                                    result.exception.message ?: "Board rejected an actuator command",
+                                    recoverable = true,
+                                )
+                                else -> Unit
                             }
                         }
                     }
@@ -1253,12 +1272,12 @@ class HardwareConnection(
                     publishTelemetry()
                     advanceValidatedHandshake()
                 } else {
-                    val expectedAction = pendingCommandAcks.remove(ack.requestSequence)
+                    val pending = actuatorAcknowledgements.remove(ack.requestSequence)
                         ?: throw ProtocolException(
                             ProtocolErrorKind.POLICY_REJECTED,
                             "Unexpected CommandAck for request ${ack.requestSequence}",
                         )
-                    ack.requireAcknowledges(ack.requestSequence, expectedAction)
+                    ack.requireAcknowledges(ack.requestSequence, pending.expectedAction)
                     FlightBlackBox.record(
                         type = FbbEventType.VALUE,
                         description = "Post-ready command acknowledged",
@@ -1276,7 +1295,36 @@ class HardwareConnection(
                     ProtocolErrorKind.PAYLOAD_INVALID,
                     "CommandNack decoder rejected its message type",
                 )
-                val pendingAction = pendingCommandAcks.remove(nack.requestSequence)
+                val pending = actuatorAcknowledgements.remove(nack.requestSequence)
+                if (pending != null) {
+                    FlightBlackBox.record(
+                        type = FbbEventType.WARNING,
+                        description = "Post-ready actuator command rejected by board",
+                        cause = lastUsbEvent,
+                        metadata = mapOf(
+                            "requestSequence" to nack.requestSequence,
+                            "expectedAction" to pending.expectedAction,
+                            "reason" to "0x${nack.reason.toString(16)}",
+                            "validationError" to nack.validationError,
+                        ),
+                        persistence = FbbPersistence.CRITICAL,
+                    )
+                    throw ProtocolException(
+                        ProtocolErrorKind.POLICY_REJECTED,
+                        "Board rejected actuator request ${nack.requestSequence} " +
+                            "reason=0x${nack.reason.toString(16)} " +
+                            "validation=${nack.validationError}",
+                    )
+                }
+                if (
+                    mutableConnectionState.value is BoardConnectionState.Ready &&
+                    nack.reason != 0x0008
+                ) {
+                    throw ProtocolException(
+                        ProtocolErrorKind.POLICY_REJECTED,
+                        "Unexpected CommandNack for request ${nack.requestSequence}",
+                    )
+                }
                 when (nack.reason) {
                     0x000A -> {
                         FlightBlackBox.record(
@@ -1289,10 +1337,9 @@ class HardwareConnection(
                             ),
                             persistence = FbbPersistence.CRITICAL,
                         )
-                        fail(
-                            BoardLinkErrorCode.SESSION_REJECTED,
+                        throw ProtocolException(
+                            ProtocolErrorKind.POLICY_REJECTED,
                             "Board rejected request ${nack.requestSequence} from this USB session",
-                            recoverable = true,
                         )
                     }
                     0x0008 -> {
@@ -1309,20 +1356,6 @@ class HardwareConnection(
                         crcOrFraming = false,
                     )
                 }
-                if (pendingAction != null) {
-                    FlightBlackBox.record(
-                        type = FbbEventType.WARNING,
-                        description = "Post-ready command rejected by board",
-                        cause = lastUsbEvent,
-                        metadata = mapOf(
-                            "requestSequence" to nack.requestSequence,
-                            "expectedAction" to pendingAction,
-                            "reason" to "0x${nack.reason.toString(16)}",
-                            "validationError" to nack.validationError,
-                        ),
-                        persistence = FbbPersistence.IMPORTANT,
-                    )
-                }
             }
             MessageType.SENSOR_SAMPLE -> {
                 if (mutableConnectionState.value !is BoardConnectionState.Ready) {
@@ -1335,7 +1368,7 @@ class HardwareConnection(
                     ProtocolErrorKind.PAYLOAD_INVALID,
                     "SensorSample decoder rejected its message type",
                 )
-                session.requireFreshTelemetryTimestamp(
+                val observedHostUs = session.requireFreshTelemetryTimestamp(
                     frameSenderUs = frame.header.senderMonotonicUs,
                     sampleDeviceUs = sample.deviceTimestampUs,
                     receivedHostUs = receivedAtUs,
@@ -1346,6 +1379,7 @@ class HardwareConnection(
                 val sensorError = telemetryStore.accept(
                     sample,
                     (receivedAtUs / 1_000uL).toLong(),
+                    (observedHostUs / 1_000uL).toLong(),
                 )
                 if (sensorError != null) {
                     FlightBlackBox.record(
@@ -1412,7 +1446,9 @@ class HardwareConnection(
             ProtocolErrorKind.PAYLOAD_INVALID,
             "DeviceInfo decoder rejected its message type",
         )
-        val validationError = info.validationError()
+        val validationError = info.validationError(
+            allowActuatorProfile = config.allowActuatorCommands,
+        )
         if (validationError != null) {
             FlightBlackBox.record(
                 type = FbbEventType.ERROR,
@@ -1644,6 +1680,19 @@ class HardwareConnection(
             fail(BoardLinkErrorCode.TIME_SYNC_TIMEOUT, "Periodic TimeSync response timed out", true)
             return
         }
+        actuatorAcknowledgements.firstTimedOut(
+            nowElapsedRealtimeMillis = now,
+            timeoutMillis = config.actuatorAcknowledgementTimeoutMillis,
+        )?.let { pending ->
+            fail(
+                BoardLinkErrorCode.ACTUATOR_ACK_TIMEOUT,
+                "Board did not acknowledge actuator request ${pending.sequence} " +
+                    "(${pending.expectedAction}) within " +
+                    "${config.actuatorAcknowledgementTimeoutMillis}ms",
+                recoverable = true,
+            )
+            return
+        }
         if (activeToken != null) {
             if (!timeSyncPending && session.timeSyncRefreshDue() && !sendTimeSync()) return
             if (allowsPostValidationMaintenance(mutableConnectionState.value)) {
@@ -1690,7 +1739,13 @@ class HardwareConnection(
             return actuatorRejected(BoardActuatorRejection.CLOSED, "$commandName rejected: link is closed")
         }
         validateReady()?.let { return it }
-        if (commandName != "MotorCommand" && commandName != "ServoCommand") {
+        if (!actuatorSubmissionGate.tryAcquire()) {
+            return actuatorRejected(
+                BoardActuatorRejection.QUEUE_SATURATED,
+                "$commandName rejected: the bounded actuator submission queue is full",
+            )
+        }
+        if (commandName != "MotorFrameCommand" && commandName != "ServoCommand") {
             FlightBlackBox.record(
                 type = FbbEventType.CALL,
                 description = "HardwareConnection actuator command queued",
@@ -1699,7 +1754,7 @@ class HardwareConnection(
                 persistence = FbbPersistence.IMPORTANT,
             )
         }
-        scope.launch {
+        val submission = scope.launch {
             val commands = runCatching { buildCommands() }.getOrElse {
                 FlightBlackBox.record(
                     type = FbbEventType.ERROR,
@@ -1711,12 +1766,35 @@ class HardwareConnection(
                     ),
                     persistence = FbbPersistence.CRITICAL,
                 )
+                fail(
+                    BoardLinkErrorCode.INTERNAL_ERROR,
+                    "$commandName could not be encoded for the board",
+                    recoverable = true,
+                )
+                return@launch
+            }
+            if (commands.size != commandCount) {
+                fail(
+                    BoardLinkErrorCode.INTERNAL_ERROR,
+                    "$commandName encoded ${commands.size} commands; expected $commandCount",
+                    recoverable = true,
+                )
+                return@launch
+            }
+            if (!actuatorAcknowledgements.canTrack(commands.size)) {
+                fail(
+                    BoardLinkErrorCode.ACTUATOR_BACKPRESSURE,
+                    "$commandName batch of ${commands.size} exceeds the remaining " +
+                        "actuator acknowledgement window",
+                    recoverable = true,
+                )
                 return@launch
             }
             for (command in commands) {
-                if (!sendExpectingAck(command, expectedAction)) break
+                if (!sendExpectingAck(command, expectedAction, bypassPendingLimit = false)) break
             }
         }
+        submission.invokeOnCompletion { actuatorSubmissionGate.release() }
         return BoardActuatorCommandResult.Queued(commandCount)
     }
 
@@ -1737,6 +1815,15 @@ class HardwareConnection(
                 "$commandName rejected: no synchronized USB session is attached",
             )
         }
+        val submissionGate = if (expectedAction == ApplicationAction.EMERGENCY_STOP_APPLIED) {
+            emergencyStopSubmissionGate
+        } else {
+            disarmSubmissionGate
+        }
+        if (!submissionGate.tryAcquire()) {
+            // An identical safety request already owns this action's reserved slot.
+            return BoardActuatorCommandResult.Queued(1)
+        }
         FlightBlackBox.record(
             type = FbbEventType.CALL,
             description = "HardwareConnection safety override queued",
@@ -1744,7 +1831,8 @@ class HardwareConnection(
             metadata = mapOf("command" to commandName),
             persistence = FbbPersistence.CRITICAL,
         )
-        scope.launch {
+        val submission = scope.launch {
+            if (actuatorAcknowledgements.containsExpectedAction(expectedAction)) return@launch
             val command = runCatching { buildCommand() }.getOrElse {
                 FlightBlackBox.record(
                     type = FbbEventType.ERROR,
@@ -1756,10 +1844,16 @@ class HardwareConnection(
                     ),
                     persistence = FbbPersistence.CRITICAL,
                 )
+                fail(
+                    BoardLinkErrorCode.INTERNAL_ERROR,
+                    "$commandName could not be encoded for the board",
+                    recoverable = true,
+                )
                 return@launch
             }
-            sendExpectingAck(command, expectedAction)
+            sendExpectingAck(command, expectedAction, bypassPendingLimit = true)
         }
+        submission.invokeOnCompletion { submissionGate.release() }
         return BoardActuatorCommandResult.Queued(1)
     }
 
@@ -1794,45 +1888,15 @@ class HardwareConnection(
     private fun validateMotorBatch(
         pulses: List<BoardMotorPulse>,
     ): BoardActuatorCommandResult.Rejected? {
-        if (pulses.isEmpty()) {
-            return actuatorRejected(BoardActuatorRejection.EMPTY_BATCH, "Motor command batch is empty")
-        }
-        if (pulses.size > config.maximumMotorCommandBatch) {
-            return actuatorRejected(
-                BoardActuatorRejection.BATCH_TOO_LARGE,
-                "Motor command batch contains ${pulses.size} commands",
-            )
-        }
         val activeChannels =
             (mutableConnectionState.value as? BoardConnectionState.Ready)?.deviceInfo?.activeMotorChannels
-        if (activeChannels != null && pulses.size != activeChannels) {
-            return actuatorRejected(
-                BoardActuatorRejection.INCOMPLETE_MOTOR_FRAME,
-                "Motor frame contains ${pulses.size} channels; the board requires $activeChannels",
-            )
-        }
-        val seenChannels = hashSetOf<Int>()
-        pulses.forEach { pulse ->
-            if (!seenChannels.add(pulse.channel)) {
-                return actuatorRejected(
-                    BoardActuatorRejection.INVALID_CHANNEL,
-                    "Duplicate motor channel ${pulse.channel}",
-                )
-            }
-            if (activeChannels != null && pulse.channel >= activeChannels) {
-                return actuatorRejected(
-                    BoardActuatorRejection.INVALID_CHANNEL,
-                    "Motor channel ${pulse.channel} is outside active channel count $activeChannels",
-                )
-            }
-            if (!config.motorPulseBounds.contains(pulse.pulseMicros)) {
-                return actuatorRejected(
-                    BoardActuatorRejection.INVALID_PULSE,
-                    "Motor pulse ${pulse.pulseMicros}us is outside ${config.motorPulseBounds}",
-                )
-            }
-        }
-        return null
+        val failure = validateQuadXMotorFrame(
+            pulses = pulses,
+            maximumBatchSize = config.maximumMotorCommandBatch,
+            activeMotorChannels = activeChannels,
+            pulseBounds = config.motorPulseBounds,
+        ) ?: return null
+        return actuatorRejected(failure.reason, failure.message)
     }
 
     /**
@@ -1949,9 +2013,25 @@ class HardwareConnection(
     private fun sendExpectingAck(
         command: BoardProtocolSession.EncodedCommand,
         expectedAction: ApplicationAction,
+        bypassPendingLimit: Boolean,
     ): Boolean {
+        val tracked = actuatorAcknowledgements.track(
+            sequence = command.sequence,
+            expectedAction = expectedAction,
+            sentAtElapsedRealtimeMillis = SystemClock.elapsedRealtime(),
+            bypassLimit = bypassPendingLimit,
+        )
+        if (!tracked) {
+            fail(
+                BoardLinkErrorCode.ACTUATOR_BACKPRESSURE,
+                "Actuator acknowledgement window is full at " +
+                    "${actuatorAcknowledgements.pendingCount} pending commands",
+                recoverable = true,
+            )
+            return false
+        }
         val sent = send(command)
-        if (sent) pendingCommandAcks[command.sequence] = expectedAction
+        if (!sent) actuatorAcknowledgements.remove(command.sequence)
         return sent
     }
 
@@ -1960,7 +2040,7 @@ class HardwareConnection(
      */
     private fun send(command: BoardProtocolSession.EncodedCommand): Boolean {
         val highFrequencyActuatorCommand =
-            command.type == MessageType.MOTOR_COMMAND ||
+            command.type == MessageType.MOTOR_FRAME_COMMAND ||
                 command.type == MessageType.SERVO_COMMAND ||
                 command.type == MessageType.ACTUATOR_COMMAND
         val tx = if (highFrequencyActuatorCommand) {
@@ -2172,7 +2252,7 @@ class HardwareConnection(
         lastDeviceStatusSentMillis = 0L
         lastCommandSentType = null
         lastCommandSentSequence = null
-        pendingCommandAcks.clear()
+        actuatorAcknowledgements.clear()
     }
 
     /**

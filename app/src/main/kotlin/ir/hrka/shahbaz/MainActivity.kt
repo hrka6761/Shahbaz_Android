@@ -6,6 +6,7 @@ import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
 import android.provider.Settings as AndroidSettings
+import android.view.WindowManager
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -36,6 +37,8 @@ import com.shahbaz.flightblackbox.FbbEventRef
 import com.shahbaz.flightblackbox.FbbEventType
 import com.shahbaz.flightblackbox.FbbPersistence
 import com.shahbaz.flightblackbox.FlightBlackBox
+import ir.hrka.shahbaz.autopilot.AutopilotNavigationFix
+import ir.hrka.shahbaz.autopilot.AutopilotPhase
 import ir.hrka.shahbaz.core.designsystem.ShahbazTheme
 import ir.hrka.shahbaz.feature.dashboard.DashboardPhoneSensors
 import ir.hrka.shahbaz.feature.dashboard.DashboardScreen
@@ -118,6 +121,16 @@ class MainActivity : ComponentActivity() {
                 val mapState by mapViewModel.uiState.collectAsStateWithLifecycle()
                 val dashboardState by dashboardViewModel.uiState.collectAsStateWithLifecycle()
                 val flightPlan = mapState.confirmedFlightPlan
+                val keepFlightScreenAwake =
+                    dashboardState.mission?.phase.requiresAwakeFlightScreen()
+
+                LaunchedEffect(keepFlightScreenAwake) {
+                    if (keepFlightScreenAwake) {
+                        window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                    } else {
+                        window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                    }
+                }
 
                 if (appRoute == AppRoute.FLIGHT.name) {
                     LifecycleStartEffect(mapViewModel) {
@@ -257,6 +270,9 @@ class MainActivity : ComponentActivity() {
                         sensors = mapState.toDashboardPhoneSensors(),
                         isOnline = mapState.isOnline,
                     )
+                    dashboardViewModel.updateNavigationFix(
+                        fix = mapState.toAutopilotNavigationFix(),
+                    )
                 }
                 LaunchedEffect(flightPlan) {
                     if (flightPlan == null) {
@@ -304,12 +320,14 @@ class MainActivity : ComponentActivity() {
                                     state = mapState,
                                     onDestinationSelected = mapViewModel::setDestination,
                                     onClearDestination = mapViewModel::clearDestination,
-                                    onAdvanceToTakeoffAltitude = mapViewModel::advanceToTakeoffAltitude,
+                                    onAdvanceToCruiseAltitude = mapViewModel::advanceToCruiseAltitude,
                                     onReturnToDestinationSelection =
                                         mapViewModel::returnToDestinationSelection,
-                                    onTakeoffAltitudeChanged = mapViewModel::updateTakeoffAltitude,
-                                    onConfirmTakeoffAltitude = {
-                                        mapViewModel.confirmTakeoffAltitude()
+                                    onCruiseAltitudeChanged = mapViewModel::updateCruiseAltitude,
+                                    onDestinationGroundAltitudeChanged =
+                                        mapViewModel::updateDestinationGroundAltitude,
+                                    onConfirmCruiseAltitude = {
+                                        mapViewModel.confirmCruiseAltitude()
                                         if (mapViewModel.uiState.value.confirmedFlightPlan != null) {
                                             FlightBlackBox.record(
                                                 type = FbbEventType.LIFECYCLE,
@@ -344,6 +362,15 @@ class MainActivity : ComponentActivity() {
                                     parent = activityCreateEvent,
                                     persistence = FbbPersistence.IMPORTANT,
                                 )
+                                if (!dashboardViewModel.clearFlightPlan()) {
+                                    FlightBlackBox.record(
+                                        type = FbbEventType.DECISION,
+                                        description = "Dashboard back deferred until mission shutdown",
+                                        cause = back,
+                                        persistence = FbbPersistence.CRITICAL,
+                                    )
+                                    return@BackHandler
+                                }
                                 FlightBlackBox.record(
                                     type = FbbEventType.LIFECYCLE,
                                     description = "DashboardScreen lifecycle destroyed before MapScreen",
@@ -351,7 +378,6 @@ class MainActivity : ComponentActivity() {
                                     persistence = FbbPersistence.IMPORTANT,
                                 )
                                 dashboardLifecycleOwner.destroy()
-                                dashboardViewModel.clearFlightPlan()
                                 mapViewModel.clearConfirmedFlightPlan()
                                 FlightBlackBox.record(
                                     type = FbbEventType.NAV,
@@ -366,6 +392,9 @@ class MainActivity : ComponentActivity() {
                                     state = dashboardState,
                                     onRequestUsbPermission = dashboardViewModel::requestUsbPermission,
                                     onRetryBoardConnection = dashboardViewModel::retryBoardConnection,
+                                    onStartFlight = dashboardViewModel::startFlight,
+                                    onAbortFlight = dashboardViewModel::abortFlight,
+                                    onEmergencyStop = dashboardViewModel::emergencyStop,
                                 )
                             }
                         }
@@ -587,4 +616,30 @@ internal fun MapUiState.toDashboardPhoneSensors(): DashboardPhoneSensors {
         }
     }
     return DashboardPhoneSensors(position = position, orientation = orientation)
+}
+
+/** Preserves the provider's monotonic GPS timestamp; UI emissions never manufacture freshness. */
+internal fun MapUiState.toAutopilotNavigationFix(): AutopilotNavigationFix? {
+    if (locationStatus != LocationStatus.READY) return null
+    val fix = phoneLocationFix ?: return null
+    val accuracy = fix.horizontalAccuracyMeters ?: return null
+    if (origin?.coordinate != fix.coordinate) return null
+    return AutopilotNavigationFix(
+        coordinate = fix.coordinate,
+        horizontalAccuracyMeters = accuracy,
+        observedAtNanos = fix.observedAtElapsedRealtimeNanos,
+    )
+}
+
+/** Keeps Android from blanking the control surface while arming or executing a mission. */
+internal fun AutopilotPhase?.requiresAwakeFlightScreen(): Boolean = when (this) {
+    AutopilotPhase.ARMING,
+    AutopilotPhase.TAKEOFF,
+    AutopilotPhase.CRUISE,
+    AutopilotPhase.LANDING,
+    AutopilotPhase.RETURN_CLIMB,
+    AutopilotPhase.RETURNING,
+    AutopilotPhase.DISARMING,
+    -> true
+    else -> false
 }

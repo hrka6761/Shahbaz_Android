@@ -9,13 +9,17 @@ import ir.hrka.compass.CompassFailureCode
 import ir.hrka.compass.CompassReading
 import ir.hrka.compass.CompassSensorSource
 import ir.hrka.compass.CompassUnavailableReason
+import ir.hrka.shahbaz.autopilot.AutopilotPhase
 import ir.hrka.shahbaz.core.model.GeoCoordinate
 import ir.hrka.shahbaz.feature.dashboard.PhoneReading
 import ir.hrka.shahbaz.feature.map.CompassSensorStatus
 import ir.hrka.shahbaz.feature.map.LocationStatus
 import ir.hrka.shahbaz.feature.map.MapUiState
 import ir.hrka.shahbaz.feature.map.PlacePoint
+import ir.hrka.shahbaz.feature.map.PhoneLocationFix
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -49,6 +53,69 @@ class DashboardPhoneMappingTest {
         ).toDashboardPhoneSensors()
 
         assertTrue(result.position is PhoneReading.Unavailable)
+    }
+
+    /** Navigation preserves acquisition time and accuracy instead of refreshing them in the UI. */
+    @Test
+    fun `ready precise fix maps to autopilot navigation without manufacturing freshness`() {
+        val coordinate = GeoCoordinate(35.7, 51.4)
+        val result = MapUiState(
+            locationStatus = LocationStatus.READY,
+            origin = PlacePoint(coordinate, "Current location"),
+            phoneLocationFix = PhoneLocationFix(
+                coordinate = coordinate,
+                horizontalAccuracyMeters = 2.5,
+                observedAtElapsedRealtimeNanos = 123_456L,
+            ),
+        ).toAutopilotNavigationFix()
+
+        requireNotNull(result)
+        assertEquals(coordinate, result.coordinate)
+        assertEquals(2.5, result.horizontalAccuracyMeters, 0.0)
+        assertEquals(123_456L, result.observedAtNanos)
+    }
+
+    /** Missing accuracy, stale status, or a mismatched origin cannot become a flight fix. */
+    @Test
+    fun `unsafe location metadata maps to no autopilot fix`() {
+        val coordinate = GeoCoordinate(35.7, 51.4)
+        val fix = PhoneLocationFix(
+            coordinate = coordinate,
+            horizontalAccuracyMeters = null,
+            observedAtElapsedRealtimeNanos = 123_456L,
+        )
+
+        assertNull(
+            MapUiState(
+                locationStatus = LocationStatus.READY,
+                origin = PlacePoint(coordinate, "Current location"),
+                phoneLocationFix = fix,
+            ).toAutopilotNavigationFix(),
+        )
+        assertNull(
+            MapUiState(
+                locationStatus = LocationStatus.UNAVAILABLE,
+                origin = PlacePoint(coordinate, "Retained"),
+                phoneLocationFix = fix.copy(horizontalAccuracyMeters = 1.0),
+            ).toAutopilotNavigationFix(),
+        )
+        assertNull(
+            MapUiState(
+                locationStatus = LocationStatus.READY,
+                origin = PlacePoint(GeoCoordinate(35.8, 51.5), "Different"),
+                phoneLocationFix = fix.copy(horizontalAccuracyMeters = 1.0),
+            ).toAutopilotNavigationFix(),
+        )
+    }
+
+    @Test
+    fun `screen remains awake only while mission control must keep running`() {
+        assertTrue(AutopilotPhase.ARMING.requiresAwakeFlightScreen())
+        assertTrue(AutopilotPhase.CRUISE.requiresAwakeFlightScreen())
+        assertTrue(AutopilotPhase.DISARMING.requiresAwakeFlightScreen())
+        assertFalse(AutopilotPhase.PREFLIGHT.requiresAwakeFlightScreen())
+        assertFalse(AutopilotPhase.COMPLETED.requiresAwakeFlightScreen())
+        assertFalse(null.requiresAwakeFlightScreen())
     }
 
     /**

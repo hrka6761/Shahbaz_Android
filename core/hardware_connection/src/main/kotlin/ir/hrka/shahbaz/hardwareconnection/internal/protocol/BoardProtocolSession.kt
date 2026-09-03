@@ -1,6 +1,8 @@
 /** One physical-attachment Protocol v2 session with bounded parser and fresh token state. */
 package ir.hrka.shahbaz.hardwareconnection.internal.protocol
 
+import ir.hrka.shahbaz.hardwareconnection.BoardMotorPulse
+
 /**
  * Documents the BoardProtocolSession type and the role it plays in this module.
  */
@@ -124,26 +126,17 @@ internal class BoardProtocolSession(
      * Runs the buildArmConfirm operation.
      */
     fun buildArmConfirm() = encodeAttached(SafeRequests.armConfirm())
-    /**
-     * Runs the buildMotorCommand operation.
-     */
-    fun buildMotorCommand(
-        channel: Int,
-        pulseMicros: Int,
+    /** Builds and sequences one session-bound, coherent Quad-X motor generation. */
+    fun buildMotorFrameCommand(
+        pulses: List<BoardMotorPulse>,
         generatedAtHostMicros: ULong = monotonicMicros(),
-    ) = encodeAttached(SafeRequests.motorCommand(channel, pulseMicros), generatedAtHostMicros)
+    ) = encodeAttached(SafeRequests.motorFrameCommand(pulses), generatedAtHostMicros)
 
     /**
      * Runs the buildServoCommand operation.
      */
     fun buildServoCommand(channel: Int, pulseMicros: Int) =
         encodeAttached(SafeRequests.servoCommand(channel, pulseMicros))
-
-    /**
-     * Runs the buildActuatorCommand operation.
-     */
-    fun buildActuatorCommand(kind: ActuatorKind, channel: Int, pulseMicros: Int) =
-        encodeAttached(SafeRequests.actuatorCommand(kind, channel, pulseMicros))
 
     /**
      * Runs the buildSetControlMode operation.
@@ -168,7 +161,7 @@ internal class BoardProtocolSession(
         receivedHostUs: ULong,
         maximumAgeUs: ULong,
         maximumFutureSkewUs: ULong,
-    ) {
+    ): ULong {
         requireAttached()
         val mapping = requireCurrentTimeMapping("SensorSample")
         if (frameSenderUs < sampleDeviceUs) {
@@ -177,7 +170,7 @@ internal class BoardProtocolSession(
                 "SensorSample frame timestamp precedes its measurement timestamp",
             )
         }
-        requireFreshDeviceTimestamp(
+        val observedHostUs = requireFreshDeviceTimestamp(
             label = "measurement",
             deviceTimestampUs = sampleDeviceUs,
             receivedHostUs = receivedHostUs,
@@ -193,6 +186,7 @@ internal class BoardProtocolSession(
             maximumAgeUs = maximumAgeUs,
             maximumFutureSkewUs = maximumFutureSkewUs,
         )
+        return observedHostUs
     }
 
     /**
@@ -419,7 +413,7 @@ internal class BoardProtocolSession(
         mapping: TimeMapping,
         maximumAgeUs: ULong,
         maximumFutureSkewUs: ULong,
-    ) {
+    ): ULong {
         val deviceFloorUs = attachmentDeviceFloorUs ?: throw ProtocolException(
             ProtocolErrorKind.POLICY_REJECTED,
             "$label timestamp has no attachment TimeSync floor",
@@ -462,6 +456,7 @@ internal class BoardProtocolSession(
                 "$label timestamp is stale or replayed",
             )
         }
+        return expectedHostUs
     }
 
     /**

@@ -68,7 +68,15 @@ class DeviceInfoValidatorTest {
      */
     @Test
     fun unknownFutureValidationIssuesAreRejected() {
-        assertNotNull(safe.copy(boardValidationIssueMask = 0x1_0000).validationError())
+        assertNotNull(safe.copy(boardValidationIssueMask = 0x8_0000).validationError())
+    }
+
+    /** Rangefinder wiring failures disable that capability without hiding other board sensors. */
+    @Test
+    fun rangefinderCapabilityIssuesAreKnownAdvisories() {
+        listOf(0x1_0000L, 0x2_0000L, 0x4_0000L, 0x7_0000L).forEach { issueMask ->
+            assertNull(safe.copy(boardValidationIssueMask = issueMask).validationError())
+        }
     }
 
     /**
@@ -87,5 +95,57 @@ class DeviceInfoValidatorTest {
         assertNotNull(safe.copy(boardValidationIssueMask = 1).validationError())
         assertNotNull(safe.copy(actuatorsEnabledByConfiguration = true).validationError())
         assertNotNull(safe.copy(activeMotorChannels = 1).validationError())
+    }
+
+    /** Explicit opt-in accepts a coherent motor profile without weakening the default profile. */
+    @Test
+    fun coherentActuatorProfileRequiresExplicitOptIn() {
+        val actuatorProfile = safe.copy(
+            activeMotorChannels = 4,
+            actuatorAvailable = true,
+            actuatorsEnabledByConfiguration = true,
+        )
+
+        assertNotNull(actuatorProfile.validationError())
+        assertNull(actuatorProfile.validationError(allowActuatorProfile = true))
+    }
+
+    /** Sensor-only firmware remains a valid connection even when the host permits actuators. */
+    @Test
+    fun actuatorOptInStillAcceptsSensorOnlyFirmware() {
+        assertNull(safe.validationError(allowActuatorProfile = true))
+    }
+
+    /** Partial, unavailable, or out-of-capacity actuator facts remain fail closed. */
+    @Test
+    fun incoherentActuatorProfilesAreRejectedAfterOptIn() {
+        val allow = true
+
+        assertNotNull(
+            safe.copy(actuatorAvailable = true)
+                .validationError(allowActuatorProfile = allow),
+        )
+        assertNotNull(
+            safe.copy(actuatorsEnabledByConfiguration = true)
+                .validationError(allowActuatorProfile = allow),
+        )
+        assertNotNull(
+            safe.copy(
+                actuatorAvailable = true,
+                actuatorsEnabledByConfiguration = true,
+                activeMotorChannels = 5,
+            ).validationError(allowActuatorProfile = allow),
+        )
+        assertNotNull(
+            safe.copy(
+                actuatorAvailable = true,
+                actuatorsEnabledByConfiguration = true,
+                activeServoChannels = 3,
+            ).validationError(allowActuatorProfile = allow),
+        )
+        assertNotNull(
+            safe.copy(supportedMotorChannels = 256)
+                .validationError(allowActuatorProfile = allow),
+        )
     }
 }

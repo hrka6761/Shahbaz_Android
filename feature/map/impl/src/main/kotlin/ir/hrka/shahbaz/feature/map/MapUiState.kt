@@ -179,26 +179,53 @@ enum class FlightSetupStep {
     /** The user selects and reviews the destination and direct route. */
     DESTINATION,
 
-    /** The user enters the height to climb above the local takeoff surface. */
-    TAKEOFF_ALTITUDE,
+    /** The user enters cruise height and destination landing-surface elevation. */
+    CRUISE_ALTITUDE,
+}
+
+/**
+ * Monotonic metadata for the precise location sample represented by [MapUiState.origin].
+ *
+ * Android's altitude is ellipsoidal rather than mean-sea-level altitude, so it is deliberately
+ * excluded from this flight input. Vertical estimation must use a source with explicit datum.
+ */
+data class PhoneLocationFix(
+    val coordinate: GeoCoordinate,
+    val horizontalAccuracyMeters: Double?,
+    val observedAtElapsedRealtimeNanos: Long,
+) {
+    init {
+        require(
+            horizontalAccuracyMeters == null ||
+                horizontalAccuracyMeters.isFinite() && horizontalAccuracyMeters >= 0.0,
+        )
+        require(observedAtElapsedRealtimeNanos > 0L)
+    }
 }
 
 /** Stable reason why the altitude-step Next action is currently fail-closed. */
-enum class TakeoffConfirmationBlocker {
+enum class FlightPlanConfirmationBlocker {
     NOT_ALTITUDE_STEP,
     LIVE_ORIGIN_UNAVAILABLE,
     DESTINATION_UNAVAILABLE,
     INVALID_ALTITUDE,
+    INVALID_DESTINATION_GROUND_ALTITUDE,
 }
 
-/** Maximum number of characters retained for takeoff-altitude input. */
-internal const val MAX_TAKEOFF_ALTITUDE_INPUT_LENGTH = 16
+/** Maximum number of characters retained for cruise-altitude input. */
+internal const val MAX_CRUISE_ALTITUDE_INPUT_LENGTH = 16
 
-/** Decimal syntax accepted for a positive takeoff altitude without exponent notation. */
-private val TakeoffAltitudePattern = Regex("(?:\\d+(?:[.,]\\d*)?|[.,]\\d+)")
+/** Maximum number of characters retained for destination-ground altitude input. */
+internal const val MAX_DESTINATION_GROUND_ALTITUDE_INPUT_LENGTH = 16
+
+/** Decimal syntax accepted for a positive cruise altitude without exponent notation. */
+private val CruiseAltitudePattern = Regex("(?:\\d+(?:[.,]\\d*)?|[.,]\\d+)")
+
+/** Decimal syntax accepted for signed destination-ground elevation without exponent notation. */
+private val DestinationGroundAltitudePattern = Regex("[+-]?(?:\\d+(?:[.,]\\d*)?|[.,]\\d+)")
 
 /**
- * Parses a takeoff altitude expressed in meters.
+ * Parses a cruise altitude expressed in meters.
  *
  * Both a period and comma are accepted as the decimal separator. Empty, malformed, non-finite,
  * zero, and negative values are rejected. No upper limit is imposed because aircraft or legal
@@ -207,9 +234,9 @@ private val TakeoffAltitudePattern = Regex("(?:\\d+(?:[.,]\\d*)?|[.,]\\d+)")
  * @param input User-entered altitude text.
  * @return A finite meter value greater than zero, or `null` when [input] is invalid.
  */
-internal fun parseTakeoffAltitudeMeters(input: String): Double? {
+internal fun parseCruiseAltitudeMeters(input: String): Double? {
     val normalizedInput = input.trim()
-    if (!TakeoffAltitudePattern.matches(normalizedInput)) return null
+    if (!CruiseAltitudePattern.matches(normalizedInput)) return null
 
     return normalizedInput
         .replace(',', '.')
@@ -218,10 +245,33 @@ internal fun parseTakeoffAltitudeMeters(input: String): Double? {
 }
 
 /**
+ * Parses destination ground elevation relative to the takeoff surface, in meters.
+ *
+ * Both decimal separators and an optional leading sign are accepted. Zero means the destination
+ * and takeoff surfaces are level. Relationship to the selected cruise altitude is validated by
+ * [MapUiState.flightPlanConfirmationBlocker], because this parser intentionally handles syntax and
+ * finiteness only.
+ *
+ * @param input User-entered destination-ground elevation text.
+ * @return A finite signed meter value, or `null` when [input] is invalid.
+ */
+internal fun parseDestinationGroundAltitudeMeters(input: String): Double? {
+    val normalizedInput = input.trim()
+    if (!DestinationGroundAltitudePattern.matches(normalizedInput)) return null
+
+    return normalizedInput
+        .replace(',', '.')
+        .toDoubleOrNull()
+        ?.takeIf(Double::isFinite)
+}
+
+/**
  * Immutable presentation state consumed by the map screen.
  *
  * @property locationStatus Current location acquisition or permission state.
  * @property origin Latest accepted device location, or `null` before a location is available.
+ * @property phoneLocationFix Monotonic acquisition metadata for [origin], when provided by the
+ * location source.
  * @property destination User-selected destination, or `null` when none has been selected.
  * @property isOnline Whether the active network currently has validated internet access.
  * @property hasPrecisePermission Whether fine location permission is currently granted.
@@ -229,16 +279,20 @@ internal fun parseTakeoffAltitudeMeters(input: String): Double? {
  * `null` when the compass is inactive or unavailable.
  * @property compassStatus Typed lifecycle, selected-source, and failure state for the compass.
  * @property phoneSpeedStatus Typed availability and latest value for provider-supplied GPS speed.
- * @property flightSetupStep Active destination or takeoff-altitude stage of the guided panel.
- * @property takeoffAltitudeInput Raw altitude text retained as the single input source of truth.
- * @property confirmedFlightPlan Immutable route and altitude snapshot accepted by the second Next
- * action, or `null` while setup is unconfirmed.
+ * @property flightSetupStep Active destination or cruise-altitude stage of the guided panel.
+ * @property cruiseAltitudeInput Raw positive cruise-altitude text relative to takeoff.
+ * @property destinationGroundAltitudeInput Raw signed destination-ground elevation text relative
+ * to takeoff; zero means both surfaces are level.
+ * @property confirmedFlightPlan Immutable route and altitude-profile snapshot accepted by the
+ * second Next action, or `null` while setup is unconfirmed.
  */
 data class MapUiState(
     /** Current location acquisition or permission state. */
     val locationStatus: LocationStatus = LocationStatus.PERMISSION_REQUIRED,
     /** Latest accepted device location, or `null` while no origin is available. */
     val origin: PlacePoint? = null,
+    /** Current precise fix with its original monotonic acquisition time. */
+    val phoneLocationFix: PhoneLocationFix? = null,
     /** User-selected destination, or `null` when no destination has been selected. */
     val destination: PlacePoint? = null,
     /** Whether the active network has validated internet access. */
@@ -253,17 +307,23 @@ data class MapUiState(
     val phoneSpeedStatus: PhoneSpeedStatus = PhoneSpeedStatus.Inactive,
     /** Active stage of the guided flight-setup panel. */
     val flightSetupStep: FlightSetupStep = FlightSetupStep.DESTINATION,
-    /** Raw takeoff-altitude input in meters. */
-    val takeoffAltitudeInput: String = "",
-    /** Fixed route and target-altitude snapshot produced by successful confirmation. */
+    /** Raw positive cruise-altitude input above takeoff, in meters. */
+    val cruiseAltitudeInput: String = "",
+    /** Raw signed destination-ground elevation relative to takeoff, in meters. */
+    val destinationGroundAltitudeInput: String = "",
+    /** Fixed route and altitude-profile snapshot produced by successful confirmation. */
     val confirmedFlightPlan: FlightPlan? = null,
 ) {
-    /** Validated takeoff altitude in meters, or `null` while the input is invalid. */
-    val takeoffAltitudeMeters: Double?
-        get() = parseTakeoffAltitudeMeters(takeoffAltitudeInput)
+    /** Validated positive cruise altitude above takeoff, or `null` while input is invalid. */
+    val cruiseAltitudeMeters: Double?
+        get() = parseCruiseAltitudeMeters(cruiseAltitudeInput)
+
+    /** Parsed signed destination-ground elevation, or `null` while input is invalid. */
+    val destinationGroundAltitudeAboveOriginMeters: Double?
+        get() = parseDestinationGroundAltitudeMeters(destinationGroundAltitudeInput)
 
     /** Whether setup currently has a complete immutable flight-plan snapshot. */
-    val isTakeoffAltitudeConfirmed: Boolean
+    val isCruiseAltitudeConfirmed: Boolean
         get() = confirmedFlightPlan != null
 
     /** True only while a current precise location is available as the takeoff origin. */
@@ -271,19 +331,27 @@ data class MapUiState(
         get() = locationStatus == LocationStatus.READY && origin != null
 
     /** Exact fail-closed reason used by both the reducer and altitude-step presentation. */
-    val takeoffConfirmationBlocker: TakeoffConfirmationBlocker?
-        get() = when {
-            flightSetupStep != FlightSetupStep.TAKEOFF_ALTITUDE ->
-                TakeoffConfirmationBlocker.NOT_ALTITUDE_STEP
-            !hasLiveOrigin -> TakeoffConfirmationBlocker.LIVE_ORIGIN_UNAVAILABLE
-            destination == null -> TakeoffConfirmationBlocker.DESTINATION_UNAVAILABLE
-            takeoffAltitudeMeters == null -> TakeoffConfirmationBlocker.INVALID_ALTITUDE
-            else -> null
+    val flightPlanConfirmationBlocker: FlightPlanConfirmationBlocker?
+        get() {
+            val cruiseAltitude = cruiseAltitudeMeters
+            val destinationGroundAltitude = destinationGroundAltitudeAboveOriginMeters
+            return when {
+                flightSetupStep != FlightSetupStep.CRUISE_ALTITUDE ->
+                    FlightPlanConfirmationBlocker.NOT_ALTITUDE_STEP
+                !hasLiveOrigin -> FlightPlanConfirmationBlocker.LIVE_ORIGIN_UNAVAILABLE
+                destination == null -> FlightPlanConfirmationBlocker.DESTINATION_UNAVAILABLE
+                cruiseAltitude == null -> FlightPlanConfirmationBlocker.INVALID_ALTITUDE
+                destinationGroundAltitude == null ->
+                    FlightPlanConfirmationBlocker.INVALID_DESTINATION_GROUND_ALTITUDE
+                destinationGroundAltitude >= cruiseAltitude ->
+                    FlightPlanConfirmationBlocker.INVALID_DESTINATION_GROUND_ALTITUDE
+                else -> null
+            }
         }
 
     /** Whether altitude-step Next may create an immutable flight plan right now. */
-    val canConfirmTakeoffAltitude: Boolean
-        get() = takeoffConfirmationBlocker == null
+    val canConfirmCruiseAltitude: Boolean
+        get() = flightPlanConfirmationBlocker == null
 }
 
 /**
@@ -291,8 +359,8 @@ data class MapUiState(
  *
  * @return Updated state, or this state unchanged when no destination is selected.
  */
-internal fun MapUiState.advanceToTakeoffAltitude(): MapUiState =
-    if (destination == null) this else copy(flightSetupStep = FlightSetupStep.TAKEOFF_ALTITUDE)
+internal fun MapUiState.advanceToCruiseAltitude(): MapUiState =
+    if (destination == null) this else copy(flightSetupStep = FlightSetupStep.CRUISE_ALTITUDE)
 
 /**
  * Replaces the selected destination and invalidates any flight plan confirmed for the old route.
@@ -300,10 +368,18 @@ internal fun MapUiState.advanceToTakeoffAltitude(): MapUiState =
  * @param point Newly selected and optionally named destination.
  * @return State containing [point] with no confirmed flight plan.
  */
-internal fun MapUiState.selectDestination(point: PlacePoint): MapUiState = copy(
-    destination = point,
-    confirmedFlightPlan = null,
-)
+internal fun MapUiState.selectDestination(point: PlacePoint): MapUiState {
+    val destinationChanged = destination?.coordinate != point.coordinate
+    return copy(
+        destination = point,
+        destinationGroundAltitudeInput = if (destinationChanged) {
+            ""
+        } else {
+            destinationGroundAltitudeInput
+        },
+        confirmedFlightPlan = null,
+    )
+}
 
 /**
  * Removes the selected route and resets its dependent altitude workflow.
@@ -313,7 +389,8 @@ internal fun MapUiState.selectDestination(point: PlacePoint): MapUiState = copy(
 internal fun MapUiState.clearSelectedDestination(): MapUiState = copy(
     destination = null,
     flightSetupStep = FlightSetupStep.DESTINATION,
-    takeoffAltitudeInput = "",
+    cruiseAltitudeInput = "",
+    destinationGroundAltitudeInput = "",
     confirmedFlightPlan = null,
 )
 
@@ -329,10 +406,21 @@ internal fun MapUiState.returnToDestinationSelection(): MapUiState =
  * Replaces the altitude draft and invalidates any earlier confirmation.
  *
  * @param input Latest user-entered altitude text.
- * @return State containing at most [MAX_TAKEOFF_ALTITUDE_INPUT_LENGTH] input characters.
+ * @return State containing at most [MAX_CRUISE_ALTITUDE_INPUT_LENGTH] input characters.
  */
-internal fun MapUiState.updateTakeoffAltitude(input: String): MapUiState = copy(
-    takeoffAltitudeInput = input.take(MAX_TAKEOFF_ALTITUDE_INPUT_LENGTH),
+internal fun MapUiState.updateCruiseAltitude(input: String): MapUiState = copy(
+    cruiseAltitudeInput = input.take(MAX_CRUISE_ALTITUDE_INPUT_LENGTH),
+    confirmedFlightPlan = null,
+)
+
+/**
+ * Replaces the destination-ground elevation draft and invalidates any earlier confirmation.
+ *
+ * @param input Latest signed landing-surface elevation relative to takeoff.
+ * @return State containing at most [MAX_DESTINATION_GROUND_ALTITUDE_INPUT_LENGTH] characters.
+ */
+internal fun MapUiState.updateDestinationGroundAltitude(input: String): MapUiState = copy(
+    destinationGroundAltitudeInput = input.take(MAX_DESTINATION_GROUND_ALTITUDE_INPUT_LENGTH),
     confirmedFlightPlan = null,
 )
 
@@ -341,17 +429,20 @@ internal fun MapUiState.updateTakeoffAltitude(input: String): MapUiState = copy(
  *
  * @return Confirmed state, or this state unchanged when confirmation is not currently valid.
  */
-internal fun MapUiState.confirmTakeoffAltitude(): MapUiState {
-    if (!canConfirmTakeoffAltitude) return this
+internal fun MapUiState.confirmCruiseAltitude(): MapUiState {
+    if (!canConfirmCruiseAltitude) return this
     val fixedOrigin = requireNotNull(origin).coordinate
     val fixedDestination = requireNotNull(destination).coordinate
-    val targetAltitude = requireNotNull(takeoffAltitudeMeters)
+    val targetAltitude = requireNotNull(cruiseAltitudeMeters)
+    val destinationGroundAltitude =
+        requireNotNull(destinationGroundAltitudeAboveOriginMeters)
 
     return copy(
         confirmedFlightPlan = FlightPlan(
             origin = fixedOrigin,
             destination = fixedDestination,
             targetAltitudeAboveOriginMeters = targetAltitude,
+            destinationGroundAltitudeAboveOriginMeters = destinationGroundAltitude,
         )
     )
 }

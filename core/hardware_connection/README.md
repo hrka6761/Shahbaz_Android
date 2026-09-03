@@ -59,10 +59,30 @@ board.emergencyStopActuators()
 Every actuator method returns `BoardActuatorCommandResult.Queued` or
 `BoardActuatorCommandResult.Rejected`. Rejections cover closed links, disabled actuator mode,
 non-Ready sessions, unavailable board actuators, invalid channels, empty/oversized batches, and
-out-of-range pulse widths. A motor submission must contain every active channel exactly once. Its
+out-of-range pulse widths. `Queued` means admitted to a bounded dispatcher queue, not applied by the
+board. `sendMotorPulses` returns `Queued(commandCount = 1)` because all four PWM values form one
+Protocol v2 command and require one matching ACK. A motor submission must contain exactly Quad-X
+channels `0..3` once each, and the Ready board must report exactly four active motor channels. Its
 monotonic source timestamp is preserved on the wire, and future or over-age output is rejected
-instead of being made to look fresh after queue delay. Command ACK/NACK frames are matched to
-pending command sequences and recorded in the flight black box.
+instead of being made to look fresh after queue delay. Ordinary queued submissions and pending ACKs
+have hard bounds; Disarm and EmergencyStop have independent reserved/coalesced slots. Every sent
+actuator command must receive its exact ACK. A NACK, ACK timeout, or pending-window saturation fails
+and safety-closes the link, making the loss visible through `BoardConnectionState.Failed`.
+
+The coherent motor-generation request is `MotorFrameCommand` (`0x8014`, critical priority). After
+the eight-byte session token, its fixed application payload is:
+
+| Offset | Encoding | Meaning |
+|---:|---|---|
+| 8 | `u8` | Entry count; must be `4` |
+| 9, 12, 15, 18 | `u8` | Canonical channel IDs `0`, `1`, `2`, `3` |
+| 10, 13, 16, 19 | `u16` little-endian | PWM pulse width in microseconds |
+
+The four entries are validated as a whole before asynchronous submission, copied away from a
+possibly mutable caller list, encoded in canonical channel order, assigned one sequence number,
+and tracked against one exact `MOTOR_FRAME_COMMAND` application ACK (`18`). Legacy single-motor
+`MotorCommand` and generic `ActuatorCommand` requests are not permitted by the Android guarded
+encoder, preventing either route from bypassing the coherent-frame API.
 
 `BoardConnectionState.Ready` is deliberately strict. It is emitted only after all of the following:
 
@@ -93,9 +113,24 @@ app-owned QNH. A sensor sample is accepted only after the current attachment rea
 its device timestamp must map into the configured freshness/future-skew window established by the
 current TimeSync. The first TimeSync device receive time remains an immutable attachment floor;
 periodic mappings support bounded backward conversion when HIGH traffic legitimately overtakes
-earlier NORMAL telemetry. Unknown sensor IDs and additional instances are retained as `RawSensorSample`
+earlier NORMAL telemetry. `SensorSample` keeps both the actual USB receipt time and that mapped
+measurement time; controller/autopilot freshness and store staleness use the measurement time, so
+transport or scheduler delay cannot make an old observation look new. Unknown sensor IDs and
+additional instances are retained as `RawSensorSample`
 keyed by `SensorKey`, allowing new board sensors without changing the USB layer; retention is
 strictly capped by `HardwareConnectionConfig.maximumUnknownSensors`.
+
+Each DeviceStatus response is decoded as either the exact six-byte legacy payload or the exact
+ten-byte extended payload; every other length, unknown safety/communication code, non-Boolean flag,
+or unknown lifecycle byte is rejected. The four appended bytes map in fixed order to ground, up,
+front-left, and front-right. Their public `RangefinderLifecycleStatus` reports
+`DISABLED_OR_ABSENT`, `INITIALIZING`, `LIVE`, or `DEGRADED` independently. Legacy status leaves
+existing range states untouched. Extended status marks disabled/initializing roles explicitly,
+retains the last valid sample when a role degrades, and requires a subsequent valid sample before
+that role becomes live again. A disabled, initializing, or sample-less degraded role receives its
+own fresh first-sample deadline when it transitions to `LIVE`; repeated status reports cannot keep
+extending that deadline. Delayed samples cannot override an explicit non-`LIVE` lifecycle, and a
+malformed or replayed sample cannot satisfy or cancel the first-sample deadline.
 
 ## Safety boundary
 
@@ -105,6 +140,13 @@ actuator availability, complete motor frames, active channel counts, duplicate c
 sizes, source freshness, and PWM ranges before queueing commands on the serial USB dispatcher. Safe
 shutdown may send `StopTelemetry` followed by the tokenless `Disarm` safety override before closing
 USB.
+
+Protocol v2 now carries a Quad-X generation in one request rather than four independently
+deliverable channel requests. Firmware must validate the complete payload before changing any
+output and either apply all four accepted values or force all outputs safe. A single USB frame does
+not by itself prove simultaneous PWM-register latching or flightworthiness; board HIL must still
+verify malformed-frame rejection, exact ACK/NACK identity, dropped/corrupted-frame behavior,
+watchdog/disarm interaction, update skew, and all-or-safe hardware behavior before flight.
 
 If actuator commands are not enabled in `HardwareConnectionConfig`, the library treats a board
 reporting `actuatorArmed=true` as a critical protocol violation and closes the link. When actuator
@@ -141,8 +183,11 @@ keeps TimeSync/session, CRC, freshness, heartbeat, and fail-closed actuator rule
 
 Unit tests cover CRC-32C, COBS, the shared golden frame, bounded resynchronization, session reset,
 TimeSync rejection and bounded retry, advisory/fatal/unknown DeviceInfo masks,
-guarded actuator encoding and public pulse-bound models, typed sensor validation, sequence regression,
-inbound priority/replay/reorder/wrap behavior, strict heartbeat/command acknowledgements, independent
+guarded coherent-frame encoding, all Quad-X permutations, incomplete/duplicate/out-of-range motor
+frames, PWM boundaries, legacy motor-path rejection, single sequence/ACK identity, public
+pulse-bound models, typed sensor validation, sequence regression,
+inbound priority/replay/reorder/wrap behavior, strict heartbeat/command acknowledgements, strict
+legacy/extended DeviceStatus lifecycle decoding, independent
 first-sample timeout and recovery, staleness/offline behavior, QNH recalculation, atomic receiver
 rollback, mutable permission-result policy, staged handshake decisions, CDC logical-session
 control-line policy, and bounded unknown-sensor extensibility. Android USB permission, physical

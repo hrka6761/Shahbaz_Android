@@ -40,8 +40,8 @@ import androidx.compose.material.icons.rounded.SwapVert
 import androidx.compose.material.icons.rounded.Terrain
 import androidx.compose.material.icons.rounded.WaterDrop
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -79,6 +79,8 @@ import com.shahbaz.flightblackbox.FbbPersistence
 import com.shahbaz.flightblackbox.FlightBlackBox
 import ir.hrka.compass.CompassAccuracyLevel
 import ir.hrka.compass.CompassReading
+import ir.hrka.shahbaz.autopilot.AutopilotPhase
+import ir.hrka.shahbaz.autopilot.AutopilotSnapshot
 import ir.hrka.shahbaz.core.designsystem.attitude.AttitudeIndicatorView
 import ir.hrka.shahbaz.core.designsystem.compass.CompassView
 import ir.hrka.shahbaz.core.domain.formatDistance
@@ -88,9 +90,11 @@ import ir.hrka.shahbaz.core.model.GeoCoordinate
 import ir.hrka.shahbaz.feature.dashboard.impl.R
 import ir.hrka.shahbaz.hardwareconnection.BoardConnectionState
 import ir.hrka.shahbaz.hardwareconnection.BoardDisconnectReason
+import ir.hrka.shahbaz.hardwareconnection.RangefinderRole
 import ir.hrka.shahbaz.hardwareconnection.SensorErrorCode
 import ir.hrka.shahbaz.hardwareconnection.SensorState
 import ir.hrka.shahbaz.hardwareconnection.SensorUnavailableReason
+import ir.hrka.shahbaz.hardwareconnection.Vl53l0xTelemetry
 import kotlinx.coroutines.delay
 import kotlinx.serialization.json.JsonObject
 import org.maplibre.compose.camera.CameraPosition
@@ -129,6 +133,54 @@ internal enum class DashboardPaneLayout { PORTRAIT, LANDSCAPE }
 internal fun dashboardPaneLayout(width: Float, height: Float): DashboardPaneLayout {
     require(width >= 0f && height >= 0f)
     return if (width > height) DashboardPaneLayout.LANDSCAPE else DashboardPaneLayout.PORTRAIT
+}
+
+/** Primary operator intent exposed by the dashboard for the current mission phase. */
+internal enum class AutopilotPrimaryControl { START, ABORT, STATUS }
+
+/** Platform-neutral decision consumed by the Compose mission controls. */
+internal data class AutopilotControlPresentation(
+    val primaryControl: AutopilotPrimaryControl,
+    val phase: AutopilotPhase?,
+    val showEmergencyStop: Boolean,
+    val firstIssueMessage: String?,
+    val additionalIssueCount: Int,
+)
+
+/**
+ * Maps an immutable autopilot snapshot to operator controls without performing any flight action.
+ * The UI emits intent only; the autopilot and flight controller retain all physical safety gates.
+ */
+internal fun autopilotControlPresentation(
+    snapshot: AutopilotSnapshot?,
+): AutopilotControlPresentation {
+    val phase = snapshot?.phase
+    val primaryControl = when (phase) {
+        AutopilotPhase.STANDBY -> AutopilotPrimaryControl.START
+        AutopilotPhase.PREFLIGHT,
+        AutopilotPhase.ARMING,
+        AutopilotPhase.TAKEOFF,
+        AutopilotPhase.CRUISE,
+        AutopilotPhase.LANDING,
+        AutopilotPhase.RETURN_CLIMB,
+        AutopilotPhase.RETURNING,
+        AutopilotPhase.DISARMING,
+        -> AutopilotPrimaryControl.ABORT
+        AutopilotPhase.COMPLETED,
+        AutopilotPhase.ABORTED,
+        AutopilotPhase.FAILED,
+        AutopilotPhase.EMERGENCY_STOPPED,
+        null,
+        -> AutopilotPrimaryControl.STATUS
+    }
+    val issues = snapshot?.issues.orEmpty()
+    return AutopilotControlPresentation(
+        primaryControl = primaryControl,
+        phase = phase,
+        showEmergencyStop = phase != null && primaryControl != AutopilotPrimaryControl.STATUS,
+        firstIssueMessage = issues.firstOrNull()?.message,
+        additionalIssueCount = (issues.size - 1).coerceAtLeast(0),
+    )
 }
 
 /** Recovery action exposed by the blocking board-connection gate. */
@@ -200,6 +252,8 @@ internal enum class InstrumentStatusKind {
     NOT_PRESENT,
     UNAVAILABLE,
     NO_RESPONSE,
+    OUT_OF_RANGE,
+    SIGNAL_FAILURE,
     INVALID,
     ERROR,
     INACTIVE,
@@ -216,15 +270,24 @@ internal fun sensorStatusKind(state: SensorState<*>): InstrumentStatusKind = whe
         SensorUnavailableReason.BOARD_DISCONNECTED -> InstrumentStatusKind.NOT_CONNECTED
         SensorUnavailableReason.TELEMETRY_NOT_STARTED -> InstrumentStatusKind.LOADING
         SensorUnavailableReason.SENSOR_REPORTED_OFFLINE -> InstrumentStatusKind.NOT_PRESENT
+        SensorUnavailableReason.RANGEFINDER_DISABLED_OR_ABSENT -> InstrumentStatusKind.NOT_PRESENT
+        SensorUnavailableReason.RANGEFINDER_INITIALIZING -> InstrumentStatusKind.LOADING
     }
     is SensorState.Failed -> when (state.error.code) {
         SensorErrorCode.INVALID_PAYLOAD,
         SensorErrorCode.INVALID_VALIDITY,
-        SensorErrorCode.OUT_OF_RANGE -> InstrumentStatusKind.INVALID
+        SensorErrorCode.RANGE_STATUS_UNKNOWN -> InstrumentStatusKind.INVALID
+        SensorErrorCode.OUT_OF_RANGE,
+        SensorErrorCode.RANGE_MINIMUM_FAILURE -> InstrumentStatusKind.OUT_OF_RANGE
+        SensorErrorCode.RANGE_SIGMA_FAILURE,
+        SensorErrorCode.RANGE_SIGNAL_FAILURE,
+        SensorErrorCode.RANGE_PHASE_FAILURE -> InstrumentStatusKind.SIGNAL_FAILURE
         SensorErrorCode.NO_RESPONSE -> InstrumentStatusKind.NO_RESPONSE
         SensorErrorCode.NOT_FRESH -> InstrumentStatusKind.STALE
         SensorErrorCode.SENSOR_OFFLINE -> InstrumentStatusKind.NOT_PRESENT
-        SensorErrorCode.HEALTH_FAULT -> InstrumentStatusKind.ERROR
+        SensorErrorCode.RANGEFINDER_DEGRADED -> InstrumentStatusKind.DEGRADED
+        SensorErrorCode.HEALTH_FAULT,
+        SensorErrorCode.RANGE_HARDWARE_FAILURE -> InstrumentStatusKind.ERROR
     }
 }
 
@@ -259,14 +322,17 @@ internal fun orientationStatusKind(
 
 /**
  * Displays the flight dashboard only after the USB board has completed its full Ready handshake.
- * The map and instruments occupy exact 30/70 weights in either orientation. The start control is
- * intentionally disabled and has no click or long-click behavior in this implementation stage.
+ * The map and instruments occupy exact 30/70 weights in either orientation. Mission controls emit
+ * operator intent through callbacks and never arm or command the aircraft directly.
  */
 @Composable
 fun DashboardScreen(
     state: DashboardUiState,
     onRequestUsbPermission: () -> Unit,
     onRetryBoardConnection: () -> Unit,
+    onStartFlight: () -> Unit,
+    onAbortFlight: () -> Unit,
+    onEmergencyStop: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val blocked = shouldBlockDashboard(state.boardConnection)
@@ -349,7 +415,11 @@ fun DashboardScreen(
                     }
                 }
 
-                StartFlightPlaceholder(
+                AutopilotControls(
+                    snapshot = state.mission,
+                    onStartFlight = onStartFlight,
+                    onAbortFlight = onAbortFlight,
+                    onEmergencyStop = onEmergencyStop,
                     modifier = Modifier
                         .align(Alignment.BottomEnd)
                         .windowInsetsPadding(WindowInsets.navigationBars)
@@ -517,6 +587,7 @@ private fun InstrumentPane(state: DashboardUiState, modifier: Modifier = Modifie
         AttitudePanel(state.phoneSensors.orientation)
         InstrumentRow(environmentInstruments(state))
         InstrumentRow(altitudeInstruments(state))
+        rangefinderInstruments(state).chunked(2).forEach { row -> InstrumentRow(row) }
     }
 }
 
@@ -862,6 +933,38 @@ private fun altitudeInstruments(state: DashboardUiState): List<InstrumentReadout
     )
 }
 
+/** Four independently labelled physical rangefinder channels; one failure never masks another. */
+@Composable
+private fun rangefinderInstruments(state: DashboardUiState): List<InstrumentReadout> =
+    RangefinderRole.entries.map { role ->
+        val sensor = state.boardTelemetry.rangefinder(role)
+        val status = sensorStatusKind(sensor)
+        InstrumentReadout(
+            id = "vl53l0x-${role.name.lowercase()}",
+            title = stringResource(
+                when (role) {
+                    RangefinderRole.GROUND -> R.string.instrument_range_ground
+                    RangefinderRole.UP -> R.string.instrument_range_up
+                    RangefinderRole.FRONT_LEFT -> R.string.instrument_range_front_left
+                    RangefinderRole.FRONT_RIGHT -> R.string.instrument_range_front_right
+                },
+            ),
+            icon = when (role) {
+                RangefinderRole.GROUND,
+                RangefinderRole.UP -> Icons.Rounded.SwapVert
+                RangefinderRole.FRONT_LEFT,
+                RangefinderRole.FRONT_RIGHT -> Icons.Rounded.Explore
+            },
+            primaryValue = retainedInstrumentValue(
+                sensor.lastVl53l0xValue()?.distanceMillimeters?.let {
+                    stringResource(R.string.value_millimeters, it)
+                },
+                status,
+            ),
+            status = status,
+        )
+    }
+
 /**
  * Runs the retainedInstrumentValue operation.
  */
@@ -931,6 +1034,14 @@ private fun InstrumentCard(readout: InstrumentReadout, modifier: Modifier = Modi
                 StatusDot(readout.status)
             }
             Text(
+                text = readout.title,
+                style = MaterialTheme.typography.labelMedium,
+                color = CockpitMuted,
+                textAlign = TextAlign.Center,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Text(
                 text = readout.primaryValue,
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Black,
@@ -986,7 +1097,9 @@ private fun statusColor(kind: InstrumentStatusKind): Color = when (kind) {
     InstrumentStatusKind.DEGRADED,
     InstrumentStatusKind.STALE,
     InstrumentStatusKind.LOADING,
-    InstrumentStatusKind.NO_RESPONSE -> WarningAmber
+    InstrumentStatusKind.NO_RESPONSE,
+    InstrumentStatusKind.OUT_OF_RANGE,
+    InstrumentStatusKind.SIGNAL_FAILURE -> WarningAmber
     InstrumentStatusKind.INVALID,
     InstrumentStatusKind.ERROR -> CriticalRed
     InstrumentStatusKind.NOT_CONNECTED,
@@ -1009,6 +1122,8 @@ private fun statusLabel(kind: InstrumentStatusKind): String = stringResource(
         InstrumentStatusKind.NOT_PRESENT -> R.string.status_not_present
         InstrumentStatusKind.UNAVAILABLE -> R.string.status_unavailable
         InstrumentStatusKind.NO_RESPONSE -> R.string.status_no_response
+        InstrumentStatusKind.OUT_OF_RANGE -> R.string.status_out_of_range
+        InstrumentStatusKind.SIGNAL_FAILURE -> R.string.status_signal_failure
         InstrumentStatusKind.INVALID -> R.string.status_invalid
         InstrumentStatusKind.ERROR -> R.string.status_error
         InstrumentStatusKind.INACTIVE -> R.string.status_inactive
@@ -1029,6 +1144,14 @@ private fun SensorState<ir.hrka.shahbaz.hardwareconnection.Sht30Telemetry>.lastS
  * Runs the SensorState operation.
  */
 private fun SensorState<ir.hrka.shahbaz.hardwareconnection.Ms5611Telemetry>.lastMsValue() = when (this) {
+    is SensorState.Available -> sample.value
+    is SensorState.Stale -> lastSample?.value
+    is SensorState.Failed -> lastSample?.value
+    else -> null
+}
+
+/** Retains only the last schema-valid and optically valid range sample for warning states. */
+private fun SensorState<Vl53l0xTelemetry>.lastVl53l0xValue() = when (this) {
     is SensorState.Available -> sample.value
     is SensorState.Stale -> lastSample?.value
     is SensorState.Failed -> lastSample?.value
@@ -1498,31 +1621,149 @@ private fun MapLocalError(text: String, modifier: Modifier = Modifier) {
 }
 
 /**
- * Runs the StartFlightPlaceholder operation.
+ * Presents mission state and dispatches operator intent without bypassing autopilot safety gates.
  */
 @Composable
-private fun StartFlightPlaceholder(modifier: Modifier = Modifier) {
-    val unavailable = stringResource(R.string.start_flight_unavailable)
-    FloatingActionButton(
-        onClick = {},
-        modifier = modifier
-            .semantics {
-                disabled()
-                stateDescription = unavailable
-                contentDescription = unavailable
-            },
-        containerColor = CriticalRed,
-        contentColor = Color.White,
-    ) {
-        Text(
-            text = stringResource(R.string.start_flight),
-            textAlign = TextAlign.Center,
-            fontSize = 14.sp,
-            lineHeight = 16.sp,
-            fontWeight = FontWeight.Black,
+private fun AutopilotControls(
+    snapshot: AutopilotSnapshot?,
+    onStartFlight: () -> Unit,
+    onAbortFlight: () -> Unit,
+    onEmergencyStop: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val presentation = autopilotControlPresentation(snapshot)
+    val phaseText = autopilotPhaseText(presentation.phase)
+    val emergencyStopDescription = stringResource(R.string.emergency_stop_flight)
+    val issueText = when {
+        snapshot == null -> stringResource(R.string.autopilot_status_missing_detail)
+        presentation.firstIssueMessage == null -> null
+        presentation.additionalIssueCount == 0 -> presentation.firstIssueMessage
+        else -> stringResource(
+            R.string.autopilot_issue_with_more,
+            presentation.firstIssueMessage,
+            presentation.additionalIssueCount,
         )
     }
+
+    Column(
+        modifier = modifier.widthIn(max = 360.dp),
+        horizontalAlignment = Alignment.End,
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        issueText?.let { text ->
+            Surface(
+                modifier = Modifier.semantics {
+                    liveRegion = LiveRegionMode.Polite
+                    contentDescription = text
+                },
+                color = CockpitSurface.copy(alpha = .96f),
+                contentColor = WarningAmber,
+                shape = DashboardCardShape,
+                shadowElevation = 4.dp,
+            ) {
+                Text(
+                    text = text,
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                    style = MaterialTheme.typography.bodySmall,
+                    maxLines = 3,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
+
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            if (presentation.showEmergencyStop) {
+                Button(
+                    onClick = onEmergencyStop,
+                    modifier = Modifier.semantics {
+                        contentDescription = "$emergencyStopDescription. $phaseText"
+                    },
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = CriticalRed,
+                        contentColor = Color.White,
+                    ),
+                ) {
+                    Text(
+                        text = stringResource(R.string.emergency_stop),
+                        fontWeight = FontWeight.Black,
+                    )
+                }
+            }
+
+            when (presentation.primaryControl) {
+                AutopilotPrimaryControl.START -> OutlinedButton(
+                    onClick = onStartFlight,
+                    modifier = Modifier.semantics { stateDescription = phaseText },
+                    border = BorderStroke(1.dp, WarningAmber),
+                ) {
+                    Text(
+                        text = stringResource(R.string.start_flight),
+                        color = CockpitOnSurface,
+                        fontWeight = FontWeight.Black,
+                    )
+                }
+
+                AutopilotPrimaryControl.ABORT -> OutlinedButton(
+                    onClick = onAbortFlight,
+                    modifier = Modifier.semantics { stateDescription = phaseText },
+                    border = BorderStroke(1.dp, WarningAmber),
+                ) {
+                    Text(
+                        text = stringResource(R.string.abort_flight),
+                        color = CockpitOnSurface,
+                        fontWeight = FontWeight.Black,
+                    )
+                }
+
+                AutopilotPrimaryControl.STATUS -> Surface(
+                    modifier = Modifier.semantics {
+                        disabled()
+                        stateDescription = phaseText
+                        contentDescription = phaseText
+                    },
+                    color = CockpitSurface.copy(alpha = .96f),
+                    contentColor = CockpitOnSurface,
+                    shape = DashboardCardShape,
+                    border = BorderStroke(1.dp, CockpitMuted.copy(alpha = .6f)),
+                    shadowElevation = 4.dp,
+                ) {
+                    Text(
+                        text = phaseText.uppercase(),
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+                        textAlign = TextAlign.Center,
+                        fontSize = 14.sp,
+                        lineHeight = 16.sp,
+                        fontWeight = FontWeight.Black,
+                    )
+                }
+            }
+        }
+    }
 }
+
+/** Human-readable status for each autonomous mission phase. */
+@Composable
+private fun autopilotPhaseText(phase: AutopilotPhase?): String = stringResource(
+    when (phase) {
+        AutopilotPhase.STANDBY -> R.string.autopilot_phase_standby
+        AutopilotPhase.PREFLIGHT -> R.string.autopilot_phase_preflight
+        AutopilotPhase.ARMING -> R.string.autopilot_phase_arming
+        AutopilotPhase.TAKEOFF -> R.string.autopilot_phase_takeoff
+        AutopilotPhase.CRUISE -> R.string.autopilot_phase_cruise
+        AutopilotPhase.LANDING -> R.string.autopilot_phase_landing
+        AutopilotPhase.RETURN_CLIMB -> R.string.autopilot_phase_return_climb
+        AutopilotPhase.RETURNING -> R.string.autopilot_phase_returning
+        AutopilotPhase.DISARMING -> R.string.autopilot_phase_disarming
+        AutopilotPhase.COMPLETED -> R.string.autopilot_phase_completed
+        AutopilotPhase.ABORTED -> R.string.autopilot_phase_aborted
+        AutopilotPhase.FAILED -> R.string.autopilot_phase_failed
+        AutopilotPhase.EMERGENCY_STOPPED -> R.string.autopilot_phase_emergency_stopped
+        null -> R.string.autopilot_phase_unavailable
+    },
+)
 
 /**
  * Exposes the INSTRUMENT_WEIGHT value.

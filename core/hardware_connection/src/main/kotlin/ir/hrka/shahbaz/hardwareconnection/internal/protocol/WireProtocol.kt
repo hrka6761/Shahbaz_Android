@@ -2,9 +2,13 @@
 package ir.hrka.shahbaz.hardwareconnection.internal.protocol
 
 import ir.hrka.shahbaz.hardwareconnection.BoardDeviceInfo
+import ir.hrka.shahbaz.hardwareconnection.BoardMotorPulse
 import ir.hrka.shahbaz.hardwareconnection.BoardTarget
 import ir.hrka.shahbaz.hardwareconnection.RawSensorField
 import ir.hrka.shahbaz.hardwareconnection.RawSensorFieldType
+import ir.hrka.shahbaz.hardwareconnection.RangefinderLifecycle
+import ir.hrka.shahbaz.hardwareconnection.RangefinderLifecycleStatus
+import ir.hrka.shahbaz.hardwareconnection.internal.QUAD_X_MOTOR_CHANNEL_COUNT
 import java.util.concurrent.CancellationException
 import kotlin.math.pow
 
@@ -75,7 +79,8 @@ internal enum class MessageType(val wireValue: Int) {
     COMMAND_ACK(0x0060), COMMAND_NACK(0x0061), PROTOCOL_ERROR(0x0062), SAFETY_STATE(0x0063),
     EMERGENCY_STOP(0x0070), DISARM(0x0071),
     ARM_REQUEST(0x8000), ARM_CONFIRM(0x8001), ACTUATOR_COMMAND(0x8010),
-    MOTOR_COMMAND(0x8011), SERVO_COMMAND(0x8012), SET_CONTROL_MODE(0x8013);
+    MOTOR_COMMAND(0x8011), SERVO_COMMAND(0x8012), SET_CONTROL_MODE(0x8013),
+    MOTOR_FRAME_COMMAND(0x8014);
 
     companion object {
         /**
@@ -594,14 +599,42 @@ internal object SafeRequests {
     fun armConfirm() = request(MessageType.ARM_CONFIRM, MessagePriority.CRITICAL, sessionBound = true)
 
     /**
-     * Runs the motorCommand operation.
+     * Builds one complete Quad-X motor generation.
+     *
+     * The application payload is `[count:u8][channel:u8, pulse_us:u16 LE] * 4`.
+     * Entries are emitted in canonical channel order so a caller's list order cannot alter the
+     * wire representation. The session token is prepended by [FrameCodec].
      */
-    fun motorCommand(channel: Int, pulseMicros: Int) = request(
-        type = MessageType.MOTOR_COMMAND,
-        priority = MessagePriority.CRITICAL,
-        payload = directPulsePayload(channel, pulseMicros),
-        sessionBound = true,
-    )
+    fun motorFrameCommand(pulses: List<BoardMotorPulse>): OutboundRequest {
+        require(pulses.size == QUAD_X_MOTOR_CHANNEL_COUNT) {
+            "Quad-X motor frame must contain exactly $QUAD_X_MOTOR_CHANNEL_COUNT channels"
+        }
+        val pulsesByChannel = arrayOfNulls<BoardMotorPulse>(QUAD_X_MOTOR_CHANNEL_COUNT)
+        pulses.forEach { pulse ->
+            require(pulse.channel in pulsesByChannel.indices) {
+                "Quad-X motor channel must be in ${pulsesByChannel.indices}"
+            }
+            require(pulsesByChannel[pulse.channel] == null) {
+                "Quad-X motor channel ${pulse.channel} is duplicated"
+            }
+            pulsesByChannel[pulse.channel] = pulse
+        }
+
+        val payload = ByteArray(1 + QUAD_X_MOTOR_CHANNEL_COUNT * 3)
+        payload[0] = QUAD_X_MOTOR_CHANNEL_COUNT.toByte()
+        pulsesByChannel.forEachIndexed { channel, pulse ->
+            checkNotNull(pulse) { "Quad-X motor channel $channel is missing" }
+            val offset = 1 + channel * 3
+            payload[offset] = channel.toByte()
+            writeU16(payload, offset + 1, pulse.pulseMicros)
+        }
+        return request(
+            type = MessageType.MOTOR_FRAME_COMMAND,
+            priority = MessagePriority.CRITICAL,
+            payload = payload,
+            sessionBound = true,
+        )
+    }
 
     /**
      * Runs the servoCommand operation.
@@ -610,20 +643,6 @@ internal object SafeRequests {
         type = MessageType.SERVO_COMMAND,
         priority = MessagePriority.CRITICAL,
         payload = directPulsePayload(channel, pulseMicros),
-        sessionBound = true,
-    )
-
-    /**
-     * Runs the actuatorCommand operation.
-     */
-    fun actuatorCommand(kind: ActuatorKind, channel: Int, pulseMicros: Int) = request(
-        type = MessageType.ACTUATOR_COMMAND,
-        priority = MessagePriority.CRITICAL,
-        payload = ByteArray(4).also {
-            it[0] = kind.wireValue.toByte()
-            it[1] = channelByte(channel)
-            writeU16(it, 2, pulseMicros)
-        },
         sessionBound = true,
     )
 
@@ -666,14 +685,6 @@ internal object SafeRequests {
 }
 
 /**
- * Documents the ActuatorKind type and the role it plays in this module.
- */
-internal enum class ActuatorKind(val wireValue: Int) {
-    MOTOR(1),
-    SERVO(2),
-}
-
-/**
  * Exposes the GUARDED_HOST_REQUEST_TYPES value.
  */
 private val GUARDED_HOST_REQUEST_TYPES = setOf(
@@ -687,8 +698,7 @@ private val GUARDED_HOST_REQUEST_TYPES = setOf(
     MessageType.DISARM,
     MessageType.ARM_REQUEST,
     MessageType.ARM_CONFIRM,
-    MessageType.ACTUATOR_COMMAND,
-    MessageType.MOTOR_COMMAND,
+    MessageType.MOTOR_FRAME_COMMAND,
     MessageType.SERVO_COMMAND,
     MessageType.SET_CONTROL_MODE,
 )
@@ -895,7 +905,8 @@ internal enum class ApplicationAction(val wireValue: Int) {
     MOTOR_COMMAND(14),
     SERVO_COMMAND(15),
     ACTUATOR_COMMAND(16),
-    SET_CONTROL_MODE(17);
+    SET_CONTROL_MODE(17),
+    MOTOR_FRAME_COMMAND(18);
 
     companion object {
         /**
@@ -971,6 +982,8 @@ internal data class DeviceStatusPayload(
      * Exposes the ms5611Online value.
      */
     val ms5611Online: Boolean,
+    /** Null for the exact six-byte legacy response; populated by the ten-byte response. */
+    val rangefinders: RangefinderLifecycleStatus? = null,
 )
 
 /**
@@ -978,12 +991,61 @@ internal data class DeviceStatusPayload(
  */
 internal fun DecodedFrame.decodeDeviceStatus(): DeviceStatusPayload? {
     if (header.messageType != MessageType.DEVICE_STATUS_RESPONSE) return null
-    requirePayloadSize(6)
+    if (payload.size != LEGACY_DEVICE_STATUS_SIZE && payload.size != EXTENDED_DEVICE_STATUS_SIZE) {
+        throw ProtocolException(
+            ProtocolErrorKind.PAYLOAD_INVALID,
+            "DeviceStatus payload ${payload.size} must be exactly " +
+                "$LEGACY_DEVICE_STATUS_SIZE or $EXTENDED_DEVICE_STATUS_SIZE bytes",
+        )
+    }
+    val safetyState = readU8(payload, 0)
+    if (safetyState !in 0..6) {
+        throw ProtocolException(
+            ProtocolErrorKind.PAYLOAD_INVALID,
+            "invalid safety state $safetyState",
+        )
+    }
+    val communicationState = readU8(payload, 1)
+    if (communicationState !in 0..4) {
+        throw ProtocolException(
+            ProtocolErrorKind.PAYLOAD_INVALID,
+            "invalid communication state $communicationState",
+        )
+    }
     return DeviceStatusPayload(
-        readU8(payload, 0), readU8(payload, 1), readBooleanByte(payload, 2),
-        readBooleanByte(payload, 3), readBooleanByte(payload, 4), readBooleanByte(payload, 5),
+        safetyState = safetyState,
+        communicationState = communicationState,
+        telemetryEnabled = readBooleanByte(payload, 2),
+        actuatorArmed = readBooleanByte(payload, 3),
+        sht30Online = readBooleanByte(payload, 4),
+        ms5611Online = readBooleanByte(payload, 5),
+        rangefinders = if (payload.size == EXTENDED_DEVICE_STATUS_SIZE) {
+            RangefinderLifecycleStatus(
+                ground = readRangefinderLifecycle(payload, 6),
+                up = readRangefinderLifecycle(payload, 7),
+                frontLeft = readRangefinderLifecycle(payload, 8),
+                frontRight = readRangefinderLifecycle(payload, 9),
+            )
+        } else {
+            null
+        },
     )
 }
+
+private fun readRangefinderLifecycle(input: ByteArray, offset: Int): RangefinderLifecycle =
+    when (val value = readU8(input, offset)) {
+        0 -> RangefinderLifecycle.DISABLED_OR_ABSENT
+        1 -> RangefinderLifecycle.INITIALIZING
+        2 -> RangefinderLifecycle.LIVE
+        3 -> RangefinderLifecycle.DEGRADED
+        else -> throw ProtocolException(
+            ProtocolErrorKind.PAYLOAD_INVALID,
+            "invalid rangefinder lifecycle $value at role index ${offset - 6}",
+        )
+    }
+
+private const val LEGACY_DEVICE_STATUS_SIZE = 6
+private const val EXTENDED_DEVICE_STATUS_SIZE = 10
 
 /**
  * Runs the altitudeMeters operation.

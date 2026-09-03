@@ -6,8 +6,8 @@ The smallest shared model layer. It contains Android-free value objects that can
 
 - Represent a latitude/longitude pair in decimal degrees.
 - Enforce finite values and the inclusive geographic ranges at construction time.
-- Represent a confirmed flight as fixed origin/destination coordinates and a positive target height
-  above the takeoff surface.
+- Represent a confirmed flight as fixed origin/destination coordinates, a positive cruise height
+  above the takeoff surface, and the signed destination-ground elevation relative to takeoff.
 - Provide stable shared types for domain calculations and cross-feature handoff.
 - Remain a plain Kotlin/JVM module with no Android or Compose dependency.
 
@@ -18,14 +18,16 @@ The smallest shared model layer. It contains Android-free value objects that can
 | `src/main/kotlin/ir/hrka/shahbaz/core/model/GeoCoordinate.kt` | Production model in package `ir.hrka.shahbaz.core.model`. |
 | `src/main/kotlin/ir/hrka/shahbaz/core/model/FlightPlan.kt` | Immutable validated setup snapshot shared with flight monitoring. |
 | `src/test/kotlin/ir/hrka/shahbaz/core/model/GeoCoordinateTest.kt` | Boundary, range, and non-finite input tests. |
-| `src/test/kotlin/ir/hrka/shahbaz/core/model/FlightPlanTest.kt` | Positive-altitude and fixed-coordinate plan invariants. |
+| `src/test/kotlin/ir/hrka/shahbaz/core/model/FlightPlanTest.kt` | Fixed-coordinate and ordered altitude-profile invariants. |
 
 ## Public entry points
 
 - `GeoCoordinate(latitude, longitude)` is an immutable validated coordinate. Construction throws `IllegalArgumentException` when either component is non-finite or outside latitude `-90..90` and longitude `-180..180`.
-- `FlightPlan(origin, destination, targetAltitudeAboveOriginMeters)` is an immutable setup snapshot.
-  Its origin does not move with later live-location updates, and its target altitude must be finite
-  and greater than zero.
+- `FlightPlan(origin, destination, targetAltitudeAboveOriginMeters,
+  destinationGroundAltitudeAboveOriginMeters)` is an immutable setup snapshot. Its origin does not
+  move with later live-location updates. Its target cruise altitude must be finite and greater than
+  zero; its finite, signed destination-ground elevation must be strictly below that cruise
+  altitude. Ground elevation `0.0` means the takeoff and landing surfaces are level.
 
 ## Dependency direction
 
@@ -57,6 +59,7 @@ val plan = FlightPlan(
     origin = tehran,
     destination = GeoCoordinate(latitude = 35.7000, longitude = 51.4100),
     targetAltitudeAboveOriginMeters = 50.0,
+    destinationGroundAltitudeAboveOriginMeters = 8.0,
 )
 ```
 

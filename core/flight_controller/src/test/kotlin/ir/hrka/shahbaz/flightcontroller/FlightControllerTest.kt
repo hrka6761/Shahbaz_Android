@@ -166,6 +166,115 @@ class FlightControllerTest {
         assertTrue(output.health.hasIssue(FlightControllerHealthIssueCode.ACTUATOR_DISARMED_UNEXPECTEDLY))
     }
 
+    @Test
+    fun boardLinkFailureWhileArmedForcesImmediateFailsafeDisarm() {
+        val now = 1_000_000_000L
+        val command = command(1, now, levelAttitudeTarget())
+        val controller = armedController(now, command)
+        val failedBoardInput = healthyInput(now + 20.ms, boardArmed = true).let { healthy ->
+            healthy.copy(board = healthy.board.copy(ready = false))
+        }
+
+        val output = controller.step(
+            failedBoardInput,
+            command,
+            FlightControllerLifecycleRequest.RUN,
+        )
+
+        assertEquals(FlightControllerArmingState.FAILSAFE, output.armingState)
+        assertEquals(listOf(FlightControllerActuatorAction.Disarm), output.actuatorActions)
+        assertTrue(output.health.hasIssue(FlightControllerHealthIssueCode.BOARD_NOT_READY))
+        assertFalse(output.actuatorActions.any { it is FlightControllerActuatorAction.ApplyMotorPwm })
+    }
+
+    /** Disarm suppresses PWM immediately but remains pending until newer board telemetry agrees. */
+    @Test
+    fun disarmRetriesWithoutPwmUntilNewBoardConfirmation() {
+        val now = 1_000_000_000L
+        val command = command(1, now, levelAttitudeTarget())
+        val controller = armedController(now, command)
+
+        val requested = controller.step(
+            healthyInput(now + 20.ms, boardArmed = true),
+            command,
+            FlightControllerLifecycleRequest.DISARM,
+        )
+        assertEquals(FlightControllerArmingState.DISARMING, requested.armingState)
+        assertEquals(listOf(FlightControllerActuatorAction.Disarm), requested.actuatorActions)
+        assertEquals(listOf(1_000, 1_000, 1_000, 1_000), requested.motors.map { it.pulseMicros })
+
+        val unchangedObservation = controller.step(
+            healthyInput(now + 30.ms, boardArmed = false).copy(
+                board = healthyInput(now + 30.ms, boardArmed = false).board.copy(
+                    actuatorStateObservedAtNanos = now + 20.ms,
+                ),
+            ),
+            command,
+            FlightControllerLifecycleRequest.RUN,
+        )
+        assertEquals(FlightControllerArmingState.DISARMING, unchangedObservation.armingState)
+        assertEquals(listOf(FlightControllerActuatorAction.Disarm), unchangedObservation.actuatorActions)
+
+        val confirmed = controller.step(
+            healthyInput(now + 40.ms, boardArmed = false),
+            command,
+            FlightControllerLifecycleRequest.RUN,
+        )
+        assertEquals(FlightControllerArmingState.DISARMED, confirmed.armingState)
+        assertEquals(listOf(FlightControllerActuatorAction.Disarm), confirmed.actuatorActions)
+    }
+
+    /** A board that stays armed beyond the confirmation deadline receives emergency stop. */
+    @Test
+    fun disarmingConfirmationTimeoutEscalatesToEmergencyStop() {
+        val now = 1_000_000_000L
+        val command = command(1, now, levelAttitudeTarget())
+        val controller = armedController(
+            now = now,
+            command = command,
+            config = FlightControllerConfig(disarmingConfirmationTimeoutMillis = 20),
+        )
+        controller.step(
+            healthyInput(now + 20.ms, boardArmed = true),
+            command,
+            FlightControllerLifecycleRequest.DISARM,
+        )
+
+        val output = controller.step(
+            healthyInput(now + 50.ms, boardArmed = true),
+            command,
+            FlightControllerLifecycleRequest.RUN,
+        )
+
+        assertEquals(FlightControllerArmingState.EMERGENCY_STOPPED, output.armingState)
+        assertEquals(listOf(FlightControllerActuatorAction.EmergencyStop), output.actuatorActions)
+        assertTrue(output.health.hasIssue(FlightControllerHealthIssueCode.DISARMING_CONFIRMATION_TIMEOUT))
+        assertEquals(listOf(1_000, 1_000, 1_000, 1_000), output.motors.map { it.pulseMicros })
+    }
+
+    /** Confirmation cannot remain pending when the monotonic time basis becomes invalid. */
+    @Test
+    fun nonMonotonicInputWhileDisarmingEscalatesToEmergencyStop() {
+        val now = 1_000_000_000L
+        val command = command(1, now, levelAttitudeTarget())
+        val controller = armedController(now, command)
+        controller.step(
+            healthyInput(now + 20.ms, boardArmed = true),
+            command,
+            FlightControllerLifecycleRequest.DISARM,
+        )
+
+        val output = controller.step(
+            healthyInput(now + 20.ms, boardArmed = false),
+            command,
+            FlightControllerLifecycleRequest.RUN,
+        )
+
+        assertEquals(FlightControllerArmingState.EMERGENCY_STOPPED, output.armingState)
+        assertEquals(listOf(FlightControllerActuatorAction.EmergencyStop), output.actuatorActions)
+        assertTrue(output.health.hasIssue(FlightControllerHealthIssueCode.INPUT_TIMESTAMP_NOT_MONOTONIC))
+    }
+
     /**
      * Runs the positiveRollAttitudeErrorUsesConfiguredQuadXSigns operation.
      */
@@ -587,28 +696,36 @@ class FlightControllerTest {
     }
 
     /**
-     * Runs the resetIsRejectedWhileArmedAndClearsCommandSequenceAfterDisarm operation.
+     * Runs the resetIsRejectedUntilBoardConfirmedDisarmAndThenClearsCommandSequence operation.
      */
     @Test
-    fun resetIsRejectedWhileArmedAndClearsCommandSequenceAfterDisarm() {
+    fun resetIsRejectedUntilBoardConfirmedDisarmAndThenClearsCommandSequence() {
         val now = 1_000_000_000L
         val original = command(10, now, levelAttitudeTarget())
         val controller = armedController(now, original)
         assertThrows(IllegalStateException::class.java) { controller.reset() }
 
-        controller.step(
+        val disarming = controller.step(
             healthyInput(now + 20.ms, boardArmed = true),
             original,
             FlightControllerLifecycleRequest.DISARM,
         )
+        assertEquals(FlightControllerArmingState.DISARMING, disarming.armingState)
+        assertThrows(IllegalStateException::class.java) { controller.reset() }
+        val disarmed = controller.step(
+            healthyInput(now + 30.ms, boardArmed = false),
+            original,
+            FlightControllerLifecycleRequest.DISARM,
+        )
+        assertEquals(FlightControllerArmingState.DISARMED, disarmed.armingState)
         controller.reset()
         val reusedSequence = command(
             1,
-            now + 30.ms,
+            now + 40.ms,
             AttitudeControlTarget.fromEuler(0.1, 0.0, 0.0, CollectiveThrust(0.5)),
         )
         val output = controller.step(
-            healthyInput(now + 30.ms),
+            healthyInput(now + 40.ms),
             reusedSequence,
             FlightControllerLifecycleRequest.ARM,
         )
@@ -647,6 +764,60 @@ class FlightControllerTest {
             requireNotNull(repeated.localVelocityNedMetersPerSecond).y,
             1e-12,
         )
+    }
+
+    /** The estimator publishes the exact immutable frame autonomous targets must use. */
+    @Test
+    fun estimatorPublishesAndResetsItsCapturedLocalReference() {
+        val estimator = StateEstimator(FlightControllerConfig())
+        val now = 1_000_000_000L
+        val first = GeoPoint(35.0, 51.0, 1_200.0)
+
+        val initial = estimator.update(
+            healthyInput(now, altitudeMslMeters = 1_200.0, location = first),
+        )
+        val moved = estimator.update(
+            healthyInput(
+                now + 100.ms,
+                altitudeMslMeters = 1_205.0,
+                location = GeoPoint(35.001, 51.001, 1_205.0),
+            ),
+        )
+
+        assertEquals(first, initial.localReference.horizontalOrigin)
+        assertEquals(now, initial.localReference.horizontalOriginObservedAtNanos)
+        assertEquals(1_200.0, initial.localReference.altitudeOriginAboveMeanSeaLevelMeters!!, 0.0)
+        assertEquals(now, initial.localReference.altitudeOriginObservedAtNanos)
+        assertEquals(initial.localReference, moved.localReference)
+
+        estimator.reset()
+        val replacement = GeoPoint(36.0, 52.0, 900.0)
+        val reset = estimator.update(
+            healthyInput(now + 200.ms, altitudeMslMeters = 900.0, location = replacement),
+        )
+        assertEquals(replacement, reset.localReference.horizontalOrigin)
+        assertEquals(now + 200.ms, reset.localReference.horizontalOriginObservedAtNanos)
+    }
+
+    /** Longitude wrapping keeps nearby fixes local when a route crosses the antimeridian. */
+    @Test
+    fun estimatorNormalizesAntimeridianLongitudeDelta() {
+        val estimator = StateEstimator(FlightControllerConfig())
+        val now = 1_000_000_000L
+        estimator.update(
+            healthyInput(now, location = GeoPoint(0.0, 179.999, 100.0)),
+        )
+
+        val estimate = estimator.update(
+            healthyInput(
+                now + 1_000.ms,
+                location = GeoPoint(0.0, -179.999, 100.0),
+            ),
+        )
+
+        val position = requireNotNull(estimate.localPositionNedMeters)
+        assertEquals(0.0, position.x, 0.01)
+        assertEquals(222.64, position.y, 0.5)
     }
 
     /**

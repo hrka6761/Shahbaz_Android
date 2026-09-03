@@ -20,6 +20,5 @@ android {
 }
 
 dependencies {
-    implementation(projects.core.flightController)
     testImplementation(libs.junit)
 }
